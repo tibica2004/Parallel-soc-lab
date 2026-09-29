@@ -116,7 +116,7 @@ class Verdict(BaseModel):
     # dovezi diferite, aceeasi concluzie — increderea creste), "disagreement"
     # (concluzii diferite — increderea e plafonata, actiunea devine escalate_human).
     # E o sursa mai solida decat un scor auto-raportat de un singur agent.
-    corroboration_status: Literal["not_required", "agreement", "disagreement"] = "not_required"
+    corroboration_status: Literal["not_required", "agreement", "disagreement", "budget_exhausted"] = "not_required"
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
