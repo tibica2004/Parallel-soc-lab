@@ -1,0 +1,76 @@
+=== Harness: 8 scenarii | critic: OPRIT ===
+
+[1/8] Persistenta — cron job adaugat  (adevar: attack)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 15})
+      -> tool_egress_for_host({"minutes": 15, "host_name": "web-prod"})
+      -> tool_eql_sequence({"index": "process", "query": "sequence by host.id with maxspan=10m [process where event.type == \"start\" and)
+      concluzie: benign/95 semnale=['process_chain', 'new_egress']
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 15})
+      -> tool_egress_for_host({"minutes": 15, "host_name": "web-prod"})
+      concluzie: suspicious/70 semnale=[]
+    -> undetermined/40/escalate_human  [TP OK] critic_ok=None  [75s]
+[2/8] Reverse shell in Python  (adevar: attack)
+    generez telemetrie...
+      fapte: user=None via_sudo=None admin=None web_svc=None tmp=None gasit=False
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 15})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 15})
+      -> tool_eql_sequence({"index": "process", "query": "sequence by host.id with maxspan=10m [file where event.action == \"creation\" a)
+      concluzie: suspicious/70 semnale=['new_egress']
+    -> suspicious/70/enrich_only  [TP OK] critic_ok=None  [34s]
+[3/8] Recon — enumerare utilizatori prin webshell  (adevar: attack)
+    generez telemetrie...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 10, "entity_id": "uname"})
+      concluzie: suspicious/75 semnale=[]
+    -> suspicious/75/enrich_only  [TP OK] critic_ok=None  [29s]
+[4/8] Staging — copiere in /dev/shm prin webshell  (adevar: attack)
+    generez telemetrie...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain', 'file_write']
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain', 'new_egress', 'file_write']
+    -> malicious/85/isolate_host  [TP OK] critic_ok=None  [40s]
+[5/8] Mentenanta — admin reporneste apache  (adevar: benign)
+    generez telemetrie...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False gasit=True
+      -> tool_process_tree({"minutes": 10, "host_name": "web-prod"})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 10})
+      -> tool_apache_requests({"host_name": "web-prod", "minutes": 10, "status": null})
+      concluzie: benign/92 semnale=['http_precursor']
+    -> benign/92/none  [TN OK] critic_ok=None  [30s]
+[6/8] Backup — admin ruleaza tar pe webroot  (adevar: benign)
+    generez telemetrie...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign/75/none  [TN OK] critic_ok=None  [23s]
+[7/8] Diagnostic — admin verifica portul cu ss  (adevar: benign)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign/75/none  [TN OK] critic_ok=None  [21s]
+[8/8] Update — admin verifica pachete cu apt  (adevar: benign)
+    generez telemetrie...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign/75/none  [TN OK] critic_ok=None  [21s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):    4
+  FN (ATAC RATAT):       0   <- eroarea scumpa
+  TN (benign inchis):    4
+  FP (benign escaladat): 0
+
+  RECALL: 100% (4/4)
+  RATA ATACURI RATATE: 0%  <- conteaza
+  PRECIZIE: 100%
+  RATA FALS POZITIVE: 0%
+
+CALIBRARE (precizie pe banda):
+   40-49: 100% (1/1)
+   70-79: 100% (5/5)
+   80-89: 100% (1/1)
+   90-99: 100% (1/1)

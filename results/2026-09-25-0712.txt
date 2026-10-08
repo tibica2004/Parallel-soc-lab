@@ -1,0 +1,98 @@
+=== Harness: 12 scenarii | critic: OPRIT ===
+
+[1/12] RCE — webshell ruleaza id  (adevar: attack)
+    generez telemetrie...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious/95/escalate_human  [TP OK] critic_ok=None  [26s]
+[2/12] RCE — webshell ruleaza whoami  (adevar: attack)
+    generez telemetrie...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious/95/escalate_human  [TP OK] critic_ok=None  [26s]
+[3/12] RCE — webshell citeste /etc/passwd  (adevar: attack)
+    generez telemetrie...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious/95/isolate_host  [TP OK] critic_ok=None  [18s]
+[4/12] Reverse shell — bash /dev/tcp  (adevar: attack)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious/95/escalate_human  [TP OK] critic_ok=None  [23s]
+[5/12] Executie din /tmp — binar aruncat  (adevar: attack)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=True gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 60})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 60})
+      -> tool_eql_sequence({"index": "suricata", "query": "sequence by host.id with maxspan=10m [file where event.action == \"creation\" )
+      -> tool_suricata_alerts({"minutes": 60, "source_ip": "web-prod"})
+      concluzie: suspicious/70 semnale=[]
+    -> suspicious/70/enrich_only  [TP OK] critic_ok=None  [31s]
+[6/12] Download payload — webshell lanseaza wget  (adevar: attack)
+    generez telemetrie...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious/95/escalate_human  [TP OK] critic_ok=None  [21s]
+[7/12] Admin curl catre localhost  (adevar: benign)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      concluzie: benign/75 semnale=['process_chain']
+    -> benign/75/none  [TN OK] critic_ok=None  [18s]
+[8/12] Admin verifica versiunea php  (adevar: benign)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 30})
+      -> tool_process_tree({"host_name": "web-prod", "entity_id": "php8.4", "minutes": 5})
+      -> tool_apache_requests({"host_name": "web-prod", "minutes": 30, "status": null})
+      concluzie: malicious/85 semnale=['new_egress', 'http_precursor']
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      -> tool_egress_for_host({"minutes": 15, "host_name": "web-prod"})
+      concluzie: benign/75 semnale=[]
+    -> undetermined/40/escalate_human  [FP fals pozitiv] critic_ok=None  [62s]
+[9/12] Deploy legitim — script din /opt de admin  (adevar: benign)
+    generez telemetrie...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 15})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 15})
+      -> tool_eql_sequence({"index": "process", "query": "sequence by host.id with maxspan=10m [process where event.type == \"start\" and)
+      concluzie: benign/75 semnale=[]
+    -> benign/75/none  [TN OK] critic_ok=None  [34s]
+[10/12] Admin listeaza fisiere cu find  (adevar: benign)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      concluzie: benign/85 semnale=[]
+    -> benign/85/none  [TN OK] critic_ok=None  [19s]
+[11/12] Cron ruleaza sed (baseline normal)  (adevar: benign)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 10, "entity_id": "sed_process_id"})
+      -> tool_egress_for_host({"minutes": 10, "host_name": "web-prod"})
+      concluzie: benign/70 semnale=[]
+    -> benign/70/none  [TN OK] critic_ok=None  [28s]
+[12/12] Admin verifica procesele cu ps  (adevar: benign)
+    generez telemetrie...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "minutes": 15})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 15})
+      -> tool_eql_sequence({"query": "sequence by host.id with maxspan=10m [file where event.action == \"creation\" and file.path : \"/va)
+      concluzie: benign/75 semnale=[]
+    -> benign/75/none  [TN OK] critic_ok=None  [26s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):    6
+  FN (ATAC RATAT):       0   <- eroarea scumpa
+  TN (benign inchis):    5
+  FP (benign escaladat): 1
+
+  RECALL: 100% (6/6)
+  RATA ATACURI RATATE: 0%  <- conteaza
+  PRECIZIE: 86%
+  RATA FALS POZITIVE: 17%
+
+CALIBRARE (precizie pe banda):
+   40-49: 0% (0/1)
+   70-79: 100% (5/5)
+   80-89: 100% (1/1)
+   90-99: 100% (5/5)

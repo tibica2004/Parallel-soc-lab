@@ -1,0 +1,13 @@
+# secrete
+soc.env
+env.sh
+*.env
+!*.env.example
+
+# generate / locale
+__pycache__/
+*.pyc
+.venv/
+data/
+logs/
+*.log

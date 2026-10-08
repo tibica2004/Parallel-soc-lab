@@ -1,0 +1,57 @@
+# SET DE VALIDARE — scenarii NOI, tehnici nevazute in setul de dezvoltare.
+# Regula de aur: se ruleaza FARA a modifica codul sau prompturile dupa ce vezi
+# rezultatul. Daca repari ceva ca sa treaca un scenariu de aici, l-ai mutat
+# in setul de dezvoltare si validarea nu mai e valida.
+scenarios:
+
+  # ===== ATACURI nevazute =====
+
+  - name: "Persistenta — cron job adaugat"
+    path: hunt
+    ground_truth: attack
+    generate: '(crontab -l 2>/dev/null; echo "* * * * * /tmp/.beacon") | crontab - ; crontab -r'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: bash, child: crontab }, rarity_score: 0.9 }
+
+  - name: "Reverse shell in Python"
+    path: hunt
+    ground_truth: attack
+    generate: 'timeout 2 python3 -c "import socket,os; s=socket.socket(); s.connect((\"127.0.0.1\",9998))" 2>/dev/null; echo done'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: bash, child: python3 }, rarity_score: 1.0 }
+
+  - name: "Recon — enumerare utilizatori prin webshell"
+    path: hunt
+    ground_truth: attack
+    generate: 'printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/e.php >/dev/null && curl -s "http://localhost/e.php?c=uname+-a" >/dev/null && sudo rm /var/www/html/e.php'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: dash, child: uname }, rarity_score: 1.0 }
+
+  - name: "Staging — copiere in /dev/shm prin webshell"
+    path: hunt
+    ground_truth: attack
+    generate: 'printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/s.php >/dev/null && curl -s "http://localhost/s.php?c=cp+/bin/nc+/dev/shm/n" >/dev/null; sudo rm -f /var/www/html/s.php /dev/shm/n'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: dash, child: cp }, rarity_score: 1.0 }
+
+  # ===== BENIGNE nevazute =====
+
+  - name: "Mentenanta — admin reporneste apache"
+    path: hunt
+    ground_truth: benign
+    generate: 'sudo systemctl reload apache2'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: sudo, child: systemctl }, rarity_score: 0.7 }
+
+  - name: "Backup — admin ruleaza tar pe webroot"
+    path: hunt
+    ground_truth: benign
+    generate: 'sudo tar czf /tmp/bk.tgz /var/www/html 2>/dev/null; sudo rm -f /tmp/bk.tgz'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: sudo, child: tar }, rarity_score: 0.7 }
+
+  - name: "Diagnostic — admin verifica portul cu ss"
+    path: hunt
+    ground_truth: benign
+    generate: 'ss -tlnp >/dev/null 2>&1'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: bash, child: ss }, rarity_score: 0.6 }
+
+  - name: "Update — admin verifica pachete cu apt"
+    path: hunt
+    ground_truth: benign
+    generate: 'sudo apt-get -s upgrade >/dev/null 2>&1'
+    finding: { host: web-prod, kind: new_parent_child, detail: { parent: sudo, child: apt-get }, rarity_score: 0.6 }

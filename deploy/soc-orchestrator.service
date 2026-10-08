@@ -1,0 +1,21 @@
+[Unit]
+Description=Agentic SOC - orchestrator (SHADOW MODE)
+After=network-online.target docker.service soc-llm-tunnel.service
+Wants=network-online.target soc-llm-tunnel.service
+
+[Service]
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# SHADOW fortat in comanda de pornire. ATENTIE: o linie Environment=SHADOW_MODE=true
+# NU ar fi fost suficienta — variabilele din EnvironmentFile o suprascriu.
+# `env` seteaza variabila chiar la executie, dupa ce fisierul a fost incarcat,
+# deci nicio valoare din soc.env nu o poate schimba. Iesirea din shadow cere
+# modificarea deliberata a acestei linii.
+ExecStart=/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python orchestrator.py --loop --interval 120 --sweep-every 30 --hunt-limit 5 --limit 50
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
