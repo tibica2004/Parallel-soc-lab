@@ -21,8 +21,10 @@ from __future__ import annotations
 import argparse
 import os
 import time
+import uuid
 from datetime import datetime, timezone
 
+from escalation import EscalationDecision, should_escalate
 from policy import decide
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
 
@@ -95,9 +97,18 @@ def dedup_key_finding(f) -> str:
 
 
 
-def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None) -> None:
+def with_chain(verdict):
+    """Verdictul cu un chain_id nou. Identificatorul il da codul, nu modelul;
+    model_validate (nu model_copy) ca validarea Pydantic sa ruleze si aici."""
+    from schemas import Verdict
+    return Verdict.model_validate({**verdict.model_dump(), "chain_id": str(uuid.uuid4())})
+
+
+def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
+            escalation: EscalationDecision | None = None) -> None:
     """Scrie verdictul in istoric si o inregistrare de audit. ground_truth ramane
-    GOL — doar omul il completeaza. Fara cheie de writer (dry-run), nu scrie nimic."""
+    GOL — doar omul il completeaza. Fara cheie de writer (dry-run), nu scrie nimic.
+    `escalation` = decizia Tier 1 -> Tier 2 (None pe calea lenta)."""
     if WRITER is None:
         return
     from schemas import AuditRecord
@@ -108,7 +119,10 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     WRITER.index(index=VERDICTS_IDX, document=vdoc)
 
     audit = AuditRecord(
-        investigation_id=verdict.investigation_id, verdict=verdict, narrative=narrative,
+        investigation_id=verdict.investigation_id, chain_id=verdict.chain_id,
+        verdict=verdict, narrative=narrative,
+        escalate=escalation.escalate if escalation else None,
+        escalation_reasons=escalation.reasons if escalation else [],
         hypotheses_considered=(extra or {}).get("hypotheses", []),
         queries_run=(extra or {}).get("queries_run", []),
         policy_decision=f"{decision.chosen.value}: {decision.reason}",
@@ -121,7 +135,8 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     WRITER.index(index=AUDIT_IDX, document=adoc)
 
 
-def show(kind: str, entity: str, verdict, narrative: str, decision=None) -> None:
+def show(kind: str, entity: str, verdict, narrative: str, decision=None,
+         escalation: EscalationDecision | None = None) -> None:
     print(f"  [{kind}] {entity}")
     print(f"    verdict: {verdict.classification.value} / {verdict.confidence} / "
           f"{verdict.proposed_action.value}"
@@ -129,6 +144,9 @@ def show(kind: str, entity: str, verdict, narrative: str, decision=None) -> None
     if decision is not None:
         mark = "SHADOW" if decision.shadow_mode else ("EXECUTAT" if decision.executed else "-")
         print(f"    politica: {decision.chosen.value}  [{mark}]  ({decision.reason})")
+    if escalation is not None:
+        why = ", ".join(r.value for r in escalation.reasons)
+        print(f"    escaladare Tier 2: {'DA (' + why + ')' if escalation.escalate else 'nu, inchis la Tier 1'}")
     if verdict.mitre_techniques:
         print(f"    MITRE: {', '.join(verdict.mitre_techniques)}")
     if narrative:
@@ -214,7 +232,7 @@ def process_findings(findings, seen, limit: int) -> None:
             t0 = datetime.now(timezone.utc)
             out = hunt.invoke({"finding": f}, config={"recursion_limit": 80})
             t1 = datetime.now(timezone.utc)
-            v = out["verdict"]; d = decide(v)
+            v = with_chain(out["verdict"]); d = decide(v)
             show("LENT", entity, v, out.get("narrative", ""), d)
             persist(v, out.get("narrative", ""), d, t0, t1,
                     {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])})
@@ -240,8 +258,11 @@ def run_positioned(args) -> int:
             alerts = fetch_alerts_between(since, until, args.limit)
             print(f"[{stamp}] ciclu {cycle}: {len(alerts)} alerte in "
                   f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]", flush=True)
-            last_ts = process_alerts(alerts, seen)
+            stats = {"total": 0, "escalated": 0}
+            last_ts = process_alerts(alerts, seen, stats)
             _save_seen(seen)
+            if stats["total"]:
+                print(f"  escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']}", flush=True)
             if len(alerts) >= args.limit and last_ts:
                 # fereastra nu s-a golit: continuam exact de la ultima alerta
                 save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
@@ -263,9 +284,11 @@ def run_positioned(args) -> int:
     return 0
 
 
-def process_alerts(alerts: list[dict], seen: set) -> str | None:
-    """Trece fiecare alerta prin calea rapida + politica + audit.
-    Intoarce @timestamp-ul ultimei alerte (pentru avansarea pozitiei)."""
+def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = None) -> str | None:
+    """Trece fiecare alerta prin calea rapida + politica + escaladare + audit.
+    Folosita si de modul manual si de cel cu pozitie (o singura implementare).
+    Intoarce @timestamp-ul ultimei alerte (pentru avansarea pozitiei).
+    `stats`, daca e dat, numara alertele procesate si cele escaladate."""
     from fast_path import build_fast_path
     fast = build_fast_path()
     last_ts = None
@@ -281,10 +304,17 @@ def process_alerts(alerts: list[dict], seen: set) -> str | None:
             t0 = datetime.now(timezone.utc)
             out = fast.invoke({"alert": a}, config={"recursion_limit": 25})
             t1 = datetime.now(timezone.utc)
-            v = out["verdict"]; d = decide(v)
-            show("RAPID", entity, v, out.get("narrative", ""), d)
-            persist(v, out.get("narrative", ""), d, t0, t1, {"rule_name": rule})
+            v = with_chain(out["verdict"]); d = decide(v)
+            # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
+            # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
+            esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
+                                  pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+            show("RAPID", entity, v, out.get("narrative", ""), d, esc)
+            persist(v, out.get("narrative", ""), d, t0, t1, {"rule_name": rule}, escalation=esc)
             seen.add(k)   # doar dupa succes, ca la findings
+            if stats is not None:
+                stats["total"] += 1
+                stats["escalated"] += int(esc.escalate)
         except Exception as e:
             print(f"  [EROARE, ar escalada la om] {entity}: {e}")
         print()
@@ -313,53 +343,20 @@ def main() -> int:
     shadow = os.environ.get("SHADOW_MODE", "true").lower() != "false"
     print(f"=== Orchestrator {stamp} | {mode} | shadow={shadow} ===\n")
 
-    seen: set[str] = set()
-
-    # --- Alerte -> calea rapida ---
-    from fast_path import build_fast_path
-    fast = build_fast_path()
+    # Aceleasi functii ca modul cu pozitie. Dedup doar in memorie: o rulare manuala
+    # nu atinge pozitia si nici cheile salvate ale serviciului.
+    seen = BoundedSeen()
     alerts = fetch_new_alerts(args.minutes, args.limit)
     print(f"ALERTE: {len(alerts)} in ultimele {args.minutes} min\n")
-    for a in alerts:
-        k = dedup_key_alert(a)
-        rule = _g(a, "kibana.alert.rule.name")
-        entity = f"{_g(a, 'host.name')} · {rule}"
-        if k in seen:
-            print(f"  [duplicat, sarit] {entity}")
-            continue
-        seen.add(k)
-        try:
-            t0 = datetime.now(timezone.utc)
-            out = fast.invoke({"alert": a}, config={"recursion_limit": 25})
-            t1 = datetime.now(timezone.utc)
-            v = out["verdict"]
-            d = decide(v)
-            show("RAPID", entity, v, out.get("narrative", ""), d)
-            persist(v, out.get("narrative", ""), d, t0, t1, {"rule_name": rule})
-        except Exception as e:
-            print(f"  [EROARE, ar escalada la om] {entity}: {e}")
-        print()
+    stats = {"total": 0, "escalated": 0}
+    process_alerts(alerts, seen, stats)
+    if stats["total"]:
+        print(f"Escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']} "
+              f"({stats['escalated'] / stats['total']:.0%})\n")
 
-    # --- Sweep -> calea lenta ---
     if args.sweep:
         from elastic_tools import sweep_new_parent_child
-        from hunt_path import build_hunt_path
-        hunt = build_hunt_path()
-        findings = sweep_new_parent_child(1)
-        print(f"\nFINDINGS de raritate: {len(findings)}\n")
-        for f in findings[:args.limit]:
-            k = dedup_key_finding(f)
-            entity = f"{f.entity_id} · {(f.detail or {}).get('parent')} -> {(f.detail or {}).get('child')}"
-            if k in seen:
-                print(f"  [duplicat, sarit] {entity}")
-                continue
-            seen.add(k)
-            try:
-                out = hunt.invoke({"finding": f}, config={"recursion_limit": 80})
-                show("LENT", entity, out["verdict"], out.get("narrative", ""))
-            except Exception as e:
-                print(f"  [EROARE, ar escalada la om] {entity}: {e}")
-            print()
+        process_findings(sweep_new_parent_child(1), seen, args.limit)
 
     if WRITER is None:
         print("=== Sfarsit. DRY-RUN: nimic nu a fost scris. ===")

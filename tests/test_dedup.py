@@ -2,6 +2,7 @@
 import types
 
 import orchestrator
+from schemas import Verdict
 import state
 from orchestrator import BoundedSeen
 
@@ -76,6 +77,11 @@ def test_load_ignora_intrari_stricate(monkeypatch):
     assert state.load_seen() == [("ok", 5.0)]
 
 
+def _verdict():
+    return Verdict(investigation_id="t", source_path="fast", entity_type="host", entity_id="web-prod",
+                   classification="benign", confidence=95, rarity_score=0.0, model_id="m")
+
+
 def _fake_alert(n):
     return {"@timestamp": f"2026-10-09T00:00:0{n}Z", "host": {"name": "web-prod"},
             "kibana.alert.rule.name": "R", "process": {"entity_id": f"E{n}"}}
@@ -85,7 +91,7 @@ def test_alerta_esuata_nu_e_marcata(monkeypatch):
     def invoke(inp, config=None):
         if inp["alert"]["process"]["entity_id"] == "E1":
             raise RuntimeError("model cazut")
-        return {"verdict": types.SimpleNamespace(), "narrative": ""}
+        return {"verdict": _verdict(), "narrative": ""}
     monkeypatch.setitem(__import__("sys").modules, "fast_path",
                         types.SimpleNamespace(build_fast_path=lambda: types.SimpleNamespace(invoke=invoke)))
     monkeypatch.setattr(orchestrator, "decide", lambda v: None)
@@ -107,7 +113,7 @@ def test_finding_esuat_nu_e_marcat(monkeypatch):
     def invoke(inp, config=None):
         if inp["finding"] is f_bad:
             raise TimeoutError("timeout")
-        return {"verdict": types.SimpleNamespace(), "narrative": ""}
+        return {"verdict": _verdict(), "narrative": ""}
     monkeypatch.setitem(__import__("sys").modules, "hunt_path",
                         types.SimpleNamespace(build_hunt_path=lambda: types.SimpleNamespace(invoke=invoke)))
     monkeypatch.setattr(orchestrator, "decide", lambda v: None)
