@@ -37,7 +37,8 @@ class FakeES:
         rows = [(k, d) for k, d in self.docs.items() if not (unl and d.get("ground_truth"))]
         return {"hits": {"total": {"value": len(rows)},
                          "hits": [{"_id": k, "_source": d} for k, d in rows][:size]},
-                "aggregations": {"labeled": {"doc_count": 0, "out": {"buckets": []}}}}
+                "aggregations": {"g": {"labeled": {"doc_count": 3, "out": {"buckets": [
+                    {"key": "TP", "doc_count": 2}, {"key": "FN", "doc_count": 1}]}}}}}
 
     def get(self, index, id):
         if id not in self.docs:
@@ -96,6 +97,12 @@ def test_continut_din_telemetrie_e_escapat(client):
     _login(client)
     for page in (client.get("/").text, client.get("/v/doc1").text):
         assert XSS not in page and "&lt;script&gt;" in page
+
+
+def test_contorul_global_de_etichete(client):
+    _login(client)
+    page = client.get("/?status=unlabeled").text
+    assert "Etichetate: 3" in page and "TP 2" in page and "FN 1" in page
 
 
 def test_eticheta_fara_csrf_respinsa(client, es):

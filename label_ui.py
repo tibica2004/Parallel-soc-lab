@@ -165,11 +165,13 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
         page = max(0, min(page, MAX_PAGE))
         r = es.search(index=VERDICTS_IDX, size=PAGE_SIZE, from_=page * PAGE_SIZE,
                       query=_list_query(status, source), sort=[{"@timestamp": "desc"}],
-                      aggs={"labeled": {"filter": {"exists": {"field": "ground_truth"}},
-                                        "aggs": {"out": {"terms": {"field": "label_outcome.keyword"}}}}},
+                      # global: contorul de etichete nu depinde de filtrul listei
+                      aggs={"g": {"global": {}, "aggs": {"labeled": {
+                          "filter": {"exists": {"field": "ground_truth"}},
+                          "aggs": {"out": {"terms": {"field": "label_outcome.keyword"}}}}}}},
                       track_total_hits=True)
         rows = [dict(h["_source"], _id=h["_id"]) for h in r["hits"]["hits"]]
-        agg = r.get("aggregations", {}).get("labeled", {})
+        agg = r.get("aggregations", {}).get("g", {}).get("labeled", {})
         outcomes = {b["key"]: b["doc_count"] for b in agg.get("out", {}).get("buckets", [])}
         return _render(request, "list", rows=rows, total=r["hits"]["total"]["value"],
                        status=status, source=source, page=page, page_size=PAGE_SIZE,
