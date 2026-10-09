@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from typing import Annotated, TypedDict
 
@@ -38,7 +39,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from elastic_tools import HUNT_TOOLS, ES
+from elastic_tools import HUNT_TOOLS, ES, _esql
 from llm import get_llm, parse_json_response, NO_THINK
 from schemas import MITRE_RE
 from schemas import (
@@ -152,45 +153,40 @@ def execution_facts(finding: RarityFinding) -> dict:
     facts = {"resolved": False}
     if not (parent and child):
         return facts
-    try:
-        r = ES.esql.query(query=f"""
-            FROM logs-endpoint.events.process-*
-            | WHERE @timestamp >= NOW() - 30 minutes
-            | WHERE host.name == "{host}"
-              AND process.parent.name == "{parent}"
-              AND process.name == "{child}"
+    # Interogari parametrizate: host/parent/child vin din telemetrie (numele
+    # procesului il alege atacatorul), deci NU intra niciodata in textul interogarii.
+    keep = """
             | SORT @timestamp DESC
             | KEEP user.name, process.executable, process.command_line,
                    process.parent.name, process.working_directory,
                    process.parent.entity_id, process.entity_id
             | LIMIT 3
-        """, format="json")
-        cols = [c["name"] for c in r["columns"]]
-        rows = [dict(zip(cols, v)) for v in r["values"]]
+    """
+    try:
+        rows = _esql("""
+            FROM logs-endpoint.events.process-*
+            | WHERE @timestamp >= NOW() - 30 minutes
+            | WHERE host.name == ?
+              AND process.parent.name == ?
+              AND process.name == ?
+        """ + keep, params=[host, parent, child])
     except Exception as e:
         # Nu inghitim tacut: o interogare stricata trebuie sa se vada in log.
-        import sys
         print(f"[execution_facts] interogare esuata: {e}", file=sys.stderr)
         rows = []
 
     matched_by = "exact_pair"
     if not rows:
+        # STARTS_WITH, nu LIKE: un `*` sau `?` din numele procesului ar deveni
+        # wildcard in LIKE. Aici e doar prefix literal.
         try:
-            r2 = ES.esql.query(query=f"""
+            rows = _esql("""
                 FROM logs-endpoint.events.process-*
                 | WHERE @timestamp >= NOW() - 15 minutes
-                | WHERE host.name == "{host}" AND process.name LIKE "{child}*"
-                | SORT @timestamp DESC
-                | KEEP user.name, process.executable, process.command_line,
-                       process.parent.name, process.working_directory,
-                       process.parent.entity_id, process.entity_id
-                | LIMIT 3
-            """, format="json")
-            cols = [c["name"] for c in r2["columns"]]
-            rows = [dict(zip(cols, v)) for v in r2["values"]]
+                | WHERE host.name == ? AND STARTS_WITH(process.name, ?)
+            """ + keep, params=[host, child])
             matched_by = "child_only"
         except Exception as e:
-            import sys
             print(f"[execution_facts] fallback esuat: {e}", file=sys.stderr)
             rows = []
 
@@ -207,16 +203,15 @@ def execution_facts(finding: RarityFinding) -> dict:
     sudo_by = None
     if real_parent == "sudo" and top.get("process.parent.entity_id"):
         try:
-            rs = ES.esql.query(query=f'''
+            rs = _esql("""
                 FROM logs-endpoint.events.process-*
-                | WHERE process.entity_id == "{top['process.parent.entity_id']}"
+                | WHERE process.entity_id == ?
                 | KEEP user.Ext.real.name
                 | LIMIT 1
-            ''', format="json")
-            if rs["values"]:
-                sudo_by = rs["values"][0][0]
+            """, params=[top["process.parent.entity_id"]])
+            if rs:
+                sudo_by = rs[0].get("user.Ext.real.name")
         except Exception as e:
-            import sys
             print(f"[execution_facts] lookup sudo esuat: {e}", file=sys.stderr)
     facts["sudo_invoked_by"] = sudo_by
     facts.update({
@@ -255,16 +250,17 @@ def recent_host_alerts(host: str, minutes: int = 60) -> int:
     """Cate alerte de securitate a avut hostul recent. Un host care tocmai a avut
     un webshell merita suspiciune sporita pentru orice altceva — dar asta trebuie
     sa fie un FAPT explicit, nu zgomot cules intamplator prin unelte."""
+    minutes = int(minutes)  # numar, nu text: singura valoare formatata in interogare
     try:
-        r = ES.esql.query(query=f'''
+        rows = _esql(f"""
             FROM .alerts-security.alerts-*
             | WHERE @timestamp >= NOW() - {minutes} minutes
-              AND host.name == "{host}"
+              AND host.name == ?
               AND kibana.alert.workflow_status != "closed"
             | STATS n = COUNT(*)
             | LIMIT 1
-        ''', format="json")
-        return int(r["values"][0][0]) if r["values"] else 0
+        """, params=[host])
+        return int(rows[0]["n"]) if rows else 0
     except Exception:
         return 0
 
