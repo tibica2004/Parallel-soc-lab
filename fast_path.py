@@ -139,13 +139,19 @@ def lookup_history(rule_name: str) -> tuple[list[dict], float | None]:
     """Verdicte anterioare pe aceeasi regula. Rata de fals pozitive se calculeaza
     DOAR din cele cu ground_truth completat de om — altfel sistemul si-ar citi
     propriile verdicte ca adevar (bucla de auto-confirmare)."""
+    if not rule_name:
+        return [], None
     try:
         r = ES.search(index="verdicts-history", size=10,
                       query={"bool": {
-                          "must": [{"match": {"rule_name": rule_name}}],
-                          # doar etichete umane: null-urile nu sunt indexate,
-                          # deci exists exclude verdictele scrise automat
-                          "filter": [{"exists": {"field": "ground_truth"}}],
+                          "filter": [
+                              # potrivire EXACTA pe numele regulii: `match` pe campul
+                              # text ar amesteca regulile care au cuvinte comune
+                              {"term": {"rule_name.keyword": rule_name}},
+                              # doar etichete umane: null-urile nu sunt indexate,
+                              # deci exists exclude verdictele scrise automat
+                              {"exists": {"field": "ground_truth"}},
+                          ],
                       }},
                       sort=[{"@timestamp": "desc"}])
     except Exception:
@@ -291,6 +297,9 @@ class FastState(TypedDict, total=False):
     raw_verdict: dict
     verdict: Verdict
     narrative: str
+    # True = codul a rasturnat un benign al modelului (podeaua 1 sau 2).
+    # Il consuma should_escalate() din escalation.py.
+    floor_applied: bool
 
 
 def node_prefetch(state: FastState) -> dict:
@@ -392,7 +401,8 @@ def node_finalize(state: FastState) -> dict:
         action_target=v.get("action_target") if action != "none" else None,
         model_id=os.environ.get("MODEL_FAST", "qwen3:14b"),
     )
-    return {"verdict": verdict, "narrative": v.get("narrative", "")}
+    return {"verdict": verdict, "narrative": v.get("narrative", ""),
+            "floor_applied": floor_applied}
 
 
 def build_fast_path():
