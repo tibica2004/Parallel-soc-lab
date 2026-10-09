@@ -10,24 +10,15 @@ Tier 2 primeste motivele si dovezile, NU verdictul Tier 1 (contra ancorarii).
 from __future__ import annotations
 
 import os
-from enum import Enum
 
 from pydantic import BaseModel, ConfigDict
 
-from schemas import Classification, Verdict
+# EscalationReason sta in schemas.py (o foloseste si Case); re-exportata aici.
+from schemas import Classification, EscalationReason, Verdict
 
 # PROVIZORIU. Se fixeaza din distributia reala a increderii, nu din intuitie.
 # 90: sub atat, un benign nu se inchide pe Tier 1 (preferam escaladarea).
 LOW_CONF = int(os.environ.get("ESC_LOW_CONF", "90"))
-
-
-class EscalationReason(str, Enum):
-    UNDETERMINED = "undetermined"
-    SUSPICIOUS = "suspicious"
-    MALICIOUS = "malicious"
-    FLOOR_OVERRIDE = "floor_override"          # codul a rasturnat un benign al modelului
-    LOW_CONFIDENCE = "low_confidence"
-    BENIGN_UNSEEN_PAIR = "benign_unseen_pair"  # benign pe ceva nevazut in baseline
 
 
 class EscalationDecision(BaseModel):

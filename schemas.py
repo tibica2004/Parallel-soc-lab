@@ -16,9 +16,16 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MITRE_RE = re.compile(r"^T\d{4}(\.\d{3})?$")
+# Identificatorul lantului: acelasi caz, prin toate nivelurile (Tier 1 -> 2 -> 3).
+# Il genereaza orchestratorul (uuid4); modelul nu-l vede si nu-l poate alege.
+CHAIN_ID_RE = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+# process.entity_id din Elastic Defend e base64 (poate contine + / =).
+ENTITY_ID_RE = re.compile(r"^[A-Za-z0-9+/=_\-]{1,128}$")
+HOST_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,253}$")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class Classification(str, Enum):
@@ -57,6 +64,21 @@ class EntityType(str, Enum):
     SERVICE = "service"
 
 
+class EscalationReason(str, Enum):
+    """
+    De ce a escaladat Tier 1. Enumerare INCHISA, decisa de cod (escalation.py),
+    deci poate trece granita — spre deosebire de naratiunea modelului.
+    Sta aici, nu in escalation.py, ca s-o poata folosi si Case.
+    """
+
+    UNDETERMINED = "undetermined"
+    SUSPICIOUS = "suspicious"
+    MALICIOUS = "malicious"
+    FLOOR_OVERRIDE = "floor_override"          # codul a rasturnat un benign al modelului
+    LOW_CONFIDENCE = "low_confidence"
+    BENIGN_UNSEEN_PAIR = "benign_unseen_pair"  # benign pe ceva nevazut in baseline
+
+
 class EvidenceRef(BaseModel):
     """
     Referinta opaca la un document Elastic. NU contine text din log.
@@ -86,6 +108,8 @@ class Verdict(BaseModel):
 
     investigation_id: str
     source_path: Literal["fast", "hunt", "correlate"]
+    # None cat timp verdictul n-a trecut prin orchestrator (ex. in harness).
+    chain_id: str | None = Field(default=None, pattern=CHAIN_ID_RE)
 
     entity_type: EntityType
     entity_id: str
@@ -204,7 +228,12 @@ class AuditRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     investigation_id: str
+    chain_id: str | None = Field(default=None, pattern=CHAIN_ID_RE)
     verdict: Verdict
+    # Decizia de escaladare Tier 1 -> Tier 2, luata de cod. None = nu se aplica
+    # (ex. verdict de pe calea lenta, unde nu exista un nivel urmator inca).
+    escalate: bool | None = None
+    escalation_reasons: list[EscalationReason] = Field(default_factory=list)
     narrative: str
     hypotheses_considered: list[str] = Field(default_factory=list)
     queries_run: list[str] = Field(default_factory=list)
@@ -219,3 +248,58 @@ class AuditRecord(BaseModel):
     # Se trece manual pe False doar dupa ce metricile din harness trec
     # pragul pentru clasa de reversibilitate respectiva. Vezi graph.py.
     shadow_mode: bool = True
+
+
+class Case(BaseModel):
+    """
+    Ce primeste Tier 2 cand Tier 1 escaladeaza (sau cand sweep-ul / Tier 3 gasesc ceva).
+
+    DOAR fapte, dovezi si motivele escaladarii. Fara classification, confidence sau
+    narrative de la Tier 1: un investigator care vede "suspicious/70" se ancoreaza in
+    el. `extra=forbid` face ca o incercare de a strecura verdictul sa crape, nu sa treaca.
+
+    parent/child/rule_name pot veni din telemetrie (numele procesului il alege
+    atacatorul). Nu intra niciodata in text de interogare — doar ca parametri —,
+    dar le limitam lungimea si interzicem caracterele de control.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    chain_id: str = Field(pattern=CHAIN_ID_RE)
+    origin: Literal["tier1_alert", "rarity_sweep", "tier3_hunt"]
+    host: str
+    entity_id: str | None = None          # process.entity_id, cand exista
+    parent: str | None = Field(default=None, max_length=255)
+    child: str | None = Field(default=None, max_length=255)
+    rule_name: str | None = Field(default=None, max_length=256)
+    escalation_reasons: list[EscalationReason] = Field(default_factory=list, max_length=10)
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, max_length=50)
+
+    @field_validator("host")
+    @classmethod
+    def _valid_host(cls, v: str) -> str:
+        if not HOST_RE.match(v):
+            raise ValueError(f"host respins: {v!r}")
+        return v
+
+    @field_validator("entity_id")
+    @classmethod
+    def _valid_entity(cls, v: str | None) -> str | None:
+        if v is not None and not ENTITY_ID_RE.match(v):
+            raise ValueError(f"entity_id respins: {v!r}")
+        return v
+
+    @field_validator("parent", "child", "rule_name")
+    @classmethod
+    def _no_control_chars(cls, v: str | None) -> str | None:
+        if v is not None and _CONTROL_RE.search(v):
+            raise ValueError("caractere de control in camp din telemetrie")
+        return v
+
+    @model_validator(mode="after")
+    def _tier1_has_reasons(self) -> "Case":
+        # Un caz venit din Tier 1 exista DOAR pentru ca a escaladat: fara motive
+        # inseamna un bug in orchestrator, nu un caz valid.
+        if self.origin == "tier1_alert" and not self.escalation_reasons:
+            raise ValueError("caz tier1_alert fara escalation_reasons")
+        return self
