@@ -24,6 +24,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+import degraded
 from escalation import EscalationDecision, should_escalate
 from policy import decide
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
@@ -105,10 +106,11 @@ def with_chain(verdict):
 
 
 def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
-            escalation: EscalationDecision | None = None) -> None:
+            escalation: EscalationDecision | None = None, failure=None) -> None:
     """Scrie verdictul in istoric si o inregistrare de audit. ground_truth ramane
     GOL — doar omul il completeaza. Fara cheie de writer (dry-run), nu scrie nimic.
-    `escalation` = decizia Tier 1 -> Tier 2 (None pe calea lenta)."""
+    `escalation` = decizia Tier 1 -> Tier 2 (None pe calea lenta).
+    `failure` = FailureKind cand verdictul e scris de cod, fara model."""
     if WRITER is None:
         return
     from schemas import AuditRecord
@@ -123,6 +125,7 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
         verdict=verdict, narrative=narrative,
         escalate=escalation.escalate if escalation else None,
         escalation_reasons=escalation.reasons if escalation else [],
+        failure=failure,
         hypotheses_considered=(extra or {}).get("hypotheses", []),
         queries_run=(extra or {}).get("queries_run", []),
         policy_decision=f"{decision.chosen.value}: {decision.reason}",
@@ -214,11 +217,22 @@ def _save_seen(seen: BoundedSeen) -> None:
         print(f"  [dedup] salvare esuata: {e}", flush=True)
 
 
-def process_findings(findings, seen, limit: int) -> None:
-    """Findings de raritate -> calea lenta -> politica -> audit."""
-    from hunt_path import build_hunt_path
-    hunt = build_hunt_path()
-    print(f"  FINDINGS: {len(findings)} (procesez cel mult {limit})", flush=True)
+def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalation=None, failure=None):
+    """Lant + politica + afisare + audit, comun tuturor cazurilor (cu sau fara model)."""
+    v = with_chain(v); d = decide(v)
+    show(kind, entity, v, narrative, d, escalation)
+    persist(v, narrative, d, t0, datetime.now(timezone.utc), extra,
+            escalation=escalation, failure=failure)
+    return v
+
+
+def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
+    """Findings de raritate -> calea lenta -> politica -> audit.
+    Model cazut / timeout / eroare -> undetermined + escalate_human, scris de cod;
+    finding-ul NU e marcat vazut, deci se reia la sweep-ul urmator."""
+    print(f"  FINDINGS: {len(findings)} (procesez cel mult {limit}, model "
+          f"{'OK' if model_ok else 'CAZUT'})", flush=True)
+    hunt = None
     done = 0
     for f in findings:
         if done >= limit:
@@ -228,19 +242,37 @@ def process_findings(findings, seen, limit: int) -> None:
         if k in seen:
             continue
         done += 1
+        t0 = datetime.now(timezone.utc)
+        failure = None
         try:
-            t0 = datetime.now(timezone.utc)
-            out = hunt.invoke({"finding": f}, config={"recursion_limit": 80})
-            t1 = datetime.now(timezone.utc)
-            v = with_chain(out["verdict"]); d = decide(v)
-            show("LENT", entity, v, out.get("narrative", ""), d)
-            persist(v, out.get("narrative", ""), d, t0, t1,
+            if not model_ok:
+                failure = degraded.FailureKind.MODEL_UNAVAILABLE
+            else:
+                if hunt is None:
+                    from hunt_path import build_hunt_path
+                    hunt = build_hunt_path()
+                try:
+                    out = degraded.run_with_timeout(
+                        lambda: hunt.invoke({"finding": f}, config={"recursion_limit": 80}),
+                        degraded.CASE_TIMEOUT_HUNT_S)
+                except degraded.CaseTimeout:
+                    failure = degraded.FailureKind.CASE_TIMEOUT
+                except Exception as e:
+                    print(f"  [EROARE] {entity}: {e}", flush=True)
+                    model_ok = degraded.llm_healthy("hunt")
+                    failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
+                               else degraded.FailureKind.MODEL_UNAVAILABLE)
+            if failure is not None:
+                _record("LENT", entity, degraded.no_model_verdict(f.entity_id, "hunt"),
+                        degraded.NARRATIVE[failure], t0, failure=failure)
+                continue   # nemarcat: se reia cand modelul revine
+            _record("LENT", entity, out["verdict"], out.get("narrative", ""), t0,
                     {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])})
-            # Marcat DOAR dupa succes: un esec (model cazut, ES cazut) nu are voie
-            # sa scoata cazul din lucru — esecul escaladeaza, nu inchide.
+            # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
             seen.add(k)
         except Exception as e:
-            print(f"  [EROARE, ar escalada la om] {entity}: {e}", flush=True)
+            # Nici auditul nu s-a putut scrie (ex. Elasticsearch cazut).
+            print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}", flush=True)
 
 
 def run_positioned(args) -> int:
@@ -258,11 +290,13 @@ def run_positioned(args) -> int:
             alerts = fetch_alerts_between(since, until, args.limit)
             print(f"[{stamp}] ciclu {cycle}: {len(alerts)} alerte in "
                   f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]", flush=True)
-            stats = {"total": 0, "escalated": 0}
-            last_ts = process_alerts(alerts, seen, stats)
+            stats = {"total": 0, "escalated": 0, "no_model": 0}
+            fast_ok = degraded.llm_healthy("fast") if alerts else True
+            last_ts = process_alerts(alerts, seen, stats, model_ok=fast_ok)
             _save_seen(seen)
             if stats["total"]:
-                print(f"  escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']}", flush=True)
+                print(f"  escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']}"
+                      f" (fara model: {stats['no_model']})", flush=True)
             if len(alerts) >= args.limit and last_ts:
                 # fereastra nu s-a golit: continuam exact de la ultima alerta
                 save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
@@ -273,7 +307,8 @@ def run_positioned(args) -> int:
                          else args.sweep_every > 0 and (cycle - 1) % args.sweep_every == 0)
             if run_sweep:
                 from elastic_tools import sweep_new_parent_child
-                process_findings(sweep_new_parent_child(1), seen, args.hunt_limit)
+                process_findings(sweep_new_parent_child(1), seen, args.hunt_limit,
+                                 model_ok=degraded.llm_healthy("hunt"))
                 _save_seen(seen)
         except Exception as e:
             print(f"[{stamp}] EROARE in ciclul {cycle}: {e} — continui", flush=True)
@@ -284,39 +319,84 @@ def run_positioned(args) -> int:
     return 0
 
 
-def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = None) -> str | None:
+def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = None,
+                   model_ok: bool = True) -> str | None:
     """Trece fiecare alerta prin calea rapida + politica + escaladare + audit.
     Folosita si de modul manual si de cel cu pozitie (o singura implementare).
-    Intoarce @timestamp-ul ultimei alerte (pentru avansarea pozitiei).
-    `stats`, daca e dat, numara alertele procesate si cele escaladate."""
-    from fast_path import build_fast_path
-    fast = build_fast_path()
-    last_ts = None
+
+    Mod degradat (degraded.py): model cazut -> fiecare alerta escaladeaza fara
+    model; peste BACKLOG_THRESHOLD alerte -> coada ordonata dupa severitate si
+    criticitate, iar alertele critical escaladeaza direct; plafon de timp per caz.
+
+    Intoarce cel mai nou @timestamp din lot (pentru avansarea pozitiei).
+    `stats`, daca e dat, numara alertele procesate, escaladate si fara model."""
+    last_ts = max((_g(a, "@timestamp") or "" for a in alerts), default="") or None
+    backlog = degraded.is_backlog(len(alerts))
+    if backlog:
+        from fast_path import lookup_asset
+        crit: dict[str, str | None] = {}
+        def crit_of(host: str):
+            if host not in crit:
+                crit[host] = lookup_asset(host).get("criticality")
+            return crit[host]
+        alerts = degraded.order_backlog(alerts, crit_of)
+        print(f"  RESTANTA: {len(alerts)} alerte > {degraded.BACKLOG_THRESHOLD}; "
+              f"coada ordonata, alertele critical escaladeaza fara model", flush=True)
+    if not model_ok:
+        print("  MODEL CAZUT: alertele escaladeaza fara verdict de model", flush=True)
+    fast = None
     for a in alerts:
-        last_ts = _g(a, "@timestamp") or last_ts
         k = dedup_key_alert(a)
         rule = _g(a, "kibana.alert.rule.name")
-        entity = f"{_g(a, 'host.name')} · {rule}"
+        host = _g(a, "host.name")
+        entity = f"{host} · {rule}"
         if k in seen:
             print(f"  [duplicat, sarit] {entity}")
             continue
+        t0 = datetime.now(timezone.utc)
+        failure = None
         try:
-            t0 = datetime.now(timezone.utc)
-            out = fast.invoke({"alert": a}, config={"recursion_limit": 25})
-            t1 = datetime.now(timezone.utc)
-            v = with_chain(out["verdict"]); d = decide(v)
-            # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
-            # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
-            esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
-                                  pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
-            show("RAPID", entity, v, out.get("narrative", ""), d, esc)
-            persist(v, out.get("narrative", ""), d, t0, t1, {"rule_name": rule}, escalation=esc)
-            seen.add(k)   # doar dupa succes, ca la findings
+            if backlog and degraded.is_severe(a):
+                v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
+                                     degraded.NARRATIVE[None], degraded.backlog_escalation())
+            elif not model_ok:
+                failure = degraded.FailureKind.MODEL_UNAVAILABLE
+            else:
+                if fast is None:
+                    from fast_path import build_fast_path
+                    fast = build_fast_path()
+                try:
+                    out = degraded.run_with_timeout(
+                        lambda: fast.invoke({"alert": a}, config={"recursion_limit": 25}),
+                        degraded.CASE_TIMEOUT_FAST_S)
+                    v, narrative = out["verdict"], out.get("narrative", "")
+                    # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
+                    # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
+                    esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
+                                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+                except degraded.CaseTimeout:
+                    failure = degraded.FailureKind.CASE_TIMEOUT
+                except Exception as e:
+                    print(f"  [EROARE] {entity}: {e}", flush=True)
+                    # Model cazut in mijlocul lotului? Restul lotului nu mai asteapta
+                    # cate un timeout fiecare: trece direct pe modul degradat.
+                    model_ok = degraded.llm_healthy("fast")
+                    failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
+                               else degraded.FailureKind.MODEL_UNAVAILABLE)
+            if failure is not None:
+                v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
+                                     degraded.NARRATIVE[failure], degraded.failure_escalation())
+            _record("RAPID", entity, v, narrative, t0, {"rule_name": rule},
+                    escalation=esc, failure=failure)
+            # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
+            seen.add(k)
             if stats is not None:
                 stats["total"] += 1
                 stats["escalated"] += int(esc.escalate)
+                stats["no_model"] = stats.get("no_model", 0) + int(v.model_id == "none")
         except Exception as e:
-            print(f"  [EROARE, ar escalada la om] {entity}: {e}")
+            # Nici auditul nu s-a putut scrie: nemarcat, dar cursorul trece mai departe.
+            print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}")
         print()
     return last_ts
 
@@ -348,15 +428,18 @@ def main() -> int:
     seen = BoundedSeen()
     alerts = fetch_new_alerts(args.minutes, args.limit)
     print(f"ALERTE: {len(alerts)} in ultimele {args.minutes} min\n")
-    stats = {"total": 0, "escalated": 0}
-    process_alerts(alerts, seen, stats)
+    stats = {"total": 0, "escalated": 0, "no_model": 0}
+    fast_ok = degraded.llm_healthy("fast") if alerts else True
+    print(f"Model Tier 1: {'OK' if fast_ok else 'CAZUT -> mod degradat'}\n")
+    process_alerts(alerts, seen, stats, model_ok=fast_ok)
     if stats["total"]:
         print(f"Escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']} "
-              f"({stats['escalated'] / stats['total']:.0%})\n")
+              f"({stats['escalated'] / stats['total']:.0%}), fara model: {stats['no_model']}\n")
 
     if args.sweep:
         from elastic_tools import sweep_new_parent_child
-        process_findings(sweep_new_parent_child(1), seen, args.limit)
+        process_findings(sweep_new_parent_child(1), seen, args.limit,
+                         model_ok=degraded.llm_healthy("hunt"))
 
     if WRITER is None:
         print("=== Sfarsit. DRY-RUN: nimic nu a fost scris. ===")

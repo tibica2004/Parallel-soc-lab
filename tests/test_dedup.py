@@ -87,7 +87,9 @@ def _fake_alert(n):
             "kibana.alert.rule.name": "R", "process": {"entity_id": f"E{n}"}}
 
 
-def test_alerta_esuata_nu_e_marcata(monkeypatch):
+def test_alerta_esuata_e_escaladata_si_marcata(monkeypatch):
+    """Faza 4: o alerta pe care modelul n-o poate judeca devine undetermined +
+    escalate_human, scrisa in audit; e rezolvata (a ajuns la om), deci marcata."""
     def invoke(inp, config=None):
         if inp["alert"]["process"]["entity_id"] == "E1":
             raise RuntimeError("model cazut")
@@ -99,7 +101,7 @@ def test_alerta_esuata_nu_e_marcata(monkeypatch):
     monkeypatch.setattr(orchestrator, "persist", lambda *a, **k: None)
     seen = BoundedSeen()
     orchestrator.process_alerts([_fake_alert(1), _fake_alert(2)], seen)
-    assert orchestrator.dedup_key_alert(_fake_alert(1)) not in seen
+    assert orchestrator.dedup_key_alert(_fake_alert(1)) in seen
     assert orchestrator.dedup_key_alert(_fake_alert(2)) in seen
 
 

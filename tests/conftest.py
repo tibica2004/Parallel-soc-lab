@@ -14,3 +14,14 @@ os.environ.pop("ES_WRITER_API_KEY", None)
 os.environ.setdefault("OPENAI_API_KEY", "test")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fara_retea_la_sanatate(monkeypatch):
+    """Verificarea de sanatate a modelului nu are voie sa iasa in retea din teste.
+    Implicit: modelul e sanatos. Testele de mod degradat o suprascriu."""
+    import degraded
+    monkeypatch.setattr(degraded, "llm_healthy", lambda role, fetch=None: True)

@@ -17,11 +17,19 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
+def model_name(role: str) -> str:
+    return os.environ.get(f"MODEL_{role.upper()}", "qwen3:14b")
+
+
+def base_url(role: str) -> str:
+    return os.environ.get(f"LLM_BASE_URL_{role.upper()}") or os.environ.get("LLM_BASE_URL", OLLAMA)
+
+
 def get_llm(role: str, json_schema: dict | None = None) -> ChatOpenAI:
     cfg = ROLES[role]
     return ChatOpenAI(
-        model=os.environ.get(f"MODEL_{role.upper()}", "qwen3:14b"),
-        base_url=os.environ.get(f"LLM_BASE_URL_{role.upper()}") or os.environ.get("LLM_BASE_URL", OLLAMA),
+        model=model_name(role),
+        base_url=base_url(role),
         api_key="local", temperature=cfg["temperature"],
         max_tokens=cfg["max_tokens"], timeout=300,
     )

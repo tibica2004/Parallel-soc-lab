@@ -77,6 +77,18 @@ class EscalationReason(str, Enum):
     FLOOR_OVERRIDE = "floor_override"          # codul a rasturnat un benign al modelului
     LOW_CONFIDENCE = "low_confidence"
     BENIGN_UNSEEN_PAIR = "benign_unseen_pair"  # benign pe ceva nevazut in baseline
+    # Mod degradat: Tier 1 n-a putut judeca (model cazut, timeout, eroare) sau
+    # nici n-a incercat (alerta grava in restanta). Esecul escaladeaza, nu inchide.
+    TIER1_FAILURE = "tier1_failure"
+    BACKLOG_SEVERE = "backlog_severe"
+
+
+class FailureKind(str, Enum):
+    """De ce n-a existat un verdict de model. Inchisa, decisa de cod."""
+
+    MODEL_UNAVAILABLE = "model_unavailable"   # verificarea de sanatate a picat
+    CASE_TIMEOUT = "case_timeout"             # plafonul de timp per caz depasit
+    PROCESSING_ERROR = "processing_error"     # orice alta exceptie in graf
 
 
 class EvidenceRef(BaseModel):
@@ -234,6 +246,8 @@ class AuditRecord(BaseModel):
     # (ex. verdict de pe calea lenta, unde nu exista un nivel urmator inca).
     escalate: bool | None = None
     escalation_reasons: list[EscalationReason] = Field(default_factory=list)
+    # Setat doar cand verdictul NU vine de la model (vezi degraded.py).
+    failure: FailureKind | None = None
     narrative: str
     hypotheses_considered: list[str] = Field(default_factory=list)
     queries_run: list[str] = Field(default_factory=list)
