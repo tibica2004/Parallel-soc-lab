@@ -17,7 +17,8 @@ from pydantic import BaseModel, ConfigDict
 from schemas import Classification, Verdict
 
 # PROVIZORIU. Se fixeaza din distributia reala a increderii, nu din intuitie.
-LOW_CONF = int(os.environ.get("ESC_LOW_CONF", "70"))
+# 90: sub atat, un benign nu se inchide pe Tier 1 (preferam escaladarea).
+LOW_CONF = int(os.environ.get("ESC_LOW_CONF", "90"))
 
 
 class EscalationReason(str, Enum):
