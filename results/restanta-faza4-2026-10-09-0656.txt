@@ -1,0 +1,194 @@
+=== Orchestrator 2026-10-09 10:56:08 | DRY-RUN, nu scrie nimic | shadow=True ===
+
+ALERTE: 29 in ultimele 300 min
+
+Model Tier 1: OK
+
+  RESTANTA: 29 alerte > 20; coada ordonata, alertele critical escaladeaza fara model
+  [RAPID] web-prod · Malicious Behavior Detection Alert: Payload Execution by Web Server
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Malicious Behavior Detection Alert: Payload Execution by Web Server
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Malicious Behavior Detection Alert: Payload Execution by Web Server
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Reverse shell: Interactive shell or /dev/tcp connection
+    verdict: undetermined / 0 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (backlog_severe)
+    Alerta grava in restanta: escaladata direct, fara model, ca sa nu astepte in coada.
+
+  [RAPID] web-prod · Webshell: Executable written to webroot
+    verdict: suspicious / 90 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (suspicious)
+    MITRE: T1505.001
+    Un administrator cunoscut a scris un fișier executabil în webroot pe un server critic, fără a fi în fereastra de întreținere. Acest comportament este semnificativ pentru un webshel
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    Administratorul cunoscut 'tiberiu' rulează un curl către localhost dintr-un shell, o activitate comună în testare/monitorizare. Destinația locală și prezența în baseline confirmă n
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    User tiberiu (known admin) executed a curl command to localhost via bash, which aligns with established benign patterns. The localhost destination and baseline match confirm this i
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    Comanda curl executată de administratorul cunoscut 'tiberiu' către localhost este activitate normală, confirmată de istoricul de verificări anterioare și de prezența în baseline. N
+
+  [RAPID] web-prod · RCE: Web server spawns shell
+    verdict: malicious / 95 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (malicious)
+    MITRE: T1059, T1505.003
+    Serverul web (www-data) a executat comanda 'id' prin dash, cu parinte apache2, indicând RCE. Acest comportament este inadecvat pentru un server web productie și semnifică o exploat
+
+  [RAPID] web-prod · RCE: Web server spawns shell
+    verdict: malicious / 95 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (malicious)
+    MITRE: T1059, T1505.003
+    Serverul web (www-data) a executat comanda 'whoami' prin dash, asociat cu RCE/webshell. Lantul de procese (apache2 -> dash) indică o execuție neautorizată a unui shell, confirmând 
+
+  [RAPID] web-prod · RCE: Web server spawns shell
+    verdict: malicious / 95 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (malicious)
+    MITRE: T1059, T1505.003
+    Serverul web (www-data) a executat 'cat /etc/passwd' prin dash, confirmat de investigație. Fără context de admin sau fereastră de mentenanță, această acțiune este un semnal clar de
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    Administratorul cunoscut 'tiberiu' rulează un curl către localhost, un comportament deja validat ca benign în trecut. Pair_in_baseline true confirmă normalitatea, iar lipsa acțiuni
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: suspicious / 60 / escalate_human
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (suspicious, floor_override, low_confidence)
+    wget rulat de www-data catre localhost, cu pair in baseline si destinatie interna. Fals pozitiv probabil, conform istoricului de verdicturi si a ghidului de investigatie.
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    Un administrator cunoscut (tiberiu) a executat un curl local catre localhost, un comportament normal verificat prin concordanta cu baseline-ul. Perechea parinte-copil (bash -> curl
+
+  [RAPID] web-prod · Webshell: Executable written to webroot
+    verdict: suspicious / 85 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (suspicious, low_confidence)
+    MITRE: T1505, T1203
+    Un administrator cunoscut a scris un fișier executabil în webroot, o acțiune sensibilă care poate indica prezența unui webshell. Deși utilizatorul este un administrator autorizat, 
+
+  [RAPID] web-prod · RCE: Web server spawns shell
+    verdict: malicious / 95 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (malicious)
+    MITRE: T1059, T1505.003
+    Serverul web (www-data) a executat un shell care rulează wget din apache2, un comportament neobișnuit pentru un server web. Contextul indică prezența unui webshell sau RCE, cu pote
+
+  [RAPID] web-prod · Suspicious execution from temp directory
+    verdict: suspicious / 85 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (suspicious, low_confidence)
+    MITRE: T1059.007
+    Un administrator cunoscut a executat un fișier din directorul /tmp, o acțiune sensibilă care generează suspiciune. Deși utilizatorul este autorizat, execuția din directorul tempora
+
+  [RAPID] web-prod · Webshell: Executable written to webroot
+    verdict: suspicious / 90 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (suspicious)
+    MITRE: T1059, T1137
+    Un administrator cunoscut a scris un fișier executabil în webroot, o acțiune sensibilă care poate indica prezența unui webshell. Deși utilizatorul este autorizat, acțiunea nu are l
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    Un administrator cunoscut (tiberiu) a executat un curl catre localhost, o acțiune comună în testele de integritate. Perechea parinte-copil (bash -> curl) a fost observată în trecut
+
+  [RAPID] web-prod · RCE: Web server spawns shell
+    verdict: malicious / 95 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (malicious)
+    MITRE: T1059, T1505.003
+    Serverul web (www-data) a executat comanda 'id' prin apache2, confirmând RCE. Fără implicare de administrator cunoscut, pe un host critic. Acest comportament este inadecvat pentru 
+
+  [RAPID] web-prod · Payload download: curl/wget spawned by web server or shell
+    verdict: benign / 95 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: nu, inchis la Tier 1
+    User tiberiu (known admin) executed a local curl command to localhost via bash, which aligns with established baseline activity. The localhost destination and absence of sensitive 
+
+  [RAPID] web-prod · Webshell: Executable written to webroot
+    verdict: suspicious / 90 / escalate_human pe web-prod
+    politica: escalate_human  [SHADOW]  (actiune fara cost, permisa)
+    escaladare Tier 2: DA (suspicious)
+    MITRE: T1505, T1203
+    Un administrator cunoscut a scris un fișier executabil în webroot, o acțiune sensibilă care poate indica prezența unui webshell. Deși utilizatorul este un administrator autorizat, 
+
+Escaladare Tier 1 -> Tier 2: 22/29 (76%), fara model: 11
+
+=== Sfarsit. DRY-RUN: nimic nu a fost scris. ===
