@@ -1,0 +1,154 @@
+{#- Tot textul de aici poate veni din telemetrie: autoescape e fortat in label_ui.py.
+    NU folosi |safe. Fara scripturi (CSP script-src 'none'). -#}
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SOC · etichetare</title>
+<style>
+  :root { --bg:#f7f7f5; --fg:#1d1d1b; --mut:#6b6b66; --line:#d9d9d4; --card:#fff;
+          --atk:#b42318; --ben:#1a7f37; --acc:#2453a6; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161615; --fg:#ececea; --mut:#9a9a94; --line:#33332f; --card:#1f1f1d;
+            --atk:#f0776c; --ben:#5cc77a; --acc:#8fb0ec; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.45 system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+           border-bottom:1px solid var(--line); padding-bottom:10px; margin-bottom:16px; }
+  h1 { font-size:18px; margin:0; } h2 { font-size:16px; margin:20px 0 8px; }
+  a { color:var(--acc); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; }
+  .mut { color:var(--mut); } .err { color:var(--atk); font-weight:600; }
+  .tbl { width:100%; border-collapse:collapse; font-size:14px; }
+  .tbl th, .tbl td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .wrap { overflow-x:auto; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; border:1px solid var(--line); font-size:12px; }
+  .malicious, .attack, .TP, .FN { color:var(--atk); } .benign, .TN { color:var(--ben); }
+  .filters a { margin-right:10px; } .filters a.on { font-weight:700; text-decoration:none; color:var(--fg); }
+  dl { display:grid; grid-template-columns:minmax(120px,220px) 1fr; gap:4px 12px; margin:0; }
+  dt { color:var(--mut); } dd { margin:0; overflow-wrap:anywhere; }
+  pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; font:13px/1.45 ui-monospace, monospace; }
+  .untrusted { border-left:3px solid var(--line); padding-left:10px; }
+  form.lab { display:grid; gap:10px; } textarea { width:100%; min-height:70px; font:inherit; }
+  .btns { display:flex; flex-wrap:wrap; gap:10px; }
+  button { font:inherit; padding:8px 16px; border-radius:6px; border:1px solid var(--line);
+           background:var(--card); color:var(--fg); cursor:pointer; }
+  button.atk { border-color:var(--atk); color:var(--atk); } button.ben { border-color:var(--ben); color:var(--ben); }
+  input[type=password] { font:inherit; padding:8px; width:100%; max-width:320px; }
+</style>
+</head>
+<body><main>
+
+{% if view == "login" %}
+  <header><h1>SOC · etichetare</h1></header>
+  <div class="card">
+    <form method="post" action="/login">
+      <p><label>Parola<br><input type="password" name="password" autocomplete="current-password" autofocus></label></p>
+      {% if error %}<p class="err">{{ error }}</p>{% endif %}
+      <button type="submit">Intra</button>
+    </form>
+  </div>
+
+{% else %}
+  <header>
+    <h1><a href="/">SOC · etichetare</a></h1>
+    <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}">
+      <button type="submit">Iesire</button></form>
+  </header>
+
+  {% if view == "notfound" %}
+    <p class="err">Verdictul nu exista.</p> <p><a href="/">Inapoi la lista</a></p>
+
+  {% elif view == "list" %}
+    <p class="mut">Etichetate: {{ labeled_count }}
+      {% for k in ["TP","FP","FN","TN"] %} · <span class="{{ k }}">{{ k }} {{ outcomes.get(k, 0) }}</span>{% endfor %}
+    </p>
+    <p class="filters">
+      {% for s, n in [("unlabeled","neetichetate"),("labeled","etichetate"),("all","toate")] %}
+        <a class="{{ 'on' if status == s else '' }}" href="/?status={{ s }}&source={{ source }}">{{ n }}</a>{% endfor %}
+      <span class="mut">|</span>
+      {% for s, n in [("all","ambele cai"),("fast","Tier 1 (rapida)"),("hunt","calea lenta")] %}
+        <a class="{{ 'on' if source == s else '' }}" href="/?status={{ status }}&source={{ s }}">{{ n }}</a>{% endfor %}
+    </p>
+    <p class="mut">{{ total }} verdicte</p>
+    <div class="wrap"><table class="tbl">
+      <tr><th>Moment (UTC)</th><th>Cale</th><th>Regula / entitate</th><th>Verdict</th><th>Actiune</th><th>Eticheta</th></tr>
+      {% for r in rows %}
+      <tr>
+        <td><a href="/v/{{ r._id }}">{{ (r["@timestamp"] or "")[:19] }}</a></td>
+        <td>{{ r.source_path }}</td>
+        <td>{{ r.rule_name or "—" }}<br><span class="mut">{{ r.entity_id }}</span></td>
+        <td class="{{ r.classification }}">{{ r.classification }} / {{ r.confidence }}</td>
+        <td>{{ r.proposed_action }}</td>
+        <td>{% if r.ground_truth %}<span class="{{ r.ground_truth }}">{{ r.ground_truth }}</span>
+            {% if r.label_outcome %}<span class="pill {{ r.label_outcome }}">{{ r.label_outcome }}</span>{% endif %}
+            {% if r.label_source != "human" %}<span class="mut">(sursa necunoscuta)</span>{% endif %}
+            {% else %}<span class="mut">—</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    <p>
+      {% if page > 0 %}<a href="/?status={{ status }}&source={{ source }}&page={{ page - 1 }}">← mai noi</a>{% endif %}
+      {% if (page + 1) * page_size < total %}<a href="/?status={{ status }}&source={{ source }}&page={{ page + 1 }}">mai vechi →</a>{% endif %}
+    </p>
+
+  {% elif view == "detail" %}
+    <p><a href="/">← lista</a></p>
+    {% if error == "conflict" %}<p class="err">Verdictul a fost modificat intre timp. Verifica si eticheteaza din nou.</p>{% endif %}
+
+    <h2>Verdict</h2>
+    <div class="card"><dl>
+      <dt>Moment (UTC)</dt><dd>{{ v["@timestamp"] }}</dd>
+      <dt>Cale</dt><dd>{{ v.source_path }}</dd>
+      <dt>Regula</dt><dd>{{ v.rule_name or "—" }}</dd>
+      <dt>Entitate</dt><dd>{{ v.entity_type }} · {{ v.entity_id }}</dd>
+      <dt>Clasificare</dt><dd class="{{ v.classification }}">{{ v.classification }} / {{ v.confidence }}</dd>
+      <dt>Actiune propusa</dt><dd>{{ v.proposed_action }}{% if v.action_target %} pe {{ v.action_target }}{% endif %}</dd>
+      <dt>MITRE</dt><dd>{{ (v.mitre_techniques or []) | join(", ") or "—" }}</dd>
+      <dt>Raritate</dt><dd>{{ v.rarity_score }}</dd>
+      <dt>Coroborare</dt><dd>{{ v.corroboration_status or "—" }}</dd>
+      <dt>Model</dt><dd>{{ v.model_id }}</dd>
+      <dt>Lant (chain_id)</dt><dd>{{ v.chain_id or "— (verdict dinaintea fazei 2)" }}</dd>
+    </dl></div>
+
+    <h2>Audit</h2>
+    <div class="card">
+    {% if audit %}<dl>
+      <dt>Escaladare Tier 2</dt><dd>{% if audit.escalate is none %}—{% elif audit.escalate %}da: {{ (audit.escalation_reasons or []) | join(", ") }}{% else %}nu, inchis la Tier 1{% endif %}</dd>
+      <dt>Politica</dt><dd>{{ audit.policy_decision }}</dd>
+      <dt>Ipoteze</dt><dd>{{ (audit.hypotheses_considered or []) | join(" · ") or "—" }}</dd>
+      <dt>Unelte folosite</dt><dd>{{ (audit.queries_run or []) | join(", ") or "—" }}</dd>
+      <dt>Naratiune</dt><dd class="untrusted"><span class="mut">(scrisa de model din date neincrezatoare)</span><pre>{{ audit.narrative }}</pre></dd>
+    </dl>{% else %}<p class="mut">Nicio inregistrare de audit pentru acest verdict.</p>{% endif %}
+    </div>
+
+    <h2>Eticheta</h2>
+    <div class="card">
+      {% if v.ground_truth %}
+        <p>Curenta: <span class="{{ v.ground_truth }}">{{ v.ground_truth }}</span>
+          {% if v.label_outcome %}<span class="pill {{ v.label_outcome }}">{{ v.label_outcome }}</span>{% endif %}
+          <span class="mut">· {{ v.label_source or "sursa necunoscuta" }} · {{ v.labeled_at or "" }}</span></p>
+        {% if v.notes %}<pre class="untrusted">{{ v.notes }}</pre>{% endif %}
+        <p class="mut">O noua eticheta o inlocuieste; cea veche ramane in istoric.</p>
+      {% endif %}
+      <p class="mut">Daca e atac, verdictul devine <b class="{{ if_attack }}">{{ if_attack }}</b>;
+         daca e benign, <b class="{{ if_benign }}">{{ if_benign }}</b>.
+         Verifica in Kibana evenimentele de pe {{ v.entity_id }} din jurul momentului de mai sus.</p>
+      <form class="lab" method="post" action="/v/{{ doc_id }}/label">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Note (optional, max 500 caractere; ajung in contextul Tier 1)<br>
+          <textarea name="notes" maxlength="500"></textarea></label>
+        <div class="btns">
+          <button class="atk" type="submit" name="ground_truth" value="attack">Atac</button>
+          <button class="ben" type="submit" name="ground_truth" value="benign">Benign</button>
+        </div>
+      </form>
+    </div>
+  {% endif %}
+{% endif %}
+
+</main></body>
+</html>
