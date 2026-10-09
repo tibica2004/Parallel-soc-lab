@@ -1,0 +1,51 @@
+=== Harness: 6 scenarii ===
+
+[1/6] Admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=False alerte_host=29 gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign / 75 / none  [TN OK]  [13s]
+[2/6] Admin verifica versiunea php  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=False alerte_host=29 gasit=True
+      -> tool_process_tree({"entity_id": "YK8UdSE4ErR2GKBtcq/v2A", "minutes": 15, "host_name": "web-prod"})
+      concluzie: benign/85 semnale=['process_chain']
+    -> benign / 85 / none  [TN OK]  [18s]
+[3/6] Deploy legitim — script din /opt de admin  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False sensitive=False alerte_host=29 gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign / 75 / none  [TN OK]  [14s]
+[4/6] Admin listeaza fisiere cu find  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=False alerte_host=30 gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "entity_id": "7+fb0jSjSbjyV41oHWugdA", "minutes": 30})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 30})
+      concluzie: benign/75 semnale=['process_chain']
+    -> benign / 75 / none  [TN OK]  [20s]
+[5/6] Cron ruleaza sed (baseline normal)  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=False alerte_host=30 gasit=True
+      concluzie: benign/70 semnale=[]
+    -> benign / 70 / none  [TN OK]  [14s]
+[6/6] Admin verifica procesele cu ps  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=False alerte_host=30 gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "entity_id": "8F4+PfJJCUmYZKMJiZGUlQ", "minutes": 15})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 15})
+      concluzie: benign/90 semnale=['process_chain']
+    -> benign / 90 / none  [TN OK]  [18s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):     0
+  FN (ATAC RATAT):        0   <- eroarea scumpa
+  TN (benign inchis):     6
+  FP (benign escaladat):  0
+  RATA FALS POZITIVE:       0%  (0/6)
+
+CALIBRARE (precizie pe banda de incredere):
+   70-79:  100%  (4/4)
+   80-89:  100%  (1/1)
+   90-99:  100%  (1/1)
+  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%
