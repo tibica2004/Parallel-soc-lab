@@ -20,10 +20,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 from datetime import datetime, timezone
 
 from policy import decide
-from state import load_cursor, save_cursor, window_end
+from state import load_cursor, load_seen, save_cursor, save_seen, window_end
 
 from elasticsearch import Elasticsearch
 
@@ -139,21 +140,60 @@ def show(kind: str, entity: str, verdict, narrative: str, decision=None) -> None
 from collections import OrderedDict
 
 
+# Cat timp ramane o cheie "vazuta". Dupa expirare, acelasi caz (ex. aceeasi
+# pereche parinte-copil) se investigheaza din nou: un atac de saptamana viitoare
+# nu are voie sa fie sarit doar pentru ca perechea a mai aparut o data.
+SEEN_TTL_HOURS = float(os.environ.get("SEEN_TTL_HOURS", "24"))
+
+
 class BoundedSeen:
     """Chei deja procesate, cu memorie limitata: un proces care ruleaza saptamani
-    nu trebuie sa creasca la nesfarsit. Se uita cele mai vechi."""
-    def __init__(self, maxlen: int = 5000):
-        self._d: OrderedDict = OrderedDict()
+    nu trebuie sa creasca la nesfarsit. Se uita cele mai vechi si cele expirate."""
+    def __init__(self, maxlen: int = 5000, ttl_hours: float = SEEN_TTL_HOURS,
+                 entries: list[tuple[str, float]] | None = None, clock=time.time):
+        self._d: OrderedDict = OrderedDict()   # cheie -> epoch cand a fost marcata
         self.maxlen = maxlen
+        self.ttl = ttl_hours * 3600
+        self._clock = clock
+        for k, t in sorted(entries or [], key=lambda e: e[1]):
+            self._put(k, t)
+        self._expire()
 
-    def __contains__(self, k) -> bool:
-        return k in self._d
-
-    def add(self, k) -> None:
-        self._d[k] = None
+    def _put(self, k, t: float) -> None:
+        self._d[k] = t
         self._d.move_to_end(k)
         if len(self._d) > self.maxlen:
             self._d.popitem(last=False)
+
+    def _expire(self) -> None:
+        limit = self._clock() - self.ttl
+        while self._d and next(iter(self._d.values())) < limit:
+            self._d.popitem(last=False)
+
+    def __contains__(self, k) -> bool:
+        self._expire()
+        return k in self._d
+
+    def __len__(self) -> int:
+        self._expire()
+        return len(self._d)
+
+    def add(self, k) -> None:
+        self._put(k, self._clock())
+
+    def entries(self) -> list[tuple[str, float]]:
+        """Cele mai vechi primele, ca la reincarcare sa se pastreze ordinea."""
+        self._expire()
+        return list(self._d.items())
+
+
+def _save_seen(seen: BoundedSeen) -> None:
+    """O salvare esuata nu opreste ciclul: in cel mai rau caz, dupa o repornire
+    se reproceseaza cateva cazuri (sigur), nu se sare peste ele."""
+    try:
+        save_seen(seen.entries())
+    except Exception as e:
+        print(f"  [dedup] salvare esuata: {e}", flush=True)
 
 
 def process_findings(findings, seen, limit: int) -> None:
@@ -169,7 +209,6 @@ def process_findings(findings, seen, limit: int) -> None:
         entity = f"{f.entity_id} · {(f.detail or {}).get('parent')} -> {(f.detail or {}).get('child')}"
         if k in seen:
             continue
-        seen.add(k)
         done += 1
         try:
             t0 = datetime.now(timezone.utc)
@@ -179,6 +218,9 @@ def process_findings(findings, seen, limit: int) -> None:
             show("LENT", entity, v, out.get("narrative", ""), d)
             persist(v, out.get("narrative", ""), d, t0, t1,
                     {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])})
+            # Marcat DOAR dupa succes: un esec (model cazut, ES cazut) nu are voie
+            # sa scoata cazul din lucru — esecul escaladeaza, nu inchide.
+            seen.add(k)
         except Exception as e:
             print(f"  [EROARE, ar escalada la om] {entity}: {e}", flush=True)
 
@@ -187,8 +229,8 @@ def run_positioned(args) -> int:
     """Mod autonom. La fiecare ciclu: alertele de la pozitie pana la (acum - lag),
     apoi, la fiecare `sweep_every` cicluri, sweep-ul pe calea lenta. O eroare
     intr-un ciclu (Elasticsearch cazut, model indisponibil) nu opreste bucla."""
-    import time
-    seen = BoundedSeen()
+    seen = BoundedSeen(entries=load_seen())
+    print(f"[dedup] {len(seen)} chei incarcate din soc-state", flush=True)
     cycle = 0
     while True:
         cycle += 1
@@ -199,6 +241,7 @@ def run_positioned(args) -> int:
             print(f"[{stamp}] ciclu {cycle}: {len(alerts)} alerte in "
                   f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]", flush=True)
             last_ts = process_alerts(alerts, seen)
+            _save_seen(seen)
             if len(alerts) >= args.limit and last_ts:
                 # fereastra nu s-a golit: continuam exact de la ultima alerta
                 save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
@@ -210,6 +253,7 @@ def run_positioned(args) -> int:
             if run_sweep:
                 from elastic_tools import sweep_new_parent_child
                 process_findings(sweep_new_parent_child(1), seen, args.hunt_limit)
+                _save_seen(seen)
         except Exception as e:
             print(f"[{stamp}] EROARE in ciclul {cycle}: {e} — continui", flush=True)
 
@@ -233,7 +277,6 @@ def process_alerts(alerts: list[dict], seen: set) -> str | None:
         if k in seen:
             print(f"  [duplicat, sarit] {entity}")
             continue
-        seen.add(k)
         try:
             t0 = datetime.now(timezone.utc)
             out = fast.invoke({"alert": a}, config={"recursion_limit": 25})
@@ -241,6 +284,7 @@ def process_alerts(alerts: list[dict], seen: set) -> str | None:
             v = out["verdict"]; d = decide(v)
             show("RAPID", entity, v, out.get("narrative", ""), d)
             persist(v, out.get("narrative", ""), d, t0, t1, {"rule_name": rule})
+            seen.add(k)   # doar dupa succes, ca la findings
         except Exception as e:
             print(f"  [EROARE, ar escalada la om] {entity}: {e}")
         print()

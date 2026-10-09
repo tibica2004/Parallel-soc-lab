@@ -23,6 +23,7 @@ from elasticsearch import Elasticsearch
 
 STATE_IDX = "soc-state"
 CURSOR_ID = "orchestrator-cursor"
+SEEN_ID = "orchestrator-seen"
 LAG_SECONDS = 30          # marja pentru intarzierea de indexare
 DEFAULT_LOOKBACK_MIN = 15  # de unde pornim la prima rulare, daca nu exista pozitie
 
@@ -54,3 +55,31 @@ def save_cursor(ts: datetime) -> None:
 def window_end() -> datetime:
     """Capatul de sus al ferestrei de citit: prezentul minus marja de indexare."""
     return datetime.now(timezone.utc) - timedelta(seconds=LAG_SECONDS)
+
+
+# --------------------------------------------------------------------------
+# Cheile de deduplicare, langa cursor. Fara ele, la fiecare repornire a
+# serviciului findings-urile din ultima ora ar trece iar prin calea lenta.
+# Fiecare cheie are momentul (epoch) cand a fost marcata, pentru expirare.
+# Lista e ordonata: cele mai vechi primele (ordinea din BoundedSeen).
+# --------------------------------------------------------------------------
+
+
+def load_seen() -> list[tuple[str, float]]:
+    """Cheile salvate. Orice esec -> lista goala: reprocesarea e sigura,
+    sarirea peste un caz nu este."""
+    try:
+        doc = _writer().get(index=STATE_IDX, id=SEEN_ID)["_source"]
+    except Exception:
+        return []
+    out = []
+    for e in doc.get("entries") or []:
+        if isinstance(e, dict) and isinstance(e.get("k"), str) and isinstance(e.get("t"), (int, float)):
+            out.append((e["k"], float(e["t"])))
+    return out
+
+
+def save_seen(entries: list[tuple[str, float]]) -> None:
+    _writer().index(index=STATE_IDX, id=SEEN_ID,
+                    document={"entries": [{"k": k, "t": t} for k, t in entries],
+                              "updated_at": datetime.now(timezone.utc).isoformat()})
