@@ -22,6 +22,13 @@ from elasticsearch import Elasticsearch
 from langchain_core.tools import tool
 
 from schemas import ContextPack, EntityType, EvidenceRef, RarityFinding
+from tracing import traced_tool
+
+
+def _traced(fn):
+    """Fiecare apel al uneltei ajunge in urma cazului (tracing.py): argumente,
+    durata, ID-urile documentelor. Modelul primeste rezultatul fara _id/_index."""
+    return traced_tool(fn.__name__, fn)
 
 ES = Elasticsearch(
     os.environ.get("ES_URL", "http://localhost:9200"),
@@ -297,6 +304,7 @@ def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
 
 
 @tool
+@_traced
 def tool_process_tree(host_name: str, entity_id: str, minutes: int = 30) -> dict:
     """
     Arborele de procese in jurul unui proces.
@@ -306,10 +314,10 @@ def tool_process_tree(host_name: str, entity_id: str, minutes: int = 30) -> dict
     """
     rows = _esql(
         f"""
-        FROM {PROC_IDX}
-        | WHERE host.name == ? AND @timestamp >= NOW() - {minutes} minutes
+        FROM {PROC_IDX} METADATA _id, _index
+        | WHERE host.name == ? AND @timestamp >= NOW() - {int(minutes)} minutes
           AND (process.entity_id == ? OR process.parent.entity_id == ?)
-        | KEEP @timestamp, process.name, process.command_line, process.entity_id,
+        | KEEP _id, _index, @timestamp, process.name, process.command_line, process.entity_id,
                process.parent.name, process.parent.entity_id, user.name
         | SORT @timestamp ASC
         | LIMIT 200
@@ -320,6 +328,7 @@ def tool_process_tree(host_name: str, entity_id: str, minutes: int = 30) -> dict
 
 
 @tool
+@_traced
 def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
     """Conexiunile outbound (egress) ale unui host in ultimele N minute, agregate
     pe destinatie si proces. Foloseste asta ca sa vezi cu ce IP-uri externe a
@@ -327,7 +336,7 @@ def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
     rows = _esql(
         f"""
         FROM {NET_IDX}
-        | WHERE host.name == ? AND @timestamp >= NOW() - {minutes} minutes
+        | WHERE host.name == ? AND @timestamp >= NOW() - {int(minutes)} minutes
           AND network.direction == "egress"
         | STATS bytes = SUM(network.bytes), cnt = COUNT(*)
             BY destination.ip, destination.port, destination.as.organization.name, process.name
@@ -340,15 +349,16 @@ def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
 
 
 @tool
+@_traced
 def tool_apache_requests(host_name: str, minutes: int = 30, status: int | None = None) -> dict:
     """Cereri catre serverul web. Pentru corelarea request -> proces."""
     extra = "AND http.response.status_code == ?" if status else ""
     params: list[Any] = [host_name] + ([status] if status else [])
     rows = _esql(
         f"""
-        FROM {APACHE_IDX}
-        | WHERE host.name == ? AND @timestamp >= NOW() - {minutes} minutes {extra}
-        | KEEP @timestamp, source.ip, url.path, http.request.method,
+        FROM {APACHE_IDX} METADATA _id, _index
+        | WHERE host.name == ? AND @timestamp >= NOW() - {int(minutes)} minutes {extra}
+        | KEEP _id, _index, @timestamp, source.ip, url.path, http.request.method,
                http.response.status_code, http.response.body.bytes, user_agent.original
         | SORT @timestamp DESC
         | LIMIT 200
@@ -359,6 +369,7 @@ def tool_apache_requests(host_name: str, minutes: int = 30, status: int | None =
 
 
 @tool
+@_traced
 def tool_eql_sequence(query: str, index: str = PROC_IDX) -> dict:
     """
     Secvente corelate — asta e ce KQL nu poate face si de ce ai nevoie de EQL.
@@ -379,16 +390,17 @@ def tool_eql_sequence(query: str, index: str = PROC_IDX) -> dict:
 
 
 @tool
+@_traced
 def tool_suricata_alerts(source_ip: str, minutes: int = 60) -> dict:
     """Alertele Suricata (IDS) generate de un IP sursa in ultimele N minute.
     Foloseste asta ca sa vezi daca traficul de la un IP a declansat semnaturi
     de retea cunoscute."""
     rows = _esql(
         f"""
-        FROM {SURICATA_IDX}
-        | WHERE source.ip == ? AND @timestamp >= NOW() - {minutes} minutes
+        FROM {SURICATA_IDX} METADATA _id, _index
+        | WHERE source.ip == ? AND @timestamp >= NOW() - {int(minutes)} minutes
           AND event.kind == "alert"
-        | KEEP @timestamp, rule.name, rule.category, destination.ip, destination.port
+        | KEEP _id, _index, @timestamp, rule.name, rule.category, destination.ip, destination.port
         | LIMIT 100
         """,
         params=[source_ip],
@@ -397,6 +409,7 @@ def tool_suricata_alerts(source_ip: str, minutes: int = 60) -> dict:
 
 
 @tool
+@_traced
 def tool_rarity_of(field: str, value: str, host_name: str | None = None) -> dict:
     """
     Cat de neobisnuit e X aici? Intrebarea pe care agentul trebuie s-o poata pune

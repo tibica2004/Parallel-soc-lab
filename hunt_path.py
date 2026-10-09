@@ -39,7 +39,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
+import time
+
 from elastic_tools import HUNT_TOOLS, ES, _esql
+from tracing import record_llm
 from llm import get_llm, parse_json_response, NO_THINK
 from schemas import MITRE_RE
 from schemas import (
@@ -356,9 +359,17 @@ def _i_seed(state: InvestigatorState) -> dict:
     }
 
 
+def _tokens(resp) -> int:
+    return resp.usage_metadata.get("total_tokens", 0) if getattr(resp, "usage_metadata", None) else 0
+
+
 def _make_investigate(llm):
     def _i_investigate(state: InvestigatorState) -> dict:
+        t0 = time.monotonic()
         resp = llm.invoke(state["messages"])
+        role = "investigator_b" if state.get("role_note") == SECONDARY_NOTE else "investigator_a"
+        record_llm(role, _tokens(resp),
+                   int((time.monotonic() - t0) * 1000), [tc["name"] for tc in (resp.tool_calls or [])])
         if os.environ.get("VERBOSE") == "1":
             for tc in (resp.tool_calls or []):
                 print(f"      -> {tc['name']}({json.dumps(tc['args'], ensure_ascii=False)[:110]})", flush=True)
@@ -397,8 +408,10 @@ def _make_conclude(llm):
                 p = None
         # Altfel, cere explicit verdictul (un apel in plus doar cand chiar e nevoie).
         if p is None:
+            t0 = time.monotonic()
             resp = llm.invoke(state["messages"] + [HumanMessage(
                 content="Da verdictul in formatul JSON cerut, cu campul `evidence`.")])
+            record_llm("conclude", _tokens(resp), int((time.monotonic() - t0) * 1000))
             try:
                 p = parse_json_response(resp.content)
             except ValueError:

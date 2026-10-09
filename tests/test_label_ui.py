@@ -25,10 +25,24 @@ class FakeES:
         }
         self.audit = {"inv1": {"narrative": XSS, "escalate": False, "escalation_reasons": [],
                                "policy_decision": "none: ok"}}
+        self.traces = {"inv1": {"totals": {"llm_calls": 1, "tokens": 50, "tool_calls": 1, "tool_errors": 0,
+                                           "doc_refs": 1, "duration_ms": 1500},
+                                "events": [{"type": "tool", "name": "tool_eql_sequence", "args": XSS,
+                                            "rows": 1, "duration_ms": 30, "error": None,
+                                            "doc_refs": [{"index": "idx", "id": "DOCX"}]},
+                                           {"type": "llm", "role": "fast.verdict", "tokens": 50,
+                                            "duration_ms": 900, "tool_calls": []}]}}
+        self.traces_denied = False
         self.updates = []
         self.conflict = False
 
     def search(self, index, query, size=10, sort=None, from_=0, aggs=None, track_total_hits=None):
+        if index == "soc-traces":
+            if self.traces_denied:
+                raise RuntimeError("403")
+            inv = query["bool"]["filter"][0]["term"]["investigation_id.keyword"]
+            hits = [{"_source": self.traces[inv]}] if inv in self.traces else []
+            return {"hits": {"hits": hits}}
         if index == "soc-audit":
             inv = query["bool"]["filter"][0]["term"]["investigation_id.keyword"]
             hits = [{"_source": self.audit[inv]}] if inv in self.audit else []
@@ -149,3 +163,18 @@ def test_logout(client):
     csrf = _login(client)
     client.post("/logout", data={"csrf": csrf})
     assert client.get("/").status_code == 303
+
+
+def test_urma_afisata_si_escapata(client):
+    _login(client)
+    page = client.get("/v/doc1").text
+    assert "tool_eql_sequence" in page and "_id:DOCX" in page and "fast.verdict" in page
+    assert XSS not in page
+
+
+def test_urma_lipsa_sau_fara_drept(client, es):
+    _login(client)
+    assert "Nicio urma" in client.get("/v/doc2").text
+    es.traces_denied = True
+    r = client.get("/v/doc1")
+    assert r.status_code == 200 and "Nicio urma" in r.text

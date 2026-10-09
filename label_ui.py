@@ -44,6 +44,7 @@ from labeling import DOC_ID_RE, LabelInput, build_label_update, outcome
 
 VERDICTS_IDX = "verdicts-history"
 AUDIT_IDX = "soc-audit"
+TRACES_IDX = "soc-traces"
 PAGE_SIZE = 50
 MAX_PAGE = 100
 MIN_PASSWORD_LEN = 12
@@ -196,6 +197,18 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
         hits = r["hits"]["hits"]
         return hits[0]["_source"] if hits else None
 
+    def _trace_for(src: dict) -> dict | None:
+        inv = src.get("investigation_id")
+        if not inv:
+            return None
+        try:
+            r = es.search(index=TRACES_IDX, size=1, sort=[{"@timestamp": "desc"}],
+                          query={"bool": {"filter": [{"term": {"investigation_id.keyword": inv}}]}})
+        except Exception:
+            return None   # indexul lipseste sau cheia n-are drept: pagina merge si fara urma
+        hits = r["hits"]["hits"]
+        return hits[0]["_source"] if hits else None
+
     @app.get("/v/{doc_id}", response_class=HTMLResponse)
     def detail(request: Request, doc_id: str, error: str | None = None):
         if not _authed(request):
@@ -205,6 +218,7 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
             return _render(request, "notfound", status_code=404)
         src = doc["_source"]
         return _render(request, "detail", doc_id=doc_id, v=src, audit=_audit_for(src),
+                       trace=_trace_for(src),
                        if_attack=outcome(src, "attack"), if_benign=outcome(src, "benign"),
                        error=error)
 

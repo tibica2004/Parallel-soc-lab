@@ -17,6 +17,7 @@ modelului, cu functia de citire injectabila (testabil fara retea).
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import threading
@@ -122,10 +123,11 @@ def run_with_timeout(fn: Callable[[], Any], timeout_s: float) -> Any:
     Firul blocat nu poate fi oprit din Python — il lasam sa se termine singur
     (e daemon, iar clientul LLM are oricum timeout propriu), rezultatul se ignora."""
     box: dict = {}
+    ctx = contextvars.copy_context()   # urma cazului (tracing) trebuie sa ajunga si in fir
 
     def target():
         try:
-            box["result"] = fn()
+            box["result"] = ctx.run(fn)
         except BaseException as e:   # transmis apelantului
             box["error"] = e
 

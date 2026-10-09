@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from typing import TypedDict
 
@@ -33,6 +34,7 @@ from hunt_path import (
 )
 from llm import NO_THINK, get_llm, parse_json_response
 from schemas import MITRE_RE, ActionType, Classification, EntityType, Verdict
+from tracing import record_llm
 
 BASELINE_PC = "baseline-entity-parentchild"
 
@@ -313,9 +315,12 @@ def node_prefetch(state: FastState) -> dict:
     return {"context": ctx}
 
 
-def _ask(system: str, payload: dict, fallback: dict) -> dict:
+def _ask(system: str, payload: dict, fallback: dict, step: str = "fast") -> dict:
+    t0 = time.monotonic()
     resp = llm_fast.invoke([SystemMessage(content=system),
                             HumanMessage(content=json.dumps(payload, default=str))])
+    used = resp.usage_metadata.get("total_tokens", 0) if getattr(resp, "usage_metadata", None) else 0
+    record_llm(step, used, int((time.monotonic() - t0) * 1000))
     try:
         return parse_json_response(resp.content)
     except ValueError:
@@ -327,14 +332,15 @@ def node_pattern(state: FastState) -> dict:
     payload = {"context": state["context"],
                "alert": {"rule": _g(a, "kibana.alert.rule.name"),
                          "severity": _g(a, "kibana.alert.severity")}}
-    p = _ask(PATTERN_PROMPT, payload, {"uniqueness": "RARE", "pattern_notes": "parsare esuata"})
+    p = _ask(PATTERN_PROMPT, payload, {"uniqueness": "RARE", "pattern_notes": "parsare esuata"}, "fast.pattern")
     return {"pattern": p}
 
 
 def node_verdict(state: FastState) -> dict:
     payload = {"pattern_analysis": state["pattern"], "context": state["context"]}
     v = _ask(VERDICT_PROMPT, payload,
-             {"classification": "undetermined", "confidence": 0, "narrative": "parsare esuata"})
+             {"classification": "undetermined", "confidence": 0, "narrative": "parsare esuata"},
+             "fast.verdict")
     if os.environ.get("VERBOSE") == "1":
         print(f"      concluzie: {v.get('classification')}/{v.get('confidence')}", flush=True)
     return {"raw_verdict": v}

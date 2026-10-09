@@ -125,6 +125,33 @@
     </dl>{% else %}<p class="mut">Nicio inregistrare de audit pentru acest verdict.</p>{% endif %}
     </div>
 
+    <h2>Urma agentului</h2>
+    <div class="card">
+    {% if trace %}
+      {% set t = trace.totals or {} %}
+      <p class="mut">{{ t.llm_calls }} apeluri de model · {{ t.tokens }} tokeni · {{ t.tool_calls }} apeluri de unelte
+        ({{ t.tool_errors }} esuate) · {{ t.doc_refs }} documente · {{ "%.1f"|format((t.duration_ms or 0) / 1000) }} s</p>
+      <div class="wrap"><table class="tbl">
+        <tr><th>#</th><th>Pas</th><th>Detalii</th><th>Durata</th></tr>
+        {% for ev in trace.events or [] %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          {% if ev.type == "llm" %}
+            <td>model · {{ ev.role }}</td>
+            <td>{{ ev.tokens }} tokeni{% if ev.tool_calls %} · cere: {{ ev.tool_calls | join(", ") }}{% endif %}</td>
+          {% else %}
+            <td>{{ ev.name }}{% if ev.error %} <span class="err">{{ ev.error }}</span>{% endif %}</td>
+            <td><pre class="untrusted">{{ ev.args }}</pre>
+              <span class="mut">{{ ev.rows if ev.rows is not none else "—" }} randuri · {{ (ev.doc_refs or []) | length }} documente</span>
+              {% for r in (ev.doc_refs or [])[:5] %}<br><span class="mut">{{ r.index }} _id:{{ r.id }}</span>{% endfor %}</td>
+          {% endif %}
+          <td>{{ ev.duration_ms }} ms</td>
+        </tr>
+        {% endfor %}
+      </table></div>
+    {% else %}<p class="mut">Nicio urma pentru acest verdict (anterior fazei 5 sau fara drept de citire pe soc-traces).</p>{% endif %}
+    </div>
+
     <h2>Eticheta</h2>
     <div class="card">
       {% if v.ground_truth %}

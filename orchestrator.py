@@ -25,6 +25,7 @@ import uuid
 from datetime import datetime, timezone
 
 import degraded
+import tracing
 from escalation import EscalationDecision, should_escalate
 from policy import decide
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
@@ -40,6 +41,7 @@ ES = Elasticsearch(
 ALERTS_IDX = ".alerts-security.alerts-*"
 AUDIT_IDX = "soc-audit"
 VERDICTS_IDX = "verdicts-history"
+TRACES_IDX = "soc-traces"
 
 # Client separat DOAR pentru scriere in audit + verdicte. Cheia lui poate scrie
 # doar in aceste indici; nu poate atinge logurile sau alertele. In dry-run e None.
@@ -71,7 +73,10 @@ def fetch_alerts_between(since, until, limit: int) -> list[dict]:
                   ], "must_not": [
                       {"term": {"kibana.alert.workflow_status": "closed"}},
                   ]}})
-    return [h["_source"] for h in r["hits"]["hits"]]
+    # _soc_ref: referinta opaca la documentul alertei, pentru evidence_refs.
+    # Nu intra in contextul modelului (fast_path alege campurile explicit).
+    return [{**h["_source"], "_soc_ref": {"index": h["_index"], "id": h["_id"]}}
+            for h in r["hits"]["hits"]]
 
 
 def fetch_new_alerts(minutes: int, limit: int) -> list[dict]:
@@ -103,6 +108,49 @@ def with_chain(verdict):
     model_validate (nu model_copy) ca validarea Pydantic sa ruleze si aici."""
     from schemas import Verdict
     return Verdict.model_validate({**verdict.model_dump(), "chain_id": str(uuid.uuid4())})
+
+
+def alert_ref(a: dict):
+    """EvidenceRef pentru documentul alertei (doar ID-uri, niciun continut)."""
+    from schemas import EvidenceRef
+    ref, ts = a.get("_soc_ref") or {}, _g(a, "@timestamp")
+    if not (ref.get("index") and ref.get("id") and ts):
+        return None
+    try:
+        return EvidenceRef(index=ref["index"], doc_id=ref["id"],
+                           timestamp=datetime.fromisoformat(ts.replace("Z", "+00:00")))
+    except (ValueError, TypeError):
+        return None
+
+
+def with_evidence(verdict, refs):
+    """Adauga referinte la verdict: unice, cel mult 50, validate de Pydantic.
+    Le construieste CODUL (din alerta si din urma uneltelor), nu modelul."""
+    from schemas import Verdict
+    seen, out = set(), []
+    for r in list(verdict.evidence_refs) + [r for r in refs if r is not None]:
+        if (r.index, r.doc_id) not in seen:
+            seen.add((r.index, r.doc_id))
+            out.append(r)
+    return Verdict.model_validate({**verdict.model_dump(), "evidence_refs": [x.model_dump() for x in out[:50]]})
+
+
+_trace_warned = False
+
+
+def persist_trace(doc: dict) -> None:
+    """Urma cazului in soc-traces. Un esec aici nu opreste auditul (ex. cheia de
+    writer fara drept pe soc-traces): se semnaleaza o data, apoi se continua."""
+    global _trace_warned
+    if WRITER is None:
+        return
+    try:
+        WRITER.index(index=TRACES_IDX, document=doc)
+    except Exception as e:
+        if not _trace_warned:
+            print(f"  [trasare] scrierea in {TRACES_IDX} a esuat: {type(e).__name__} "
+                  f"(urmele nu se salveaza pana se rezolva)", flush=True)
+            _trace_warned = True
 
 
 def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
@@ -217,12 +265,20 @@ def _save_seen(seen: BoundedSeen) -> None:
         print(f"  [dedup] salvare esuata: {e}", flush=True)
 
 
-def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalation=None, failure=None):
-    """Lant + politica + afisare + audit, comun tuturor cazurilor (cu sau fara model)."""
-    v = with_chain(v); d = decide(v)
+def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalation=None,
+            failure=None, trace=None, refs=()):
+    """Lant + dovezi + politica + afisare + audit + urma, comun tuturor cazurilor
+    (cu sau fara model)."""
+    v = with_chain(v)
+    v = with_evidence(v, list(refs) + (trace.refs() if trace else []))
+    d = decide(v)
     show(kind, entity, v, narrative, d, escalation)
     persist(v, narrative, d, t0, datetime.now(timezone.utc), extra,
             escalation=escalation, failure=failure)
+    if trace is not None:
+        persist_trace(trace.document(chain_id=v.chain_id, investigation_id=v.investigation_id,
+                                     source_path=v.source_path, entity=entity,
+                                     failure=failure.value if failure else None))
     return v
 
 
@@ -245,31 +301,34 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
         t0 = datetime.now(timezone.utc)
         failure = None
         try:
-            if not model_ok:
-                failure = degraded.FailureKind.MODEL_UNAVAILABLE
-            else:
-                if hunt is None:
-                    from hunt_path import build_hunt_path
-                    hunt = build_hunt_path()
-                try:
-                    out = degraded.run_with_timeout(
-                        lambda: hunt.invoke({"finding": f}, config={"recursion_limit": 80}),
-                        degraded.CASE_TIMEOUT_HUNT_S)
-                except degraded.CaseTimeout:
-                    failure = degraded.FailureKind.CASE_TIMEOUT
-                except Exception as e:
-                    print(f"  [EROARE] {entity}: {e}", flush=True)
-                    model_ok = degraded.llm_healthy("hunt")
-                    failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
-                               else degraded.FailureKind.MODEL_UNAVAILABLE)
-            if failure is not None:
-                _record("LENT", entity, degraded.no_model_verdict(f.entity_id, "hunt"),
-                        degraded.NARRATIVE[failure], t0, failure=failure)
-                continue   # nemarcat: se reia cand modelul revine
-            _record("LENT", entity, out["verdict"], out.get("narrative", ""), t0,
-                    {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])})
-            # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
-            seen.add(k)
+            with tracing.case() as tr:
+                if not model_ok:
+                    failure = degraded.FailureKind.MODEL_UNAVAILABLE
+                else:
+                    if hunt is None:
+                        from hunt_path import build_hunt_path
+                        hunt = build_hunt_path()
+                    try:
+                        out = degraded.run_with_timeout(
+                            lambda: hunt.invoke({"finding": f}, config={"recursion_limit": 80}),
+                            degraded.CASE_TIMEOUT_HUNT_S)
+                    except degraded.CaseTimeout:
+                        failure = degraded.FailureKind.CASE_TIMEOUT
+                    except Exception as e:
+                        print(f"  [EROARE] {entity}: {e}", flush=True)
+                        model_ok = degraded.llm_healthy("hunt")
+                        failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
+                                   else degraded.FailureKind.MODEL_UNAVAILABLE)
+                if failure is not None:
+                    _record("LENT", entity, degraded.no_model_verdict(f.entity_id, "hunt"),
+                            degraded.NARRATIVE[failure], t0, failure=failure, trace=tr,
+                            refs=f.evidence_refs)
+                    continue   # nemarcat: se reia cand modelul revine
+                _record("LENT", entity, out["verdict"], out.get("narrative", ""), t0,
+                        {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])},
+                        trace=tr, refs=f.evidence_refs)
+                # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
+                seen.add(k)
         except Exception as e:
             # Nici auditul nu s-a putut scrie (ex. Elasticsearch cazut).
             print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}", flush=True)
@@ -356,44 +415,45 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
         t0 = datetime.now(timezone.utc)
         failure = None
         try:
-            if backlog and degraded.is_severe(a):
-                v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
-                                     degraded.NARRATIVE[None], degraded.backlog_escalation())
-            elif not model_ok:
-                failure = degraded.FailureKind.MODEL_UNAVAILABLE
-            else:
-                if fast is None:
-                    from fast_path import build_fast_path
-                    fast = build_fast_path()
-                try:
-                    out = degraded.run_with_timeout(
-                        lambda: fast.invoke({"alert": a}, config={"recursion_limit": 25}),
-                        degraded.CASE_TIMEOUT_FAST_S)
-                    v, narrative = out["verdict"], out.get("narrative", "")
-                    # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
-                    # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
-                    esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
-                                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
-                except degraded.CaseTimeout:
-                    failure = degraded.FailureKind.CASE_TIMEOUT
-                except Exception as e:
-                    print(f"  [EROARE] {entity}: {e}", flush=True)
-                    # Model cazut in mijlocul lotului? Restul lotului nu mai asteapta
-                    # cate un timeout fiecare: trece direct pe modul degradat.
-                    model_ok = degraded.llm_healthy("fast")
-                    failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
-                               else degraded.FailureKind.MODEL_UNAVAILABLE)
-            if failure is not None:
-                v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
-                                     degraded.NARRATIVE[failure], degraded.failure_escalation())
-            _record("RAPID", entity, v, narrative, t0, {"rule_name": rule},
-                    escalation=esc, failure=failure)
-            # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
-            seen.add(k)
-            if stats is not None:
-                stats["total"] += 1
-                stats["escalated"] += int(esc.escalate)
-                stats["no_model"] = stats.get("no_model", 0) + int(v.model_id == "none")
+            with tracing.case() as tr:
+                if backlog and degraded.is_severe(a):
+                    v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
+                                         degraded.NARRATIVE[None], degraded.backlog_escalation())
+                elif not model_ok:
+                    failure = degraded.FailureKind.MODEL_UNAVAILABLE
+                else:
+                    if fast is None:
+                        from fast_path import build_fast_path
+                        fast = build_fast_path()
+                    try:
+                        out = degraded.run_with_timeout(
+                            lambda: fast.invoke({"alert": a}, config={"recursion_limit": 25}),
+                            degraded.CASE_TIMEOUT_FAST_S)
+                        v, narrative = out["verdict"], out.get("narrative", "")
+                        # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
+                        # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
+                        esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
+                                              pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+                    except degraded.CaseTimeout:
+                        failure = degraded.FailureKind.CASE_TIMEOUT
+                    except Exception as e:
+                        print(f"  [EROARE] {entity}: {e}", flush=True)
+                        # Model cazut in mijlocul lotului? Restul lotului nu mai asteapta
+                        # cate un timeout fiecare: trece direct pe modul degradat.
+                        model_ok = degraded.llm_healthy("fast")
+                        failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
+                                   else degraded.FailureKind.MODEL_UNAVAILABLE)
+                if failure is not None:
+                    v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
+                                         degraded.NARRATIVE[failure], degraded.failure_escalation())
+                _record("RAPID", entity, v, narrative, t0, {"rule_name": rule},
+                        escalation=esc, failure=failure, trace=tr, refs=[alert_ref(a)])
+                # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
+                seen.add(k)
+                if stats is not None:
+                    stats["total"] += 1
+                    stats["escalated"] += int(esc.escalate)
+                    stats["no_model"] = stats.get("no_model", 0) + int(v.model_id == "none")
         except Exception as e:
             # Nici auditul nu s-a putut scrie: nemarcat, dar cursorul trece mai departe.
             print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}")
