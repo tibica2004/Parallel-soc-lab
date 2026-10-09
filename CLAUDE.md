@@ -1,3 +1,10 @@
+Lucrezi in ~/lab pe elastic-lab: un SOC agentic Blue Team construit pe Elastic Stack + modele locale. Codul existent e baza; NU il rescrii de la zero, il extinzi.
+
+Documente de citit la inceputul unei faze noi:
+- docs/faze.md — fazele, in ordine, si starea curenta.
+- docs/arhitectura.md — diagrama arhitecturii tinta (Mermaid).
+- Istoricul complet al proiectarii (conversatia claude.ai, 09.09–09.10.2026, secrete redactate) e in ~/claude/blue-team-conversatie.md, IN AFARA repo-ului. Nu il copia in repo; cauta in el cu grep doar cand ai nevoie de motivul unei decizii.
+
 =====================================================================
 CONTEXT
 =====================================================================
@@ -38,7 +45,7 @@ PRINCIPII NENEGOCIABILE
 =====================================================================
 REGULI DE LUCRU
 =====================================================================
-- Lucrezi pe faze, in ordinea de mai jos. O ramura git per faza (faza-NN-nume), commit-uri mici, mesaje clare. Nu faci push si nu faci merge in main: eu le fac dupa ce revizuiesc.
+- Lucrezi pe faze, in ordinea din docs/faze.md. O ramura git per faza (faza-NN-nume), commit-uri mici, mesaje clare. Nu faci push si nu faci merge in main: eu le fac dupa ce revizuiesc.
 - La SFARSITUL fiecarei faze te OPRESTI si imi dai un raport: ce fisiere s-au schimbat si de ce, rezultatele testelor (cu cifre), decizii luate si alternativele respinse, riscuri ramase. Astepti confirmarea mea inainte de faza urmatoare.
 - Inainte de orice test lung, o verificare de cateva secunde (import, test unitar, rulare pe un singur caz).
 - Orice faza care atinge logica de verdict ruleaza la final harness-ul dev; cele care ating Tier 1 si scenarios_fast. Orice regresie fata de referinta = te opresti si raportezi, nu "repari" ajustand scenariile sau pragurile ca sa treaca.
