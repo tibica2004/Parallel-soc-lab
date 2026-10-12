@@ -65,8 +65,12 @@ def test_doar_etichetarea_scrie_eticheta_umana():
         if p.name in allowed:
             continue
         s = p.read_text(encoding="utf-8")
-        if re.search(r"""label_source""", s):
-            bad.append(f"{p.name}: label_source")
+        # scrieri de label_source: atribuire sau literal in dict. Citirea (ex. metrics.py,
+        # d.get("label_source") == "human") e permisa.
+        for pat in (r"""\[["']label_source["']\]\s*=(?!=)""",
+                    r"""["']label_source["']\s*:\s*["']"""):
+            for m in re.finditer(pat, s):
+                bad.append(f"{p.name}:{s[:m.start()].count(chr(10)) + 1} label_source")
         # scrieri: atribuire non-None (x["ground_truth"] = ...) sau eticheta literala
         # intr-un dict ("ground_truth": "attack"). Citirile (==, .get) sunt permise.
         for pat in (r"""\[["']ground_truth["']\]\s*=(?!=)(?!\s*None\b)""",

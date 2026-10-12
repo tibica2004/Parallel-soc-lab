@@ -138,6 +138,24 @@ def with_evidence(verdict, refs):
 
 
 _trace_warned = False
+_metrics_warned = False
+
+
+def _metrics_snapshot() -> None:
+    """Instantaneu de metrici in soc-metrics (metrics.py), pentru dashboard-ul din
+    Kibana. Calculat in afara grafului; un esec nu opreste ciclul."""
+    global _metrics_warned
+    if WRITER is None:
+        return
+    try:
+        import metrics
+        docs = metrics.compute_and_write(WRITER, datetime.now(timezone.utc), days=1)
+        print(f"  [metrici] instantaneu scris ({len(docs)} documente)", flush=True)
+    except Exception as e:
+        if not _metrics_warned:
+            print(f"  [metrici] instantaneul a esuat: {type(e).__name__} "
+                  f"(se reincearca la urmatorul interval, fara alte mesaje)", flush=True)
+            _metrics_warned = True
 
 
 def persist_trace(doc: dict) -> None:
@@ -384,6 +402,9 @@ def run_positioned(args) -> int:
             else:
                 save_cursor(until)   # fereastra golita (sau goala): avansam
 
+            if args.metrics_every > 0 and (cycle - 1) % args.metrics_every == 0:
+                _metrics_snapshot()
+
             run_sweep = (args.sweep if not args.loop
                          else args.sweep_every > 0 and (cycle - 1) % args.sweep_every == 0)
             if run_sweep:
@@ -522,6 +543,8 @@ def main() -> int:
                     help="in --loop: sweep la fiecare N cicluri (30 x 120s = o ora); 0 = niciodata")
     ap.add_argument("--hunt-limit", type=int, default=5,
                     help="cate findings investigheaza calea lenta pe ciclu (fiecare ~1 min)")
+    ap.add_argument("--metrics-every", type=int, default=30,
+                    help="in --loop: instantaneu de metrici la fiecare N cicluri (30 x 120s = o ora); 0 = niciodata")
     ap.add_argument("--t2-limit", type=int, default=3,
                     help="cate alerte escaladate de Tier 1 merg la Tier 2 pe ciclu; restul raman la om")
     args = ap.parse_args()
