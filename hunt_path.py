@@ -700,6 +700,20 @@ def node_critic(state: HuntState) -> dict:
             "critic_cited": cited}
 
 
+def tier1_case_action_floor(classification: str, action: ActionType) -> ActionType:
+    """
+    Podea pe actiune pentru cazurile venite din Tier 1 (ca Podeaua 3 de pe calea
+    rapida). Un caz pe care triajul l-a escaladat si pe care Tier 2 il confirma ca
+    suspicious/malicious — sau nu-l poate lamuri (undetermined) — nu are voie sa se
+    termine pe none/enrich_only: ar insemna un atac recunoscut pe care nu-l vede
+    niciun om. Actiunile de continere propuse raman (le filtreaza decide()).
+    """
+    if classification in ("suspicious", "malicious", "undetermined") and \
+            action in (ActionType.NONE, ActionType.ENRICH_ONLY):
+        return ActionType.ESCALATE_HUMAN
+    return action
+
+
 def node_finalize(state: HuntState) -> dict:
     p = state["merged_draft"]
     f = state.get("finding")
@@ -734,6 +748,13 @@ def node_finalize(state: HuntState) -> dict:
             action = ActionType.ESCALATE_HUMAN
         elif p.get("classification") == "benign":
             action = ActionType.ESCALATE_HUMAN  # benign contestat -> ochi uman
+
+    # Doar pentru cazurile din Tier 1; calea pentru findings ramane neschimbata.
+    if c is not None and f is None:
+        floored = tier1_case_action_floor(p.get("classification", "undetermined"), action)
+        if floored is not action and os.environ.get("VERBOSE") == "1":
+            print(f"      podea Tier 2: {p.get('classification')} cu {action.value} -> escalate_human", flush=True)
+        action = floored
 
     verdict = Verdict(
         investigation_id=state["investigation_id"], source_path="hunt",

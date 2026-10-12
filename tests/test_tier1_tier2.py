@@ -234,3 +234,39 @@ def test_huntrunner_model_cazut(monkeypatch, rec):
     assert r.run({"case": _case()}, "TIER2", "e", "web-prod", chain_id=CID).value == "model_unavailable"
     (v, *_), k = rec[0]
     assert v.chain_id == CID and v.classification.value == "undetermined" and k["failure"].value == "model_unavailable"
+
+
+# ---------------- podeaua pe actiune pentru cazurile din Tier 1 ----------------
+
+from schemas import ActionType as A
+
+
+@pytest.mark.parametrize("cls,act,exp", [
+    ("suspicious", A.ENRICH_ONLY, A.ESCALATE_HUMAN),
+    ("malicious", A.NONE, A.ESCALATE_HUMAN),
+    ("undetermined", A.NONE, A.ESCALATE_HUMAN),
+    ("malicious", A.ISOLATE_HOST, A.ISOLATE_HOST),        # continerea ramane, o filtreaza decide()
+    ("suspicious", A.ESCALATE_HUMAN, A.ESCALATE_HUMAN),
+    ("benign", A.NONE, A.NONE),                            # Tier 2 poate inchide (decis cu Tiberiu)
+])
+def test_podea_tier2(cls, act, exp):
+    assert hunt_path.tier1_case_action_floor(cls, act) is exp
+
+
+def _finalize(monkeypatch, state_input, cls, act):
+    monkeypatch.setattr(hunt_path, "prefetch_context", lambda x: {})
+    state = {**state_input, "investigation_id": "i",
+             "merged_draft": {"classification": cls, "confidence": 70, "proposed_action": act}}
+    return hunt_path.node_finalize(state)["verdict"]
+
+
+def test_finalize_aplica_podeaua_pe_caz(monkeypatch):
+    v = _finalize(monkeypatch, {"case": _case()}, "suspicious", "enrich_only")
+    assert v.proposed_action is A.ESCALATE_HUMAN and v.entity_id == "web-prod"
+
+
+def test_finalize_nu_atinge_findings(monkeypatch):
+    f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
+                      detail={"parent": "dash", "child": "id"}, rarity_score=1.0)
+    v = _finalize(monkeypatch, {"finding": f}, "suspicious", "enrich_only")
+    assert v.proposed_action is A.ENRICH_ONLY
