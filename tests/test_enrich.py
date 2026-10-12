@@ -60,3 +60,11 @@ def test_enrich_complet():
     r = enrich.enrich(FakeES(), {**ALERT, "destination": {"ip": "203.0.113.7"}})
     assert r["correlated_alerts"]["count"] == 0
     assert [m["indicator"] for m in r["threat_intel_matches"]] == ["203.0.113.7"]
+
+
+def test_fereastra_de_5_minute():
+    es = FakeES()
+    r = enrich.correlated_alerts(es, ALERT, 5)
+    assert r["window_min"] == 5
+    assert es.calls[0]["query"]["bool"]["filter"][1]["range"]["@timestamp"] == {
+        "gte": "2026-10-12T09:55:00+00:00", "lte": "2026-10-12T10:05:00+00:00"}

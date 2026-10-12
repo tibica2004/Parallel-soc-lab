@@ -58,3 +58,21 @@ def test_agent_l1_ok_lasa_benignul():
 def test_guide_ramane_ultimul():
     ctx = fp._guide_last({"investigation_guide": "g", "a": 1, "enrichment": {}})
     assert list(ctx)[-1] == "investigation_guide"
+
+
+def test_fereastra_de_corelare():
+    c = fp.CONFIGS["C"].with_correlation_window(5).without_history()
+    assert (c.correlation_window_min, c.history, c.tools) == (5, False, True)
+    assert fp.CONFIGS["C"].correlation_window_min == 30          # productia neatinsa
+    for bad in (0, 121):
+        with pytest.raises(ValueError):
+            fp.CONFIGS["A"].with_correlation_window(bad)
+
+
+def test_fereastra_ajunge_in_interogare(monkeypatch):
+    import enrich
+    seen = {}
+    monkeypatch.setattr(fp, "build_context", lambda alert, history=True: {"execution": {}})
+    monkeypatch.setattr(enrich, "enrich", lambda es, alert, w=30: seen.setdefault("w", w) and {})
+    fp.make_prefetch(fp.CONFIGS["A"].with_correlation_window(5))({"alert": {}})
+    assert seen["w"] == 5

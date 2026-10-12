@@ -14,6 +14,10 @@ Istoricul etichetat (past_verdicts, RAG din verdicts-history) e OPRIT implicit:
 etichetele puse pe alertele produse de scenarii nu au voie sa se intoarca in
 evaluarea acelorasi scenarii. --cu-istoric il porneste (pentru comparatie).
 
+Fereastra alertelor corelate: implicit +-30 min, ca in productie. Scenariile vin
+la ~6 min unul de altul, deci la 30 min un caz vede si alertele scenariilor
+vecine. --fereastra-corelare 5 o micsoreaza doar pentru ablatie.
+
 Alertele preluate se salveaza (results/ablatie-alerte-*.json); --alerte <fisier>
 reia aceleasi alerte fara generare noua.
 
@@ -157,6 +161,8 @@ def main() -> int:
     ap.add_argument("--treceri", type=int, default=1)
     ap.add_argument("--alerte", help="fisier JSON cu alerte salvate anterior (fara generare)")
     ap.add_argument("--cu-istoric", action="store_true", help="porneste istoricul etichetat")
+    ap.add_argument("--fereastra-corelare", type=int, default=30,
+                    help="+- minute pentru alertele corelate (productie: 30)")
     ap.add_argument("--web-prod-host", default="tiberiu@172.20.99.240")
     ap.add_argument("--doar", help="ruleaza doar scenariul cu acest nume")
     args = ap.parse_args()
@@ -169,8 +175,10 @@ def main() -> int:
     for c in cfg_names:
         if c not in CONFIGS:
             raise SystemExit(f"configuratie necunoscuta: {c}")
-    graphs = {c: build_fast_path(CONFIGS[c] if args.cu_istoric else CONFIGS[c].without_history())
-              for c in cfg_names}
+    def _cfg(c):
+        cfg = CONFIGS[c].with_correlation_window(args.fereastra_corelare)
+        return cfg if args.cu_istoric else cfg.without_history()
+    graphs = {c: build_fast_path(_cfg(c)) for c in cfg_names}
 
     path = Path(os.environ.get("SCENARIOS", "scenarios_ablation.yml"))
     scenarios = yaml.safe_load(path.read_text(encoding="utf-8"))["scenarios"]
@@ -179,7 +187,8 @@ def main() -> int:
     saved = json.loads(Path(args.alerte).read_text(encoding="utf-8")) if args.alerte else {}
 
     print(f"=== Ablatie Tier 1: {len(scenarios)} scenarii x {cfg_names} x {args.treceri} treceri"
-          f" | istoric {'pornit' if args.cu_istoric else 'oprit'} ===\n", flush=True)
+          f" | istoric {'pornit' if args.cu_istoric else 'oprit'}"
+          f" | corelare +-{args.fereastra_corelare} min ===\n", flush=True)
     rows, alerts = [], {}
     for i, sc in enumerate(scenarios):
         name = sc["name"]

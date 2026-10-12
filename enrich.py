@@ -34,7 +34,8 @@ def _tree_ids(a: dict) -> set[str]:
             if isinstance(x, str) and x}
 
 
-def summarize_correlated(sources: list[dict], self_uuid: str | None, tree: set[str] | frozenset = frozenset()) -> dict:
+def summarize_correlated(sources: list[dict], self_uuid: str | None, tree: set[str] | frozenset = frozenset(),
+                         window_min: int = CORRELATION_WINDOW_MIN) -> dict:
     """Functie pura: rezumatul alertelor corelate (fara alerta curenta).
     `same_process_tree` = cate impart procesul sau parintele cu alerta curenta:
     legatura directa, spre deosebire de simpla vecinatate in timp pe host."""
@@ -52,7 +53,7 @@ def summarize_correlated(sources: list[dict], self_uuid: str | None, tree: set[s
         if sev in SEVERITY_RANK and (max_sev is None or SEVERITY_RANK[sev] > SEVERITY_RANK[max_sev]):
             max_sev = sev
     rules = sorted(by_rule.items(), key=lambda kv: (-kv[1], kv[0]))[:MAX_RULES]
-    return {"window_min": CORRELATION_WINDOW_MIN, "count": n, "same_process_tree": same_tree,
+    return {"window_min": window_min, "count": n, "same_process_tree": same_tree,
             "max_severity": max_sev,
             "rules": [{"rule": r, "count": c} for r, c in rules]}
 
@@ -76,9 +77,9 @@ def correlated_alerts(es, alert: dict, window_min: int = CORRELATION_WINDOW_MIN)
     except Exception:
         return None
     return summarize_correlated([h["_source"] for h in r["hits"]["hits"]],
-                                threat_intel._g(alert, "kibana.alert.uuid"), _tree_ids(alert))
+                                threat_intel._g(alert, "kibana.alert.uuid"), _tree_ids(alert), int(window_min))
 
 
-def enrich(es, alert: dict) -> dict:
-    return {"correlated_alerts": correlated_alerts(es, alert),
+def enrich(es, alert: dict, window_min: int = CORRELATION_WINDOW_MIN) -> dict:
+    return {"correlated_alerts": correlated_alerts(es, alert, window_min),
             "threat_intel_matches": threat_intel.lookup(threat_intel.extract_indicators(alert))}

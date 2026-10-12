@@ -23,7 +23,7 @@ import json
 import os
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -71,15 +71,23 @@ class FastConfig:
       D = A + RAG + unelte
     `history` = verdictele anterioare etichetate pe aceeasi regula (productie: da;
     in ablatie se opreste, ca etichetele de pe alertele scenariilor sa nu se
-    intoarca in evaluare)."""
+    intoarca in evaluare).
+    `correlation_window_min` = fereastra alertelor corelate (+- minute). In
+    ablatie se poate micsora, ca alertele scenariilor vecine sa nu intre in caz."""
     name: str = "base"
     enrich: bool = False
     rag: bool = False
     tools: bool = False
     history: bool = True
+    correlation_window_min: int = 30
 
     def without_history(self) -> "FastConfig":
-        return FastConfig(self.name, self.enrich, self.rag, self.tools, history=False)
+        return replace(self, history=False)
+
+    def with_correlation_window(self, minutes: int) -> "FastConfig":
+        if not 1 <= int(minutes) <= 120:
+            raise ValueError("fereastra de corelare trebuie sa fie intre 1 si 120 de minute")
+        return replace(self, correlation_window_min=int(minutes))
 
 
 CONFIGS = {
@@ -327,8 +335,8 @@ Raspunde DOAR cu JSON:
 
 EXTENDED_RULES = """
 CONTEXT SUPLIMENTAR (cand exista):
-- `enrichment.correlated_alerts`: alte alerte pe acelasi host in +-30 min, calculate
-  de cod. `same_process_tree` = cate sunt legate direct de acelasi proces sau
+- `enrichment.correlated_alerts`: alte alerte pe acelasi host in +-`window_min`
+  minute, calculate de cod. `same_process_tree` = cate sunt legate direct de acelasi proces sau
   parinte: acelea intaresc suspiciunea. Restul (`count`) sunt doar vecine in timp
   si pot apartine altei activitati de pe host.
 - `enrichment.threat_intel_matches`: indicatori din alerta gasiti EXACT in lista de
@@ -383,7 +391,7 @@ def make_prefetch(cfg: FastConfig):
         ctx = build_context(state["alert"], history=cfg.history)
         if cfg.enrich:
             from enrich import enrich
-            ctx["enrichment"] = enrich(ES, state["alert"])
+            ctx["enrichment"] = enrich(ES, state["alert"], cfg.correlation_window_min)
             _guide_last(ctx)
         if os.environ.get("VERBOSE") == "1":
             ex = ctx["execution"]
