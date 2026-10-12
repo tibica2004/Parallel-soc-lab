@@ -1,0 +1,88 @@
+[1/14] RCE — webshell ruleaza id (adevar: attack)
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+    A : malicious/95 suport=1 unelte=0 12s
+    Bq: malicious/95 suport=1 unelte=0 16s
+    Br: suspicious/75 suport=4 unelte=8 11s
+[2/14] RCE — webshell ruleaza whoami (adevar: attack)
+    A : suspicious/75 suport=1 unelte=1 21s
+    Bq: malicious/95 suport=1 unelte=3 26s
+    Br: suspicious/85 suport=0 unelte=1 5s
+[3/14] RCE — webshell citeste /etc/passwd (adevar: attack)
+    A : malicious/95 suport=3 unelte=4 34s
+    Bq: suspicious/75 suport=3 unelte=3 46s
+    Br: suspicious/80 suport=3 unelte=1 3s
+[4/14] Reverse shell — bash /dev/tcp (adevar: attack)
+    A : malicious/90 suport=1 unelte=0 11s
+    Bq: suspicious/90 suport=0 unelte=0 13s
+    Br: suspicious/75 suport=2 unelte=2 3s
+[5/14] Executie din /tmp — binar aruncat (adevar: attack)
+    A : malicious/95 suport=2 unelte=2 31s
+    Bq: suspicious/85 suport=1 unelte=0 18s
+    Br: malicious/90 suport=4 unelte=12 17s
+[6/14] Download payload — webshell lanseaza wget (adevar: attack)
+    A : suspicious/70 suport=1 unelte=3 33s
+    Bq: malicious/90 suport=1 unelte=0 23s
+    Br: benign/85 suport=1 unelte=2 6s
+[7/14] Admin curl catre localhost (adevar: benign)
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+    A : benign/95 suport=0 unelte=0 16s
+    Bq: benign/85 suport=0 unelte=0 11s
+    Br: suspicious/85 suport=3 unelte=11 6s
+[8/14] Admin verifica versiunea php (adevar: benign)
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+    A : benign/75 suport=0 unelte=0 11s
+    Bq: benign/95 suport=1 unelte=2 21s
+    Br: suspicious/75 suport=2 unelte=7 5s
+[9/14] Deploy legitim — script din /opt de admin (adevar: benign)
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+    A : benign/75 suport=0 unelte=0 21s
+    Bq: benign/90 suport=1 unelte=3 40s
+    Br: benign/85 suport=2 unelte=6 12s
+[10/14] Admin listeaza fisiere cu find (adevar: benign)
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+    A : benign/75 suport=1 unelte=1 23s
+    Bq: benign/70 suport=1 unelte=2 23s
+    Br: benign/95 suport=4 unelte=7 6s
+[11/14] Cron ruleaza sed (baseline normal) (adevar: benign)
+    A : benign/75 suport=1 unelte=0 10s
+    Bq: suspicious/70 suport=2 unelte=3 26s
+    Br: suspicious/70 suport=2 unelte=2 3s
+[12/14] Admin verifica procesele cu ps (adevar: benign)
+    A : benign/85 suport=1 unelte=1 22s
+    Bq: benign/70 suport=1 unelte=2 22s
+    Br: suspicious/75 suport=3 unelte=1 3s
+[13/14] Persistenta — cron job adaugat (adevar: attack)
+    A : malicious/95 suport=1 unelte=2 21s
+    Bq: malicious/95 suport=1 unelte=2 23s
+    Br: suspicious/75 suport=3 unelte=2 3s
+[14/14] Reverse shell in Python (adevar: attack)
+/home/tiberiu/lab/elastic_tools.py:64: ElasticsearchWarning: No limit defined, adding default limit of [1000]
+  resp = ES.esql.query(query=query, params=params or [], format="json")
+    A : suspicious/85 suport=1 unelte=0 13s
+    Bq: suspicious/85 suport=2 unelte=2 23s
+    Br: malicious/95 suport=3 unelte=6 6s
+
+============================================================
+A (Qwen3)      corect 14/14  undetermined 0  erori 0  timp mediu 20s
+B pe Qwen3     corect 13/14  undetermined 0  erori 0  timp mediu 24s
+B pe RedSage   corect 9/14  undetermined 0  erori 0  timp mediu 6s
+ACORD un model (A vs B_qwen): 8/14  | cand A greseste (0), B greseste si el: 0
+ACORD doua modele (A vs B_red): 4/14  | cand A greseste (0), B greseste si el: 0
+
+JSON: [{"name": "RCE — webshell ruleaza id", "gt": "attack", "A": {"cls": "malicious", "conf": 95, "support": 1, "tools": 0, "s": 12, "err": null}, "Bq": {"cls": "malicious", "conf": 95, "support": 1, "tools": 0, "s": 16, "err": null}, "Br": {"cls": "suspicious", "conf": 75, "support": 4, "tools": 8, "s": 11, "err": null}}, {"name": "RCE — webshell ruleaza whoami", "gt": "attack", "A": {"cls": "suspicious", "conf": 75, "support": 1, "tools": 1, "s": 21, "err": null}, "Bq": {"cls": "malicious", "conf": 95, "support": 1, "tools": 3, "s": 26, "err": null}, "Br": {"cls": "suspicious", "conf": 85, "support": 0, "tools": 1, "s": 5, "err": null}}, {"name": "RCE — webshell citeste /etc/passwd", "gt": "attack", "A": {"cls": "malicious", "conf": 95, "support": 3, "tools": 4, "s": 34, "err": null}, "Bq": {"cls": "suspicious", "conf": 75, "support": 3, "tools": 3, "s": 46, "err": null}, "Br": {"cls": "suspicious", "conf": 80, "support": 3, "tools": 1, "s": 3, "err": null}}, {"name": "Reverse shell — bash /dev/tcp", "gt": "attack", "A": {"cls": "malicious", "conf": 90, "support": 1, "tools": 0, "s": 11, "err": null}, "Bq": {"cls": "suspicious", "conf": 90, "support": 0, "tools": 0, "s": 13, "err": null}, "Br": {"cls": "suspicious", "conf": 75, "support": 2, "tools": 2, "s": 3, "err": null}}, {"name": "Executie din /tmp — binar aruncat", "gt": "attack", "A": {"cls": "malicious", "conf": 95, "support": 2, "tools": 2, "s": 31, "err": null}, "Bq": {"cls": "suspicious", "conf": 85, "support": 1, "tools": 0, "s": 18, "err": null}, "Br": {"cls": "malicious", "conf": 90, "support": 4, "tools": 12, "s": 17, "err": null}}, {"name": "Download payload — webshell lanseaza wget", "gt": "attack", "A": {"cls": "suspicious", "conf": 70, "support": 1, "tools": 3, "s": 33, "err": null}, "Bq": {"cls": "malicious", "conf": 90, "support": 1, "tools": 0, "s": 23, "err": null}, "Br": {"cls": "benign", "conf": 85, "support": 1, "tools": 2, "s": 6, "err": null}}, {"name": "Admin curl catre localhost", "gt": "benign", "A": {"cls": "benign", "conf": 95, "support": 0, "tools": 0, "s": 16, "err": null}, "Bq": {"cls": "benign", "conf": 85, "support": 0, "tools": 0, "s": 11, "err": null}, "Br": {"cls": "suspicious", "conf": 85, "support": 3, "tools": 11, "s": 6, "err": null}}, {"name": "Admin verifica versiunea php", "gt": "benign", "A": {"cls": "benign", "conf": 75, "support": 0, "tools": 0, "s": 11, "err": null}, "Bq": {"cls": "benign", "conf": 95, "support": 1, "tools": 2, "s": 21, "err": null}, "Br": {"cls": "suspicious", "conf": 75, "support": 2, "tools": 7, "s": 5, "err": null}}, {"name": "Deploy legitim — script din /opt de admin", "gt": "benign", "A": {"cls": "benign", "conf": 75, "support": 0, "tools": 0, "s": 21, "err": null}, "Bq": {"cls": "benign", "conf": 90, "support": 1, "tools": 3, "s": 40, "err": null}, "Br": {"cls": "benign", "conf": 85, "support": 2, "tools": 6, "s": 12, "err": null}}, {"name": "Admin listeaza fisiere cu find", "gt": "benign", "A": {"cls": "benign", "conf": 75, "support": 1, "tools": 1, "s": 23, "err": null}, "Bq": {"cls": "benign", "conf": 70, "support": 1, "tools": 2, "s": 23, "err": null}, "Br": {"cls": "benign", "conf": 95, "support": 4, "tools": 7, "s": 6, "err": null}}, {"name": "Cron ruleaza sed (baseline normal)", "gt": "benign", "A": {"cls": "benign", "conf": 75, "support": 1, "tools": 0, "s": 10, "err": null}, "Bq": {"cls": "suspicious", "conf": 70, "support": 2, "tools": 3, "s": 26, "err": null}, "Br": {"cls": "suspicious", "conf": 70, "support": 2, "tools": 2, "s": 3, "err": null}}, {"name": "Admin verifica procesele cu ps", "gt": "benign", "A": {"cls": "benign", "conf": 85, "support": 1, "tools": 1, "s": 22, "err": null}, "Bq": {"cls": "benign", "conf": 70, "support": 1, "tools": 2, "s": 22, "err": null}, "Br": {"cls": "suspicious", "conf": 75, "support": 3, "tools": 1, "s": 3, "err": null}}, {"name": "Persistenta — cron job adaugat", "gt": "attack", "A": {"cls": "malicious", "conf": 95, "support": 1, "tools": 2, "s": 21, "err": null}, "Bq": {"cls": "malicious", "conf": 95, "support": 1, "tools": 2, "s": 23, "err": null}, "Br": {"cls": "suspicious", "conf": 75, "support": 3, "tools": 2, "s": 3, "err": null}}, {"name": "Reverse shell in Python", "gt": "attack", "A": {"cls": "suspicious", "conf": 85, "support": 1, "tools": 0, "s": 13, "err": null}, "Bq": {"cls": "suspicious", "conf": 85, "support": 2, "tools": 2, "s": 23, "err": null}, "Br": {"cls": "malicious", "conf": 95, "support": 3, "tools": 6, "s": 6, "err": null}}]
+exit 0
