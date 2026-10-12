@@ -1,0 +1,33 @@
+# LISTA LOCALA DE THREAT INTEL — in git, revizuita de om.
+#
+# Folosita DOAR pentru cautari exacte (cod determinist, fara model): indicatorii
+# extrasi din alerta se compara cu lista; potrivirile intra in context ca FAPTE.
+# Tipuri: ip (adresa sau retea CIDR), domain (potrivire exacta sau subdomeniu),
+# sha256.
+#
+# Valorile de mai jos sunt din spatiile REZERVATE pentru documentatie
+# (RFC 5737: 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24; RFC 2606: .example,
+# .invalid) — nu exista in internet, deci nu pot lovi trafic real. Servesc la
+# scenariile de laborator. Indicatori reali se adauga aici sau printr-un feed
+# (variabila THREAT_INTEL_FEED = cale catre un fisier cu acelasi format).
+indicators:
+  - type: ip
+    value: 203.0.113.0/24
+    source: lab
+    confidence: high
+    note: "Retea folosita ca infrastructura C2 in scenariile de laborator"
+  - type: ip
+    value: 198.51.100.66
+    source: lab
+    confidence: medium
+    note: "Server de payload simulat in laborator"
+  - type: domain
+    value: c2.lab.invalid
+    source: lab
+    confidence: high
+    note: "Domeniu C2 simulat"
+  - type: domain
+    value: payload.example
+    source: lab
+    confidence: medium
+    note: "Domeniu de descarcare payload simulat"
