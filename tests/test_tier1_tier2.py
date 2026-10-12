@@ -105,11 +105,21 @@ def test_seed_din_entity_id(monkeypatch):
     assert "Kw1Y4" not in q
 
 
-def test_seed_cade_pe_parinte_copil(monkeypatch):
-    rec = Rec([[], [ROW]])              # entity_id negasit -> perechea exacta
+def test_entity_negasit_nu_ghiceste_dupa_nume(monkeypatch):
+    """Bug gasit in proba live: fallback-ul pe nume a potrivit un `dash` pornit de cron
+    ca root in locul celui pornit de apache2 ca www-data. Cu entity_id cunoscut,
+    lipsa evenimentului inseamna fapte nerezolvate, nu un proces ghicit."""
+    rec = Rec([[], [ROW], [ROW]])
     monkeypatch.setattr(hunt_path, "_esql", rec)
-    assert hunt_path.execution_facts(_case())["matched_by"] == "exact_pair"
-    assert len(rec.calls) == 2
+    facts = hunt_path.execution_facts(_case())
+    assert facts == {"resolved": False, "matched_by": "entity_id_not_found"}
+    assert len(rec.calls) == 1
+
+
+def test_caz_fara_entity_cade_pe_parinte_copil(monkeypatch):
+    rec = Rec([[ROW]])
+    monkeypatch.setattr(hunt_path, "_esql", rec)
+    assert hunt_path.execution_facts(_case(entity_id=None))["matched_by"] == "exact_pair"
 
 
 def test_finding_nu_cauta_dupa_entity(monkeypatch):

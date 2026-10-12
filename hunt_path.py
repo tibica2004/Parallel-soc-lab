@@ -151,8 +151,8 @@ def _subject(x: RarityFinding | Case) -> tuple[str, str | None, str | None, str 
 
 
 # Fereastra pentru cautarea dupa entity_id: potrivire exacta, ieftina, iar Tier 2
-# poate rula la cateva cicluri dupa alerta.
-ENTITY_LOOKBACK_H = 6
+# poate rula mult dupa alerta (buget pe ciclu, reprocesare manuala).
+ENTITY_LOOKBACK_H = 168
 
 
 def execution_facts(finding: RarityFinding | Case) -> dict:
@@ -191,6 +191,13 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
             rows = []
     if rows:
         return _facts_from_rows(facts, rows, "entity_id")
+    if entity_id:
+        # Procesul exact e cunoscut, dar evenimentul lui nu mai e gasit. NU ghicim
+        # dupa nume: cautarea pe parinte-copil / doar copil poate potrivi ALT proces
+        # cu acelasi nume (ex. un `dash` pornit de cron ca root in locul celui pornit
+        # de apache2 ca www-data) si i-ar da lui Tier 2 fapte false. Mai bine fara fapte.
+        facts["matched_by"] = "entity_id_not_found"
+        return facts
     if not (parent and child):
         return facts
     try:
