@@ -111,6 +111,35 @@ def run_fast(scenario: dict):
     return graph.invoke({"alert": alert}, config={"recursion_limit": 25})["verdict"]
 
 
+def run_chain(scenario: dict):
+    """Lantul complet pe alerta REALA: Tier 1 -> should_escalate -> (daca escaladeaza)
+    Case fara verdictul Tier 1 -> Tier 2. Se noteaza verdictul FINAL: al Tier 2
+    daca a existat, altfel al Tier 1. Exact ce ar face orchestratorul (fara buget)."""
+    import uuid
+    from case_adapter import from_alert
+    from escalation import should_escalate
+    from fast_path import build_fast_path
+    from hunt_path import build_hunt_path
+    rule = scenario.get("rule_name")
+    if not rule:
+        raise ValueError(f"scenariul '{scenario.get('name')}' nu are rule_name")
+    alert = _fetch_alert(rule)
+    if alert is None:
+        raise RuntimeError(f"nicio alerta '{rule}' in ultimele 15 min")
+    out = build_fast_path().invoke({"alert": alert}, config={"recursion_limit": 25})
+    v1 = out["verdict"]
+    esc = should_escalate(v1, floor_applied=bool(out.get("floor_applied")),
+                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+    print(f"    Tier 1: {v1.classification.value} / {v1.confidence} / {v1.proposed_action.value}"
+          f"  -> {'escaladat (' + ', '.join(r.value for r in esc.reasons) + ')' if esc.escalate else 'inchis'}")
+    if not esc.escalate:
+        return v1
+    case = from_alert(alert, esc, str(uuid.uuid4()), facts=out.get("context"))
+    v2 = build_hunt_path().invoke({"case": case}, config={"recursion_limit": 80})["verdict"]
+    print(f"    Tier 2: {v2.classification.value} / {v2.confidence} / {v2.proposed_action.value}")
+    return v2
+
+
 def run_hunt(scenario: dict):
     """Ruleaza un scenariu prin calea lenta."""
     from hunt_path import build_hunt_path
@@ -133,6 +162,8 @@ def main() -> int:
     ap.add_argument("--exclude-validation", action="store_true",
                     help="sari peste scenariile din setul de validare")
     ap.add_argument("--web-prod-host", default="tiberiu@172.20.99.240")
+    ap.add_argument("--chain", action="store_true",
+                    help="scenariile fast trec prin lantul complet Tier 1 -> Tier 2")
     args = ap.parse_args()
 
     if not SCENARIOS.exists():
@@ -145,7 +176,7 @@ def main() -> int:
     if args.exclude_validation:
         scenarios = [s for s in scenarios if not s.get("validation")]
 
-    print(f"=== Harness: {len(scenarios)} scenarii ===\n")
+    print(f"=== Harness: {len(scenarios)} scenarii{' | LANT Tier 1 -> Tier 2' if args.chain else ''} ===\n")
 
     confusion = defaultdict(int)
     by_band = defaultdict(lambda: {"correct": 0, "total": 0})
@@ -165,7 +196,10 @@ def main() -> int:
 
         t0 = datetime.now()
         try:
-            verdict = run_fast(sc) if sc["path"] == "fast" else run_hunt(sc)
+            if sc["path"] == "fast":
+                verdict = run_chain(sc) if args.chain else run_fast(sc)
+            else:
+                verdict = run_hunt(sc)
         except Exception as e:
             print(f"    EROARE: {e}")
             continue
