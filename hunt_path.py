@@ -562,6 +562,7 @@ class HuntState(TypedDict, total=False):
     tokens_b: int
     tool_calls_b: int
     corroboration_status: str
+    secondary_failed: bool
     merged_draft: dict
     critic_objection: str | None
     critic_overturns: bool | None
@@ -602,10 +603,17 @@ def route_after_primary(state: HuntState) -> str:
 
 
 def node_secondary(state: HuntState) -> dict:
-    res = INVESTIGATOR_B.invoke(
-        {**_input(state), "role_note": SECONDARY_NOTE},
-        config={"recursion_limit": 40},
-    )
+    # B poate rula pe alt model / alt server decat A (MODEL_HUNT_B, LLM_BASE_URL_HUNT_B)
+    # si poate cadea separat. Atunci zona gri nu poate fi coroborata: nu inchidem pe
+    # baza lui A singur, marcam esecul si node_corroborate escaladeaza.
+    try:
+        res = INVESTIGATOR_B.invoke(
+            {**_input(state), "role_note": SECONDARY_NOTE},
+            config={"recursion_limit": 40},
+        )
+    except Exception as e:
+        print(f"[investigator_b] esuat: {type(e).__name__}: {e}", file=sys.stderr)
+        return {"draft_b": None, "secondary_failed": True}
     return {
         "draft_b": res.get("draft", {}), "evidence_b": res.get("evidence_snippets", []),
         "tokens_b": res.get("tokens", 0), "tool_calls_b": res.get("tool_calls_made", 0),
@@ -615,6 +623,17 @@ def node_secondary(state: HuntState) -> dict:
 
 def node_corroborate(state: HuntState) -> dict:
     draft_a, draft_b = state["draft_a"], state.get("draft_b")
+
+    # Zona gri cerea a doua opinie, dar B a cazut: esecul escaladeaza, nu inchide.
+    if state.get("secondary_failed"):
+        return {"corroboration_status": "secondary_unavailable",
+                "hypotheses": draft_a.get("hypotheses_considered", []),
+                "merged_draft": {"classification": "undetermined", "confidence": min(40, int(draft_a.get("confidence", 0))),
+                                 "proposed_action": "escalate_human", "action_target": draft_a.get("action_target"),
+                                 "mitre_techniques": [], "narrative":
+                                 f"Al doilea investigator indisponibil; A={draft_a.get('classification')} "
+                                 f"in zona gri, necoroborat. Escaladat."}}
+
     conf, status = merge_corroboration(draft_a, draft_b)
 
     # Corectia 5: buget epuizat fara concluzie clara = undetermined, nu verdict fortat.
@@ -648,7 +667,7 @@ def route_after_corroborate(state: HuntState) -> str:
     if os.environ.get("DISABLE_CRITIC") == "1":
         return "finalize"
     st = state.get("corroboration_status")
-    if st in ("disagreement", "budget_exhausted"):
+    if st in ("disagreement", "budget_exhausted", "secondary_unavailable"):
         return "finalize"  # deja escaladat, criticul n-are ce adauga
     return "critic"
 

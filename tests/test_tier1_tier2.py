@@ -270,3 +270,31 @@ def test_finalize_nu_atinge_findings(monkeypatch):
                       detail={"parent": "dash", "child": "id"}, rarity_score=1.0)
     v = _finalize(monkeypatch, {"finding": f}, "suspicious", "enrich_only")
     assert v.proposed_action is A.ENRICH_ONLY
+
+
+# ---------------- faza 7: investigatorul B cazut ----------------
+
+def test_b_cazut_nu_crapa_investigatia(monkeypatch):
+    def boom(*a, **k):
+        raise ConnectionError("tunel 11435 cazut")
+    monkeypatch.setattr(hunt_path, "INVESTIGATOR_B", types.SimpleNamespace(invoke=boom))
+    out = hunt_path.node_secondary({"case": _case(), "queries_run": []})
+    assert out == {"draft_b": None, "secondary_failed": True}
+
+
+def test_zona_gri_fara_b_escaladeaza():
+    draft_a = {"classification": "benign", "confidence": 85, "proposed_action": "none",
+               "evidence": {"process_chain": True, "file_write": True}}   # suport 2 = zona gri
+    out = hunt_path.node_corroborate({"draft_a": draft_a, "draft_b": None, "secondary_failed": True})
+    md = out["merged_draft"]
+    assert out["corroboration_status"] == "secondary_unavailable"
+    assert md["classification"] == "undetermined" and md["proposed_action"] == "escalate_human"
+    assert md["confidence"] <= 40
+    assert hunt_path.route_after_corroborate(out) == "finalize"
+
+
+def test_verdict_accepta_noul_status():
+    v = Verdict(investigation_id="i", source_path="hunt", entity_type="host", entity_id="web-prod",
+                classification="undetermined", confidence=0, rarity_score=1.0, model_id="m",
+                corroboration_status="secondary_unavailable")
+    assert v.corroboration_status == "secondary_unavailable"
