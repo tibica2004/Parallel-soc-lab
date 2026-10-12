@@ -115,7 +115,8 @@ def test_model_cazut_totul_escaladeaza(monkeypatch, rec):
     stats = {"total": 0, "escalated": 0, "no_model": 0}
     seen = orchestrator.BoundedSeen()
     orchestrator.process_alerts([_alert(1), _alert(2)], seen, stats, model_ok=False)
-    assert built == [] and stats == {"total": 2, "escalated": 2, "no_model": 2}
+    assert built == [] and {k: stats[k] for k in ("total", "escalated", "no_model")} == {"total": 2, "escalated": 2, "no_model": 2}
+    assert stats["tier2_skipped"] == 2   # t2_limit=0 implicit: escaladate doar la om
     for (v, *_), k in rec.calls:
         assert k["failure"] is F.MODEL_UNAVAILABLE
         assert k["escalation"].reasons == [R.UNDETERMINED, R.TIER1_FAILURE]

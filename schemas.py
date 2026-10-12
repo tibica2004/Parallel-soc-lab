@@ -248,6 +248,9 @@ class AuditRecord(BaseModel):
     escalation_reasons: list[EscalationReason] = Field(default_factory=list)
     # Setat doar cand verdictul NU vine de la model (vezi degraded.py).
     failure: FailureKind | None = None
+    # Pentru un caz escaladat de Tier 1: a ajuns la Tier 2 sau a ramas doar la om
+    # pentru ca bugetul de Tier 2 pe ciclu era epuizat. None = nu se aplica.
+    tier2: Literal["investigated", "skipped_budget"] | None = None
     narrative: str
     hypotheses_considered: list[str] = Field(default_factory=list)
     queries_run: list[str] = Field(default_factory=list)
@@ -288,6 +291,9 @@ class Case(BaseModel):
     rule_name: str | None = Field(default=None, max_length=256)
     escalation_reasons: list[EscalationReason] = Field(default_factory=list, max_length=10)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list, max_length=50)
+    # Fapt calculat de cod (perechea parinte-copil fata de baseline), nu judecata
+    # modelului: 0.0 = vazuta in baseline, 1.0 = nevazuta sau neverificabila.
+    rarity_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("host")
     @classmethod

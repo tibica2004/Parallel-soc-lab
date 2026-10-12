@@ -46,7 +46,7 @@ def test_escaladarea_ajunge_in_persist(monkeypatch):
     monkeypatch.setattr(orchestrator, "persist", rec)
     stats = {"total": 0, "escalated": 0}
     orchestrator.process_alerts([_alert(1), _alert(2)], orchestrator.BoundedSeen(), stats)
-    assert stats == {"total": 2, "escalated": 1, "no_model": 0}
+    assert {k: stats[k] for k in ("total", "escalated", "no_model")} == {"total": 2, "escalated": 1, "no_model": 0}
     e1, e2 = (c[1]["escalation"] for c in rec.calls)
     assert e1.escalate is False and e1.reasons == []
     assert e2.escalate is True and R.FLOOR_OVERRIDE in e2.reasons and R.SUSPICIOUS in e2.reasons
@@ -103,14 +103,14 @@ def test_main_manual_foloseste_aceleasi_functii(monkeypatch):
     calls = {}
     monkeypatch.setattr(orchestrator, "fetch_new_alerts", lambda m, l: [_alert(1)])
     monkeypatch.setattr(orchestrator, "process_alerts",
-                        lambda alerts, seen, stats=None, model_ok=True: calls.setdefault("alerts", (alerts, seen)))
+                        lambda alerts, seen, stats=None, model_ok=True, t2_limit=0: calls.setdefault("alerts", (alerts, seen, t2_limit)))
     monkeypatch.setattr(orchestrator, "process_findings",
                         lambda findings, seen, limit, model_ok=True: calls.setdefault("findings", (findings, limit)))
     monkeypatch.setitem(sys.modules, "elastic_tools",
                         types.SimpleNamespace(sweep_new_parent_child=lambda h: ["F"]))
     monkeypatch.setattr(sys, "argv", ["orchestrator.py", "--minutes", "60", "--sweep", "--limit", "7"])
     assert orchestrator.main() == 0
-    assert calls["alerts"][0] == [_alert(1)]
+    assert calls["alerts"][0] == [_alert(1)] and calls["alerts"][2] == 3   # --t2-limit implicit
     assert isinstance(calls["alerts"][1], orchestrator.BoundedSeen)
     assert calls["findings"] == (["F"], 7)
 

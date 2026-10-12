@@ -24,6 +24,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+import case_adapter
 import degraded
 import tracing
 from escalation import EscalationDecision, should_escalate
@@ -103,11 +104,12 @@ def dedup_key_finding(f) -> str:
 
 
 
-def with_chain(verdict):
-    """Verdictul cu un chain_id nou. Identificatorul il da codul, nu modelul;
-    model_validate (nu model_copy) ca validarea Pydantic sa ruleze si aici."""
+def with_chain(verdict, chain_id: str | None = None):
+    """Verdictul cu chain_id: cel dat (Tier 2 continua lantul Tier 1) sau unul nou.
+    Identificatorul il da codul, nu modelul; model_validate (nu model_copy) ca
+    validarea Pydantic sa ruleze si aici."""
     from schemas import Verdict
-    return Verdict.model_validate({**verdict.model_dump(), "chain_id": str(uuid.uuid4())})
+    return Verdict.model_validate({**verdict.model_dump(), "chain_id": chain_id or str(uuid.uuid4())})
 
 
 def alert_ref(a: dict):
@@ -154,7 +156,7 @@ def persist_trace(doc: dict) -> None:
 
 
 def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
-            escalation: EscalationDecision | None = None, failure=None) -> None:
+            escalation: EscalationDecision | None = None, failure=None, tier2=None) -> None:
     """Scrie verdictul in istoric si o inregistrare de audit. ground_truth ramane
     GOL — doar omul il completeaza. Fara cheie de writer (dry-run), nu scrie nimic.
     `escalation` = decizia Tier 1 -> Tier 2 (None pe calea lenta).
@@ -173,7 +175,7 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
         verdict=verdict, narrative=narrative,
         escalate=escalation.escalate if escalation else None,
         escalation_reasons=escalation.reasons if escalation else [],
-        failure=failure,
+        failure=failure, tier2=tier2,
         hypotheses_considered=(extra or {}).get("hypotheses", []),
         queries_run=(extra or {}).get("queries_run", []),
         policy_decision=f"{decision.chosen.value}: {decision.reason}",
@@ -266,20 +268,65 @@ def _save_seen(seen: BoundedSeen) -> None:
 
 
 def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalation=None,
-            failure=None, trace=None, refs=()):
+            failure=None, trace=None, refs=(), chain_id=None, tier2=None):
     """Lant + dovezi + politica + afisare + audit + urma, comun tuturor cazurilor
     (cu sau fara model)."""
-    v = with_chain(v)
+    v = with_chain(v, chain_id)
     v = with_evidence(v, list(refs) + (trace.refs() if trace else []))
     d = decide(v)
     show(kind, entity, v, narrative, d, escalation)
     persist(v, narrative, d, t0, datetime.now(timezone.utc), extra,
-            escalation=escalation, failure=failure)
+            escalation=escalation, failure=failure, tier2=tier2)
     if trace is not None:
         persist_trace(trace.document(chain_id=v.chain_id, investigation_id=v.investigation_id,
                                      source_path=v.source_path, entity=entity,
                                      failure=failure.value if failure else None))
     return v
+
+
+class HuntRunner:
+    """Calea lenta, comuna sweep-ului si Tier 2: graful construit o singura data,
+    sanatatea modelului verificata la primul caz si din nou la prima eroare.
+    Esecul (model cazut, timeout, eroare) devine undetermined + escalate_human."""
+
+    def __init__(self, model_ok: bool | None = None):
+        self.graph = None
+        self.model_ok = model_ok      # None = inca neverificat
+
+    def run(self, inp: dict, kind: str, entity: str, host: str | None, refs=(),
+            chain_id: str | None = None):
+        """Investigheaza si inregistreaza. Intoarce FailureKind sau None (succes)."""
+        if self.model_ok is None:
+            self.model_ok = degraded.llm_healthy("hunt")
+        t0 = datetime.now(timezone.utc)
+        failure = None
+        with tracing.case() as tr:
+            if not self.model_ok:
+                failure = degraded.FailureKind.MODEL_UNAVAILABLE
+            else:
+                if self.graph is None:
+                    from hunt_path import build_hunt_path
+                    self.graph = build_hunt_path()
+                try:
+                    out = degraded.run_with_timeout(
+                        lambda: self.graph.invoke(inp, config={"recursion_limit": 80}),
+                        degraded.CASE_TIMEOUT_HUNT_S)
+                except degraded.CaseTimeout:
+                    failure = degraded.FailureKind.CASE_TIMEOUT
+                except Exception as e:
+                    print(f"  [EROARE] {entity}: {e}", flush=True)
+                    self.model_ok = degraded.llm_healthy("hunt")
+                    failure = (degraded.FailureKind.PROCESSING_ERROR if self.model_ok
+                               else degraded.FailureKind.MODEL_UNAVAILABLE)
+            if failure is not None:
+                _record(kind, entity, degraded.no_model_verdict(host, "hunt"),
+                        degraded.NARRATIVE[failure], t0, failure=failure, trace=tr,
+                        refs=refs, chain_id=chain_id)
+            else:
+                _record(kind, entity, out["verdict"], out.get("narrative", ""), t0,
+                        {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])},
+                        trace=tr, refs=refs, chain_id=chain_id)
+        return failure
 
 
 def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
@@ -288,7 +335,7 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
     finding-ul NU e marcat vazut, deci se reia la sweep-ul urmator."""
     print(f"  FINDINGS: {len(findings)} (procesez cel mult {limit}, model "
           f"{'OK' if model_ok else 'CAZUT'})", flush=True)
-    hunt = None
+    hunt = HuntRunner(model_ok)
     done = 0
     for f in findings:
         if done >= limit:
@@ -298,36 +345,10 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
         if k in seen:
             continue
         done += 1
-        t0 = datetime.now(timezone.utc)
-        failure = None
         try:
-            with tracing.case() as tr:
-                if not model_ok:
-                    failure = degraded.FailureKind.MODEL_UNAVAILABLE
-                else:
-                    if hunt is None:
-                        from hunt_path import build_hunt_path
-                        hunt = build_hunt_path()
-                    try:
-                        out = degraded.run_with_timeout(
-                            lambda: hunt.invoke({"finding": f}, config={"recursion_limit": 80}),
-                            degraded.CASE_TIMEOUT_HUNT_S)
-                    except degraded.CaseTimeout:
-                        failure = degraded.FailureKind.CASE_TIMEOUT
-                    except Exception as e:
-                        print(f"  [EROARE] {entity}: {e}", flush=True)
-                        model_ok = degraded.llm_healthy("hunt")
-                        failure = (degraded.FailureKind.PROCESSING_ERROR if model_ok
-                                   else degraded.FailureKind.MODEL_UNAVAILABLE)
-                if failure is not None:
-                    _record("LENT", entity, degraded.no_model_verdict(f.entity_id, "hunt"),
-                            degraded.NARRATIVE[failure], t0, failure=failure, trace=tr,
-                            refs=f.evidence_refs)
-                    continue   # nemarcat: se reia cand modelul revine
-                _record("LENT", entity, out["verdict"], out.get("narrative", ""), t0,
-                        {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])},
-                        trace=tr, refs=f.evidence_refs)
-                # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
+            failure = hunt.run({"finding": f}, "LENT", entity, f.entity_id, f.evidence_refs)
+            # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
+            if failure is None:
                 seen.add(k)
         except Exception as e:
             # Nici auditul nu s-a putut scrie (ex. Elasticsearch cazut).
@@ -351,11 +372,12 @@ def run_positioned(args) -> int:
                   f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]", flush=True)
             stats = {"total": 0, "escalated": 0, "no_model": 0}
             fast_ok = degraded.llm_healthy("fast") if alerts else True
-            last_ts = process_alerts(alerts, seen, stats, model_ok=fast_ok)
+            last_ts = process_alerts(alerts, seen, stats, model_ok=fast_ok, t2_limit=args.t2_limit)
             _save_seen(seen)
             if stats["total"]:
                 print(f"  escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']}"
-                      f" (fara model: {stats['no_model']})", flush=True)
+                      f" (fara model: {stats['no_model']}; Tier 2: {stats.get('tier2', 0)} investigate, "
+                      f"{stats.get('tier2_skipped', 0)} peste buget)", flush=True)
             if len(alerts) >= args.limit and last_ts:
                 # fereastra nu s-a golit: continuam exact de la ultima alerta
                 save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
@@ -379,7 +401,8 @@ def run_positioned(args) -> int:
 
 
 def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = None,
-                   model_ok: bool = True) -> str | None:
+                   model_ok: bool = True, t2_limit: int = 0,
+                   hunt: HuntRunner | None = None) -> str | None:
     """Trece fiecare alerta prin calea rapida + politica + escaladare + audit.
     Folosita si de modul manual si de cel cu pozitie (o singura implementare).
 
@@ -387,8 +410,14 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
     model; peste BACKLOG_THRESHOLD alerte -> coada ordonata dupa severitate si
     criticitate, iar alertele critical escaladeaza direct; plafon de timp per caz.
 
+    Tier 2: primele `t2_limit` alerte escaladate (in ordinea cozii) devin Case
+    (case_adapter, FARA verdictul Tier 1) si trec prin calea lenta, cu acelasi
+    chain_id; restul raman escaladate la om, marcate tier2=skipped_budget.
+
     Intoarce cel mai nou @timestamp din lot (pentru avansarea pozitiei).
-    `stats`, daca e dat, numara alertele procesate, escaladate si fara model."""
+    `stats`, daca e dat, numara alertele procesate, escaladate, fara model si Tier 2."""
+    hunt = hunt or HuntRunner()
+    t2_used = 0
     last_ts = max((_g(a, "@timestamp") or "" for a in alerts), default="") or None
     backlog = degraded.is_backlog(len(alerts))
     if backlog:
@@ -414,6 +443,7 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
             continue
         t0 = datetime.now(timezone.utc)
         failure = None
+        out = None
         try:
             with tracing.case() as tr:
                 if backlog and degraded.is_severe(a):
@@ -446,17 +476,36 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                 if failure is not None:
                     v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
                                          degraded.NARRATIVE[failure], degraded.failure_escalation())
-                _record("RAPID", entity, v, narrative, t0, {"rule_name": rule},
-                        escalation=esc, failure=failure, trace=tr, refs=[alert_ref(a)])
+                tier2 = None
+                if esc.escalate:
+                    tier2 = "investigated" if t2_used < t2_limit else "skipped_budget"
+                v = _record("RAPID", entity, v, narrative, t0, {"rule_name": rule},
+                            escalation=esc, failure=failure, trace=tr, refs=[alert_ref(a)],
+                            tier2=tier2)
                 # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
                 seen.add(k)
                 if stats is not None:
                     stats["total"] += 1
                     stats["escalated"] += int(esc.escalate)
                     stats["no_model"] = stats.get("no_model", 0) + int(v.model_id == "none")
+                    stats["tier2_skipped"] = stats.get("tier2_skipped", 0) + int(tier2 == "skipped_budget")
         except Exception as e:
             # Nici auditul nu s-a putut scrie: nemarcat, dar cursorul trece mai departe.
             print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}")
+            print()
+            continue
+        if tier2 == "investigated":
+            t2_used += 1
+            try:
+                case = case_adapter.from_alert(a, esc, v.chain_id,
+                                               facts=(out or {}).get("context"), refs=v.evidence_refs)
+                hunt.run({"case": case}, "TIER2", entity, case.host, case.evidence_refs,
+                         chain_id=v.chain_id)
+                if stats is not None:
+                    stats["tier2"] = stats.get("tier2", 0) + 1
+            except Exception as e:
+                # Cazul ramane escaladat la om din Tier 1; Tier 2 doar n-a putut adauga nimic.
+                print(f"  [EROARE Tier 2, cazul ramane escaladat la om] {entity}: {e}", flush=True)
         print()
     return last_ts
 
@@ -473,6 +522,8 @@ def main() -> int:
                     help="in --loop: sweep la fiecare N cicluri (30 x 120s = o ora); 0 = niciodata")
     ap.add_argument("--hunt-limit", type=int, default=5,
                     help="cate findings investigheaza calea lenta pe ciclu (fiecare ~1 min)")
+    ap.add_argument("--t2-limit", type=int, default=3,
+                    help="cate alerte escaladate de Tier 1 merg la Tier 2 pe ciclu; restul raman la om")
     args = ap.parse_args()
 
     if args.once or args.loop:
@@ -491,10 +542,11 @@ def main() -> int:
     stats = {"total": 0, "escalated": 0, "no_model": 0}
     fast_ok = degraded.llm_healthy("fast") if alerts else True
     print(f"Model Tier 1: {'OK' if fast_ok else 'CAZUT -> mod degradat'}\n")
-    process_alerts(alerts, seen, stats, model_ok=fast_ok)
+    process_alerts(alerts, seen, stats, model_ok=fast_ok, t2_limit=args.t2_limit)
     if stats["total"]:
         print(f"Escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']} "
-              f"({stats['escalated'] / stats['total']:.0%}), fara model: {stats['no_model']}\n")
+              f"({stats['escalated'] / stats['total']:.0%}), fara model: {stats['no_model']}; "
+              f"Tier 2: {stats.get('tier2', 0)} investigate, {stats.get('tier2_skipped', 0)} peste buget\n")
 
     if args.sweep:
         from elastic_tools import sweep_new_parent_child
