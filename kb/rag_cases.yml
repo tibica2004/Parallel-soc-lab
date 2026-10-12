@@ -1,0 +1,115 @@
+# CAZURI DE REFERINTA PENTRU RAG (Tier 1) — in git, etichetate de OM.
+#
+# Fiecare caz descrie o SITUATIE prin trasaturi (regula, parinte, proces, tipul
+# utilizatorului, fapte booleene) si eticheta data de om, cu lectia invatata.
+# Fara linii de comanda: RAG-ul compara trasaturi, nu text, iar continutul de
+# aici ajunge in prompt.
+#
+# SEPARARE STRICTA DE EVALUARE: niciun caz nu e copiat dintr-un scenariu din
+# scenarios*.yml (testul tests/test_rag.py verifica numele si liniile de comanda).
+#
+# `reviewed: true` il pune omul dupa ce verifica eticheta. Cazurile cu
+# reviewed: false NU sunt folosite (principiul 5: eticheta vine de la om).
+#
+# user_class: web_service | admin | other
+# flags: sensitive_action, ran_from_temp_dir, webroot_executable_write,
+#        in_maintenance_window (doar cele true; lipsa = false)
+cases:
+  - id: rag-001
+    reviewed: false
+    ground_truth: attack
+    rule: "RCE: Web server spawns shell"
+    parent: apache2
+    process: sh
+    user_class: web_service
+    flags: []
+    situation: "Serverul web a pornit un shell care a rulat o comanda de recunoastere."
+    lesson: "Serverul web nu porneste shell-uri in operare normala; o comanda banala de recon tot atac este."
+
+  - id: rag-002
+    reviewed: false
+    ground_truth: attack
+    rule: "RCE: Web server spawns shell"
+    parent: php-fpm
+    process: dash
+    user_class: web_service
+    flags: [sensitive_action]
+    situation: "PHP-FPM a pornit un shell care a modificat programarea de sarcini."
+    lesson: "Persistenta lansata de contul serviciului web: atac, indiferent de ora."
+
+  - id: rag-003
+    reviewed: false
+    ground_truth: benign
+    rule: "Payload download: curl/wget spawned by web server or shell"
+    parent: bash
+    process: curl
+    user_class: admin
+    flags: []
+    situation: "Un administrator cunoscut a verificat local raspunsul serverului web."
+    lesson: "Admin din normal_admins, shell interactiv, destinatie locala: verificare de sanatate, nu descarcare."
+
+  - id: rag-004
+    reviewed: false
+    ground_truth: attack
+    rule: "Payload download: curl/wget spawned by web server or shell"
+    parent: apache2
+    process: wget
+    user_class: web_service
+    flags: []
+    situation: "Serverul web a descarcat un fisier de pe o adresa externa nevazuta."
+    lesson: "Serverul web nu descarca nimic in mod normal; descarcarea e pasul de dupa RCE."
+
+  - id: rag-005
+    reviewed: false
+    ground_truth: attack
+    rule: "Reverse shell: Interactive shell or /dev/tcp connection"
+    parent: bash
+    process: bash
+    user_class: admin
+    flags: [sensitive_action]
+    situation: "Shell interactiv redirectat spre o conexiune de retea, pornit de un cont de admin, in afara ferestrei."
+    lesson: "Identitatea de admin nu face benign un shell de retea: credentialele pot fi furate."
+
+  - id: rag-006
+    reviewed: false
+    ground_truth: benign
+    rule: "Reverse shell: Interactive shell or /dev/tcp connection"
+    parent: bash
+    process: bash
+    user_class: admin
+    flags: [sensitive_action, in_maintenance_window]
+    situation: "Test de conectivitate programat, rulat de un admin cunoscut in fereastra de mentenanta."
+    lesson: "Doar combinatia admin cunoscut + fereastra de mentenanta explica legitim un shell de retea."
+
+  - id: rag-007
+    reviewed: false
+    ground_truth: attack
+    rule: "Webshell: Executable written to webroot"
+    parent: apache2
+    process: php
+    user_class: web_service
+    flags: [sensitive_action, webroot_executable_write]
+    situation: "Procesul serverului web a scris un fisier PHP nou in webroot."
+    lesson: "Un fisier executabil scris de serverul web in webroot e plantarea unui webshell."
+
+  - id: rag-008
+    reviewed: false
+    ground_truth: benign
+    rule: "Webshell: Executable written to webroot"
+    parent: bash
+    process: cp
+    user_class: admin
+    flags: [sensitive_action, webroot_executable_write, in_maintenance_window]
+    situation: "Deploy al aplicatiei facut de un admin cunoscut in fereastra de mentenanta."
+    lesson: "Acelasi gest ca plantarea unui webshell; diferenta o face fereastra de mentenanta plus adminul."
+
+  - id: rag-009
+    reviewed: false
+    ground_truth: attack
+    rule: "Suspicious execution from temp directory"
+    parent: sh
+    process: other
+    user_class: web_service
+    flags: [sensitive_action, ran_from_temp_dir]
+    situation: "Un binar din director temporar a fost lansat dintr-un shell al serverului web."
+    lesson: "Executia din /tmp sau /dev/shm de catre contul web e etapa de instalare a uneltelor."
