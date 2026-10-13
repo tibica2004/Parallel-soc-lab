@@ -1,0 +1,47 @@
+pauza pana la 13:58Z
+Tue Oct 13 01:58:02 PM UTC 2026
+=== Generez atacuri 09:58:02 ===
+[calea rapida] RCE prin webshell (apache2 -> shell -> id)
+[calea rapida] reverse shell /dev/tcp
+[calea rapida] executabil scris in webroot
+[calea lenta] perechi NOI de recunoastere prin webshell
+[calea lenta] enumerare de retea prin webshell (binare noi)
+=== Gata. Asteapta ~6 min ca regulile EQL sa se declanseze, apoi ruleaza orchestratorul. ===
+attack exit 0
+Tue Oct 13 01:58:10 PM UTC 2026
+Tue Oct 13 02:13:10 PM UTC 2026
+=== Tier 3 incidente: 53 lanturi neinchise in 2 h -> 2 grupuri -> 2 incidente (dry-run) ===
+
+[615f254b] web-prod 10-13 12:09 -> 13:24 UTC  38 lanturi  malicious  legaturi=['time']  [dry-run]
+    reguli: Malicious Behavior Detection Alert: Payload Execution by Web Server, Payload download: curl/wget spawned by web server or shell, RCE: Web server spawns shell, Reverse shell: Interactive shell or /dev/tcp connection, Suspicious execution from temp directory, Webshell: Executable written to webroot
+    **Naratiunea de campanie:**  
+    1. **Acces inițial** (T1505.003): Webshell introdus în webroot, probabil prin exploatarea unei vulnerabilități în serverul web.  
+    2. **Execuție** (T1059): Comenzi shell (ex: `id`, `whoami`) rulate de către `www-data`, sugerează exploatarea unui shell injectat.  
+    3. **Persistență** (T1059.004): Reverse shell stabilită către 127.0.0.1:9999, cu implicare de utilizator (`tiberiu`).  
+    4. **Ascundere** (T1505.003): Descărcare de payload-uri (ex: `wget` din 127.0.0.1), posibil pentru extinderea activității.  
+    
+    **Lipsește:**  
+    - **Exploatarea inițială** (ex: T1210, T1203) – nu există indicii clare privind vulnerabilitatea inițială.  
+    - **Exfiltrația de date** – nu sunt detectate activități de trimitere a datelor sensibile.  
+    - **Lateralitate** – lipsă de indicii privind comunicarea cu alte hosturi sau conturi.  
+    
+    **Verificări ulterioare:**  
+    - Analiza logurilor serverului web pentru identificarea vulnerabilității inițiale (ex: injectare SQL, XSS).  
+    - Verificarea fișierelor din `/tmp` și webroot pentru rămășițe de webshell.  
+    - Monitorizarea conexiunilor către 127.0.0.1:9999 și a tranzacțiilor HTTP către 127.0.0.1.  
+    - Căutarea de mecanisme de persistență (ex: cron jobs, scripturi de pornire).  
+    
+    **Observație:** Evenimentele sunt legate prin exploatarea serverului web și stabilitarea unui canal de comandă, dar lipsesc detalii despre originea inițială a atacului.
+
+[3eb1cf79] web-prod 10-13 13:58 -> 13:59 UTC  15 lanturi  malicious  legaturi=['time']  [dry-run]
+    reguli: Malicious Behavior Detection Alert: Payload Execution by Web Server, RCE: Web server spawns shell, Reverse shell: Interactive shell or /dev/tcp connection, Webshell: Executable written to webroot
+    Etapele probabile: 1) **Initializare** (T1505.003) – exploatarea serverului web prin execuție de comenzi (id, hostname). 2) **Execuție** (T1505.003, T1203) – scrierea unui webshell în webroot (procesul `tee` fără părinte). 3) **Reconnaissance** (T1059) – colectarea informațiilor de sistem (uptime, lscpu, etc.). 4) **Reverse shell** (T1505.003) – conexiune la 127.0.0.1:9999 (posibil listener local).  
+    
+    Lipsesc: **persistență** (ex: modificări de fișiere de configurare, cron jobs), **escalare de privilegii** (ex: utilizator nou creat), **exfiltrație de date** (ex: transfer de fișiere, conexiuni externe).  
+    
+    Verificări: 1) Fișierele din webroot (ex: `.php`, `.sh`) pentru prezența unui webshell. 2) Conexiuni TCP la 127.0.0.1:9999 (dacă este un listener local sau extern). 3) Logurile de autentificare pentru utilizatori noi (ex: `tiberiu`). 4) Fișierele de configurare ale serviciilor (ex: `crontab`, `sudoers`).  
+    
+    Observație: Detectiile sunt legate, dar lipsesc elemente cheie pentru un lant complet.
+
+Salvat: results/incidente-2026-10-13-1013.json
+tier3 exit 0
