@@ -2,8 +2,10 @@
 import ablation
 
 
-def _r(sc, cfg, out, p=1, cls="suspicious", esc=True, inj=False, lat=1000, tok=100, tools=0, rej=0, err=None):
+def _r(sc, cfg, out, p=1, cls="suspicious", esc=True, inj=False, lat=1000, tok=100, tools=0, rej=0, err=None,
+       mout=None, floor=False):
     return {"scenario": sc, "config": cfg, "pass": p, "gt": "attack", "injection": inj, "outcome": out,
+            "model_outcome": mout or out, "floor_applied": floor,
             "classification": cls, "escalate": esc, "latency_ms": lat, "tokens": tok,
             "tool_calls": tools, "rejected": rej, "error": err}
 
@@ -40,3 +42,34 @@ def test_eroarea_escaladeaza():
     assert r["outcome"] == "TP" and r["escalate"] and r["error"] == "TimeoutError"
     r = ablation._error_row("s", "C", 1, {"ground_truth": "benign"}, TimeoutError(), 5)
     assert r["outcome"] == "FP"
+
+
+def test_verdictul_modelului_inainte_de_podele():
+    rows = [_r("s1", "A", "TP", mout="FN", floor=True, inj=True), _r("s2", "A", "TP")]
+    a = ablation.summarize(rows)["A"]
+    assert a["recall"] == 1.0 and a["model_recall"] == 0.5
+    assert a["floors_applied"] == 1 and a["injection_resisted"] == 1 and a["injection_resisted_model"] == 0
+
+
+def test_model_outcome():
+    mo = ablation.model_outcome
+    assert mo({"classification": "benign", "proposed_action": "none"}, "attack") == "FN"
+    assert mo({"classification": "benign", "proposed_action": "escalate_human"}, "attack") == "TP"
+    assert mo({"classification": "undetermined"}, "benign") == "FP"
+    assert mo({"classification": "garbage"}, "attack") == "TP"
+    assert mo({}, "attack") == "TP"
+
+
+def test_alerta_doar_dupa_generare():
+    from datetime import datetime, timezone
+
+    class ES:
+        def search(self, **kw):
+            self.kw = kw
+            return {"hits": {"hits": []}}
+    es = ES()
+    t = datetime(2026, 10, 13, 6, 0, tzinfo=timezone.utc)
+    assert ablation.fetch_alert_since(es, "R", t) is None
+    f = es.kw["query"]["bool"]["filter"]
+    assert f[0] == {"term": {"kibana.alert.rule.name": "R"}}
+    assert f[1] == {"range": {"@timestamp": {"gte": "2026-10-13T06:00:00+00:00"}}}

@@ -21,6 +21,14 @@ vecine. --fereastra-corelare 5 o micsoreaza doar pentru ablatie.
 Alertele preluate se salveaza (results/ablatie-alerte-*.json); --alerte <fisier>
 reia aceleasi alerte fara generare noua.
 
+Pe langa verdictul final se noteaza si verdictul MODELULUI, de dinainte de
+podele (model_outcome): podelele fac multe atacuri TP prin cod, indiferent de
+configuratie, deci contributia RAG-ului si a uneltelor se vede in verdictul
+modelului, nu doar in cel final.
+
+Alerta se ia doar daca a aparut DUPA generarea scenariului curent: un scenariu
+care nu declanseaza regula nu are voie sa preia alerta scenariului anterior.
+
 Metrici per configuratie: TP/FP/FN/TN, recall, rata FP, rata de escaladare
 (should_escalate), latenta p50/p95, tokeni, apeluri de unelte, rezistenta la
 injectie (scenariile cu `injection: true` clasate corect), pivoturi respinse
@@ -77,6 +85,10 @@ def summarize(rows: list[dict]) -> dict[str, dict]:
             o[r["outcome"]] += 1
         tp, fp, fn, tn = (o[k] for k in ("TP", "FP", "FN", "TN"))
         inj = [r for r in rs if r.get("injection")]
+        m = defaultdict(int)
+        for r in rs:
+            if r.get("model_outcome"):
+                m[r["model_outcome"]] += 1
         by_case = defaultdict(set)
         for r in rs:
             by_case[r["scenario"]].add((r["outcome"], r["classification"]))
@@ -88,6 +100,10 @@ def summarize(rows: list[dict]) -> dict[str, dict]:
             "recall": _ratio(tp, tp + fn),
             "false_positive_rate": _ratio(fp, fp + tn),
             "escalation_rate": _ratio(sum(1 for r in rs if r.get("escalate")), len(rs)),
+            "model_TP": m["TP"], "model_FP": m["FP"], "model_FN": m["FN"], "model_TN": m["TN"],
+            "model_recall": _ratio(m["TP"], m["TP"] + m["FN"]),
+            "model_false_positive_rate": _ratio(m["FP"], m["FP"] + m["TN"]),
+            "floors_applied": sum(1 for r in rs if r.get("floor_applied")),
             "latency_ms_p50": _pct(lat, 0.5), "latency_ms_p95": _pct(lat, 0.95),
             "tokens_per_run": round(sum(tok) / len(tok), 1) if tok else None,
             "tool_calls_per_run": round(sum(r.get("tool_calls") or 0 for r in rs) / len(rs), 2) if rs else None,
@@ -95,17 +111,39 @@ def summarize(rows: list[dict]) -> dict[str, dict]:
             "errors": sum(1 for r in rs if r.get("error")),
             "injection_runs": len(inj),
             "injection_resisted": sum(1 for r in inj if r["outcome"] in ("TP", "TN")),
+            "injection_resisted_model": sum(1 for r in inj if r.get("model_outcome") in ("TP", "TN")),
             "unstable_scenarios": sum(1 for s in multi if len(by_case[s]) > 1),
             "multi_pass_scenarios": len(multi),
         }
     return out
 
 
+def model_outcome(raw: dict, gt: str) -> str:
+    """Rezultatul verdictului propus de model, fara podele. undetermined
+    escaladeaza (asa il trateaza si finalize), deci conteaza ca semnalat."""
+    from labeling import outcome
+    cls = raw.get("classification")
+    act = "escalate_human" if cls not in ("benign", "suspicious", "malicious") else raw.get("proposed_action")
+    return outcome({"classification": cls, "proposed_action": act}, gt)
+
+
+def fetch_alert_since(es, rule_name: str, since: datetime) -> dict | None:
+    """Cea mai recenta alerta a regulii, aparuta dupa `since` (potrivire exacta)."""
+    r = es.search(index=".alerts-security.alerts-*", size=1, sort=[{"@timestamp": "desc"}],
+                  query={"bool": {"filter": [
+                      {"term": {"kibana.alert.rule.name": rule_name}},
+                      {"range": {"@timestamp": {"gte": since.isoformat()}}},
+                  ]}})
+    hits = r["hits"]["hits"]
+    return hits[0]["_source"] if hits else None
+
+
 def _error_row(name, cfg, p, sc, err, dt) -> dict:
     """Esecul unei rulari se noteaza ca escaladare (principiul 8), cu eroarea."""
     gt = sc["ground_truth"]
     return {"scenario": name, "config": cfg, "pass": p, "gt": gt, "injection": bool(sc.get("injection")),
-            "outcome": "TP" if gt == "attack" else "FP", "classification": "undetermined",
+            "outcome": "TP" if gt == "attack" else "FP", "model_outcome": None, "floor_applied": False,
+            "classification": "undetermined",
             "confidence": 0, "action": "escalate_human", "escalate": True, "reasons": ["tier1_failure"],
             "latency_ms": dt, "tokens": 0, "tool_calls": 0, "rejected": 0, "l1_status": None,
             "error": type(err).__name__}
@@ -130,6 +168,9 @@ def run_one(alert: dict, cfg_name: str, sc: dict, p: int, graphs: dict) -> dict:
     l1 = out.get("l1") or {}
     return {"scenario": name, "config": cfg_name, "pass": p, "gt": sc["ground_truth"],
             "injection": bool(sc.get("injection")), "outcome": score_verdict(v, sc["ground_truth"]),
+            "model_outcome": model_outcome(out.get("raw_verdict") or {}, sc["ground_truth"]),
+            "model_classification": (out.get("raw_verdict") or {}).get("classification"),
+            "floor_applied": bool(out.get("floor_applied")),
             "classification": v.classification.value, "confidence": v.confidence,
             "action": v.proposed_action.value, "escalate": esc.escalate,
             "reasons": [r.value for r in esc.reasons], "latency_ms": dt,
@@ -137,11 +178,13 @@ def run_one(alert: dict, cfg_name: str, sc: dict, p: int, graphs: dict) -> dict:
             "rejected": l1.get("rejected", 0), "l1_status": l1.get("status"), "error": None}
 
 
-RATE_KEYS = {"recall", "false_positive_rate", "escalation_rate"}
+RATE_KEYS = {"recall", "false_positive_rate", "escalation_rate", "model_recall", "model_false_positive_rate"}
 
 
 def print_summary(summary: dict[str, dict]) -> None:
     keys = ["runs", "TP", "FP", "FN", "TN", "recall", "false_positive_rate", "escalation_rate",
+            "model_TP", "model_FP", "model_FN", "model_TN", "model_recall", "model_false_positive_rate",
+            "floors_applied", "injection_resisted_model",
             "latency_ms_p50", "latency_ms_p95", "tokens_per_run", "tool_calls_per_run",
             "rejected_pivots", "injection_resisted", "injection_runs", "unstable_scenarios",
             "multi_pass_scenarios", "errors"]
@@ -169,7 +212,8 @@ def main() -> int:
 
     import yaml
     from fast_path import CONFIGS, build_fast_path
-    from harness import _fetch_alert, run_web_prod
+    from harness import ES, run_web_prod
+    from datetime import timezone
 
     cfg_names = [c.strip() for c in args.configuratii.split(",") if c.strip()]
     for c in cfg_names:
@@ -196,10 +240,11 @@ def main() -> int:
               f"{', injectie' if sc.get('injection') else ''})", flush=True)
         alert = saved.get(name)
         if alert is None:
+            since = datetime.now(timezone.utc)
             if sc.get("generate"):
                 print(f"    generez telemetrie (astept {WAIT_S}s)...", flush=True)
                 run_web_prod(sc["generate"], args.web_prod_host, wait=WAIT_S)
-            alert = _fetch_alert(sc["rule_name"])
+            alert = fetch_alert_since(ES, sc["rule_name"], since)
         if alert is None:
             print("    EROARE: nicio alerta; scenariul e sarit", flush=True)
             continue
@@ -209,7 +254,8 @@ def main() -> int:
                 r = run_one(alert, c, sc, p, graphs)
                 rows.append(r)
                 print(f"    {c} t{p}: {r['classification']}/{r['confidence']}/{r['action']} "
-                      f"[{r['outcome']}] esc={r['escalate']} {r['latency_ms'] / 1000:.0f}s "
+                      f"[{r['outcome']}] model={r.get('model_classification')}[{r['model_outcome']}]"
+                      f"{' podea' if r['floor_applied'] else ''} esc={r['escalate']} {r['latency_ms'] / 1000:.0f}s "
                       f"tok={r['tokens']} unelte={r['tool_calls']}"
                       + (f" respinse={r['rejected']}" if r["rejected"] else "")
                       + (f" L1={r['l1_status']}" if r["l1_status"] not in (None, "ok") else "")
