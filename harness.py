@@ -36,7 +36,7 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -81,37 +81,39 @@ def score_verdict(verdict, ground_truth: str) -> str:
         return "FP" if flagged else "TN"
 
 
-def _fetch_alert(rule_name: str, since_min: int = 15):
+def _fetch_alert(rule_name: str, since_min: int = 15, since: datetime | None = None):
     """Cea mai recenta alerta REALA de la regula data. rule_name e keyword,
-    deci potrivire exacta."""
+    deci potrivire exacta. Cu `since` (momentul generarii scenariului), doar
+    alertele aparute dupa el: altfel un scenariu poate evalua alerta lasata de
+    scenariul anterior."""
     from elasticsearch import Elasticsearch
     es = Elasticsearch(os.environ.get("ES_URL", "http://localhost:9200"),
                        api_key=os.environ.get("ES_READONLY_API_KEY") or os.environ["ES_API_KEY"])
     r = es.search(index=".alerts-security.alerts-*", size=1, sort=[{"@timestamp": "desc"}],
                   query={"bool": {"filter": [
                       {"term": {"kibana.alert.rule.name": rule_name}},
-                      {"range": {"@timestamp": {"gte": f"now-{since_min}m"}}},
+                      {"range": {"@timestamp": {"gte": since.isoformat() if since else f"now-{since_min}m"}}},
                   ]}})
     hits = r["hits"]["hits"]
     return hits[0]["_source"] if hits else None
 
 
-def run_fast(scenario: dict):
+def run_fast(scenario: dict, since: datetime | None = None):
     """Ruleaza un scenariu prin calea rapida, pe ALERTA REALA produsa de regula.
     Scenariul trebuie sa dea `rule_name` (regula care se declanseaza)."""
     from fast_path import build_fast_path
     rule = scenario.get("rule_name")
     if not rule:
         raise ValueError(f"scenariul '{scenario.get('name')}' nu are rule_name")
-    alert = _fetch_alert(rule)
+    alert = _fetch_alert(rule, since=since)
     if alert is None:
-        raise RuntimeError(f"nicio alerta '{rule}' in ultimele 15 min "
+        raise RuntimeError(f"nicio alerta '{rule}' dupa generarea scenariului "
                            f"(regula nu s-a declansat inca sau nu exista)")
     graph = build_fast_path()
     return graph.invoke({"alert": alert}, config={"recursion_limit": 25})["verdict"]
 
 
-def run_chain(scenario: dict):
+def run_chain(scenario: dict, since: datetime | None = None):
     """Lantul complet pe alerta REALA: Tier 1 -> should_escalate -> (daca escaladeaza)
     Case fara verdictul Tier 1 -> Tier 2. Se noteaza verdictul FINAL: al Tier 2
     daca a existat, altfel al Tier 1. Exact ce ar face orchestratorul (fara buget)."""
@@ -123,9 +125,9 @@ def run_chain(scenario: dict):
     rule = scenario.get("rule_name")
     if not rule:
         raise ValueError(f"scenariul '{scenario.get('name')}' nu are rule_name")
-    alert = _fetch_alert(rule)
+    alert = _fetch_alert(rule, since=since)
     if alert is None:
-        raise RuntimeError(f"nicio alerta '{rule}' in ultimele 15 min")
+        raise RuntimeError(f"nicio alerta '{rule}' dupa generarea scenariului")
     out = build_fast_path().invoke({"alert": alert}, config={"recursion_limit": 25})
     v1 = out["verdict"]
     esc = should_escalate(v1, floor_applied=bool(out.get("floor_applied")),
@@ -189,6 +191,7 @@ def main() -> int:
         print(f"[{i}/{len(scenarios)}] {name}  (adevar: {gt})")
 
         # Genereaza telemetrie daca scenariul o cere
+        since = datetime.now(timezone.utc) if sc.get("generate") else None
         if sc.get("generate"):
             wait = 360 if sc["path"] == "fast" else 45
             print(f"    generez telemetrie (astept {wait}s)...")
@@ -197,7 +200,7 @@ def main() -> int:
         t0 = datetime.now()
         try:
             if sc["path"] == "fast":
-                verdict = run_chain(sc) if args.chain else run_fast(sc)
+                verdict = run_chain(sc, since) if args.chain else run_fast(sc, since)
             else:
                 verdict = run_hunt(sc)
         except Exception as e:

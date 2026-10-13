@@ -30,4 +30,4 @@ scenarios:
     path: fast
     ground_truth: benign
     rule_name: "Payload download: curl/wget spawned by web server or shell"
-    generate: 'bash -c "curl -s -o /dev/null http://localhost/"'
+    generate: 'bash -c "curl -s -o /dev/null http://localhost/; true"'
