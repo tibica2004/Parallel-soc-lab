@@ -1,0 +1,54 @@
+=== Harness: 4 scenarii | LANT Tier 1 -> Tier 2 ===
+
+[1/4] Alerta RCE — webshell ruleaza id  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True sensitive=False fereastra=False baseline=True fp_rate=None
+      concluzie: malicious/95
+    Tier 1: malicious / 95 / escalate_human  -> escaladat (malicious)
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False sensitive=False alerte_host=23 gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    Tier 2: malicious / 95 / isolate_host
+    -> malicious / 95 / isolate_host  [TP OK]  [43s]
+[2/4] Alerta reverse shell — /dev/tcp  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=True fereastra=False baseline=True fp_rate=None
+      concluzie: malicious/95
+    Tier 1: malicious / 95 / escalate_human  -> escaladat (malicious)
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=True alerte_host=23 gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    Tier 2: malicious / 95 / escalate_human
+    -> malicious / 95 / escalate_human  [TP OK]  [23s]
+[3/4] Alerta webshell scris in webroot (de www-data)  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False sensitive=True fereastra=False baseline=True fp_rate=None
+      concluzie: suspicious/90
+    Tier 1: suspicious / 90 / escalate_human  -> escaladat (suspicious)
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False sensitive=False alerte_host=24 gasit=True
+      concluzie: suspicious/75 semnale=['process_chain', 'file_write']
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False sensitive=False alerte_host=24 gasit=True
+      concluzie: benign/85 semnale=['file_write']
+    Tier 2: undetermined / 40 / escalate_human
+    -> undetermined / 40 / escalate_human  [TP OK]  [71s]
+[4/4] Alerta download — admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 360s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=False fereastra=False baseline=True fp_rate=1.0
+      concluzie: benign/95
+    Tier 1: benign / 95 / none  -> inchis
+    -> benign / 95 / none  [TN OK]  [12s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):     3
+  FN (ATAC RATAT):        0   <- eroarea scumpa
+  TN (benign inchis):     1
+  FP (benign escaladat):  0
+
+  RECALL (atacuri prinse):  100%  (3/3)
+  RATA ATACURI RATATE:      0%  <- metrica care conteaza
+  PRECIZIE:                 100%
+  RATA FALS POZITIVE:       0%  (0/1)
+
+CALIBRARE (precizie pe banda de incredere):
+   40-49:  100%  (1/1)
+   90-99:  100%  (3/3)
+  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%
