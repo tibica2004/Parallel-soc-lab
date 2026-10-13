@@ -163,7 +163,8 @@ def run_one(alert: dict, cfg_name: str, sc: dict, p: int, graphs: dict) -> dict:
         return _error_row(name, cfg_name, p, sc, e, int((time.monotonic() - t0) * 1000))
     v = out["verdict"]
     esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
-                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
+                          native_detection=bool((out.get("context") or {}).get("native_detection")))
     tot = tr.totals()
     l1 = out.get("l1") or {}
     return {"scenario": name, "config": cfg_name, "pass": p, "gt": sc["ground_truth"],

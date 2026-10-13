@@ -131,7 +131,8 @@ def run_chain(scenario: dict, since: datetime | None = None):
     out = build_fast_path().invoke({"alert": alert}, config={"recursion_limit": 25})
     v1 = out["verdict"]
     esc = should_escalate(v1, floor_applied=bool(out.get("floor_applied")),
-                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+                          pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
+                          native_detection=bool((out.get("context") or {}).get("native_detection")))
     print(f"    Tier 1: {v1.classification.value} / {v1.confidence} / {v1.proposed_action.value}"
           f"  -> {'escaladat (' + ', '.join(r.value for r in esc.reasons) + ')' if esc.escalate else 'inchis'}")
     if not esc.escalate:

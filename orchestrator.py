@@ -484,7 +484,8 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                         # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
                         # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
                         esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
-                                              pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"))
+                                              pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
+                                              native_detection=bool((out.get("context") or {}).get("native_detection")))
                     except degraded.CaseTimeout:
                         failure = degraded.FailureKind.CASE_TIMEOUT
                     except Exception as e:

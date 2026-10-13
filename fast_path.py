@@ -29,6 +29,7 @@ from typing import TypedDict
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
+import defend_native
 from elastic_tools import ES, _esql
 from hunt_path import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
@@ -243,6 +244,11 @@ def in_maintenance_window(asset: dict, now=None) -> bool:
 def build_context(alert: dict, history: bool = True) -> dict:
     """Ordinea conteaza: faptele intai, ghidul la final. Fiecare sectiune are
     limita ei, deci un ghid lung nu mai poate impinge faptele afara."""
+    # Alertele native Defend: campurile ECS lipsa se completeaza din echivalentele
+    # native, iar ce stie Defend despre detectie intra ca fapte validate.
+    native = defend_native.detection(alert)
+    if native is not None:
+        alert, _ = defend_native.normalize_fields(alert)
     host = _g(alert, "host.name") or "unknown"
     rule = _g(alert, "kibana.alert.rule.name") or ""
     facts = alert_facts(alert)
@@ -269,6 +275,7 @@ def build_context(alert: dict, history: bool = True) -> dict:
         "webroot_executable_write": webroot_write,
         "in_maintenance_window": in_maintenance_window(asset),
         "pair_in_baseline": pair_in_baseline(host, facts["parent"], facts["process"]),
+        "native_detection": native.model_dump(mode="json") if native else None,
         # 2. activul
         "host": host,
         "asset_criticality": asset.get("criticality"),
@@ -297,6 +304,9 @@ REGULI PE FAPTELE DETERMINISTE (calculate de cod, de incredere):
   fisier executabil web scris in webroot. Identitatea de admin NU o face benigna:
   un atacator cu credentiale furate face exact asta. Cel putin suspicious, cu
   exceptia cazului in_maintenance_window=true SI ran_by_known_admin=true.
+- native_detection prezent -> Elastic Defend (EDR) a detectat el insusi comportamentul
+  (tehnicile ATT&CK si descrierea sunt ale regulii Elastic). Nu inchide ca benign
+  decat cu dovezi clare de activitate legitima; cazul merge oricum la un om.
 """
 
 PATTERN_PROMPT = """Esti analist de patternuri intr-un SOC. Primesti date deja adunate.

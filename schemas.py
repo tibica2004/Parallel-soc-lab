@@ -81,6 +81,9 @@ class EscalationReason(str, Enum):
     # nici n-a incercat (alerta grava in restanta). Esecul escaladeaza, nu inchide.
     TIER1_FAILURE = "tier1_failure"
     BACKLOG_SEVERE = "backlog_severe"
+    # Alerta nativa Elastic Defend (malware, comportament, memorie): Tier 1 o
+    # triaza si o imbogateste, dar nu o inchide niciodata (decizie 2026-10-13).
+    NATIVE_DETECTION = "native_detection"
 
 
 class FailureKind(str, Enum):

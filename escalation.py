@@ -28,7 +28,7 @@ class EscalationDecision(BaseModel):
 
 
 def should_escalate(v: Verdict, *, floor_applied: bool,
-                    pair_in_baseline: bool | None) -> EscalationDecision:
+                    pair_in_baseline: bool | None, native_detection: bool = False) -> EscalationDecision:
     r: list[EscalationReason] = []
     c = v.classification
     if c is Classification.UNDETERMINED:
@@ -44,4 +44,7 @@ def should_escalate(v: Verdict, *, floor_applied: bool,
     # None = nu se poate verifica (ex. alerta de fisier fara parinte) -> tratat ca nevazut
     if c is Classification.BENIGN and pair_in_baseline is not True:
         r.append(EscalationReason.BENIGN_UNSEEN_PAIR)
+    # Detectia proprie a EDR-ului nu se inchide pe Tier 1, oricat de sigur e modelul.
+    if native_detection:
+        r.append(EscalationReason.NATIVE_DETECTION)
     return EscalationDecision(escalate=bool(r), reasons=r)
