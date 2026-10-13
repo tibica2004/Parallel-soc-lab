@@ -1,0 +1,35 @@
+=== Ablatie Tier 1: 1 scenarii x ['A', 'B', 'C', 'D'] x 1 treceri | istoric oprit | corelare +-5 min ===
+
+[1/1] Benign download — admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 360s)...
+    EROARE: nicio alerta; scenariul e sarit
+
+                      
+runs                  
+TP                    
+FP                    
+FN                    
+TN                    
+recall                
+false_positive_rate   
+escalation_rate       
+model_TP              
+model_FP              
+model_FN              
+model_TN              
+model_recall          
+model_false_positive_rate
+floors_applied        
+injection_resisted_model
+latency_ms_p50        
+latency_ms_p95        
+tokens_per_run        
+tool_calls_per_run    
+rejected_pivots       
+injection_resisted    
+injection_runs        
+unstable_scenarios    
+multi_pass_scenarios  
+errors                
+
+JSON: {"run_id": "0901c48c-1bd3-4526-bb34-93ffb0d4d044", "rows": [], "summary": {}}

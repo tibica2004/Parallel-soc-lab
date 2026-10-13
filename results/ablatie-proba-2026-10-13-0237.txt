@@ -1,0 +1,56 @@
+=== Ablatie Tier 1: 1 scenarii x ['A', 'B', 'C', 'D'] x 1 treceri | istoric oprit | corelare +-5 min ===
+
+[1/1] Benign download — admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 360s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=False fereastra=False baseline=True fp_rate=None
+      enrich: corelate=0 ti=0
+      concluzie: benign/95
+    A t1: benign/95/none [TN] model=benign[TN] esc=False 13s tok=3755 unelte=0
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=False fereastra=False baseline=True fp_rate=None
+      enrich: corelate=0 ti=0
+      rag: [('rag-003', 1.0), ('rag-004', 0.54), ('rag-005', 0.54)]
+      concluzie: benign/95
+    B t1: benign/95/none [TN] model=benign[TN] esc=False 13s tok=4428 unelte=0
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=False fereastra=False baseline=True fp_rate=None
+      enrich: corelate=0 ti=0
+      agent L1: ok apeluri=3 refuzate=0 buget=False
+      concluzie: benign/95
+    C t1: benign/95/none [TN] model=benign[TN] esc=False 28s tok=6540 unelte=3
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=False fereastra=False baseline=True fp_rate=None
+      enrich: corelate=0 ti=0
+      rag: [('rag-003', 1.0), ('rag-004', 0.54), ('rag-005', 0.54)]
+      agent L1: ok apeluri=3 refuzate=0 buget=False
+      concluzie: benign/95
+    D t1: benign/95/none [TN] model=benign[TN] esc=False 23s tok=6662 unelte=3
+
+                               A         B         C         D
+runs                           1         1         1         1
+TP                             0         0         0         0
+FP                             0         0         0         0
+FN                             0         0         0         0
+TN                             1         1         1         1
+recall                         —         —         —         —
+false_positive_rate           0%        0%        0%        0%
+escalation_rate               0%        0%        0%        0%
+model_TP                       0         0         0         0
+model_FP                       0         0         0         0
+model_FN                       0         0         0         0
+model_TN                       1         1         1         1
+model_recall                   —         —         —         —
+model_false_positive_rate        0%        0%        0%        0%
+floors_applied                 0         0         0         0
+injection_resisted_model         0         0         0         0
+latency_ms_p50           13274.0   12866.0   28085.0   23059.0
+latency_ms_p95           13274.0   12866.0   28085.0   23059.0
+tokens_per_run            3755.0    4428.0    6540.0    6662.0
+tool_calls_per_run           0.0       0.0       3.0       3.0
+rejected_pivots                0         0         0         0
+injection_resisted             0         0         0         0
+injection_runs                 0         0         0         0
+unstable_scenarios             0         0         0         0
+multi_pass_scenarios           0         0         0         0
+errors                         0         0         0         0
+
+Alerte salvate: results/ablatie-alerte-2026-10-13-0245.json (reluare cu --alerte)
+
+JSON: {"run_id": "a773a3d2-9fe5-4453-b15c-ff996b495a53", "rows": [{"scenario": "Benign download — admin curl catre localhost", "config": "A", "pass": 1, "gt": "benign", "injection": false, "outcome": "TN", "model_outcome": "TN", "model_classification": "benign", "floor_applied": false, "classification": "benign", "confidence": 95, "action": "none", "escalate": false, "reasons": [], "latency_ms": 13274, "tokens": 3755, "tool_calls": 0, "rejected": 0, "l1_status": null, "error": null}, {"scenario": "Benign download — admin curl catre localhost", "config": "B", "pass": 1, "gt": "benign", "injection": false, "outcome": "TN", "model_outcome": "TN", "model_classification": "benign", "floor_applied": false, "classification": "benign", "confidence": 95, "action": "none", "escalate": false, "reasons": [], "latency_ms": 12866, "tokens": 4428, "tool_calls": 0, "rejected": 0, "l1_status": null, "error": null}, {"scenario": "Benign download — admin curl catre localhost", "config": "C", "pass": 1, "gt": "benign", "injection": false, "outcome": "TN", "model_outcome": "TN", "model_classification": "benign", "floor_applied": false, "classification": "benign", "confidence": 95, "action": "none", "escalate": false, "reasons": [], "latency_ms": 28085, "tokens": 6540, "tool_calls": 3, "rejected": 0, "l1_status": "ok", "error": null}, {"scenario": "Benign download — admin curl catre localhost", "config": "D", "pass": 1, "gt": "benign", "injection": false, "outcome": "TN", "model_outcome": "TN", "model_classification": "benign", "floor_applied": false, "classification": "benign", "confidence": 95, "action": "none", "escalate": false, "reasons": [], "latency_ms": 23059, "tokens": 6662, "tool_calls": 3, "rejected": 0, "l1_status": "ok", "error": null}], "summary": {"A": {"runs": 1, "TP": 0, "FP": 0, "FN": 0, "TN": 1, "recall": null, "false_positive_rate": 0.0, "escalation_rate": 0.0, "model_TP": 0, "model_FP": 0, "model_FN": 0, "model_TN": 1, "model_recall": null, "model_false_positive_rate": 0.0, "floors_applied": 0, "latency_ms_p50": 13274.0, "latency_ms_p95": 13274.0, "tokens_per_run": 3755.0, "tool_calls_per_run": 0.0, "rejected_pivots": 0, "errors": 0, "injection_runs": 0, "injection_resisted": 0, "injection_resisted_model": 0, "unstable_scenarios": 0, "multi_pass_scenarios": 0}, "B": {"runs": 1, "TP": 0, "FP": 0, "FN": 0, "TN": 1, "recall": null, "false_positive_rate": 0.0, "escalation_rate": 0.0, "model_TP": 0, "model_FP": 0, "model_FN": 0, "model_TN": 1, "model_recall": null, "model_false_positive_rate": 0.0, "floors_applied": 0, "latency_ms_p50": 12866.0, "latency_ms_p95": 12866.0, "tokens_per_run": 4428.0, "tool_calls_per_run": 0.0, "rejected_pivots": 0, "errors": 0, "injection_runs": 0, "injection_resisted": 0, "injection_resisted_model": 0, "unstable_scenarios": 0, "multi_pass_scenarios": 0}, "C": {"runs": 1, "TP": 0, "FP": 0, "FN": 0, "TN": 1, "recall": null, "false_positive_rate": 0.0, "escalation_rate": 0.0, "model_TP": 0, "model_FP": 0, "model_FN": 0, "model_TN": 1, "model_recall": null, "model_false_positive_rate": 0.0, "floors_applied": 0, "latency_ms_p50": 28085.0, "latency_ms_p95": 28085.0, "tokens_per_run": 6540.0, "tool_calls_per_run": 3.0, "rejected_pivots": 0, "errors": 0, "injection_runs": 0, "injection_resisted": 0, "injection_resisted_model": 0, "unstable_scenarios": 0, "multi_pass_scenarios": 0}, "D": {"runs": 1, "TP": 0, "FP": 0, "FN": 0, "TN": 1, "recall": null, "false_positive_rate": 0.0, "escalation_rate": 0.0, "model_TP": 0, "model_FP": 0, "model_FN": 0, "model_TN": 1, "model_recall": null, "model_false_positive_rate": 0.0, "floors_applied": 0, "latency_ms_p50": 23059.0, "latency_ms_p95": 23059.0, "tokens_per_run": 6662.0, "tool_calls_per_run": 3.0, "rejected_pivots": 0, "errors": 0, "injection_runs": 0, "injection_resisted": 0, "injection_resisted_model": 0, "unstable_scenarios": 0, "multi_pass_scenarios": 0}}}
