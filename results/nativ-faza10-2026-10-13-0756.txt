@@ -1,0 +1,49 @@
+=== Reluare alerte native Defend: 11 alerte | configuratia base ===
+
+[1] Malicious Behavior Detection Alert: Payload Execution by Web Server  (2026-10-13T10:42:11)
+    defend: behavior/detected risk=99 attck=T1505,T1505.003,T1190,T1210
+    fapte: user=www-data parinte=apache2 proces=dash web_svc=True admin=False
+    -> suspicious / 85 / escalate_human  escaladat (suspicious, low_confidence, native_detection)  [21s]
+[2] Malicious Behavior Detection Alert: Payload Execution by Web Server  (2026-10-13T10:38:11)
+    defend: behavior/detected risk=99 attck=T1505,T1505.003,T1190,T1210
+    fapte: user=www-data parinte=apache2 proces=dash web_svc=True admin=False
+    -> suspicious / 95 / escalate_human  escaladat (suspicious, native_detection)  [16s]
+[3] Malicious Behavior Detection Alert: Payload Execution by Web Server  (2026-10-13T10:12:07)
+    defend: behavior/detected risk=99 attck=T1505,T1505.003,T1190,T1210
+    fapte: user=www-data parinte=apache2 proces=dash web_svc=True admin=False
+    -> suspicious / 60 / escalate_human  escaladat (suspicious, floor_override, low_confidence, native_detection)  [35s]
+[4] Malicious Behavior Detection Alert: Payload Execution by Web Server  (2026-10-13T09:47:06)
+    defend: behavior/detected risk=99 attck=T1505,T1505.003,T1190,T1210
+    fapte: user=www-data parinte=apache2 proces=dash web_svc=True admin=False
+    -> suspicious / 95 / escalate_human  escaladat (suspicious, native_detection)  [15s]
+[5] Malicious Behavior Detection Alert: Payload Execution by Web Server  (2026-10-13T07:16:02)
+    defend: behavior/detected risk=99 attck=T1505,T1505.003,T1190,T1210
+    fapte: user=www-data parinte=apache2 proces=dash web_svc=True admin=False
+    -> suspicious / 75 / escalate_human  escaladat (suspicious, low_confidence, native_detection)  [26s]
+[6] Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload  (2026-10-13T09:31:05)
+    defend: behavior/detected risk=99 attck=T1037,T1554,T1505,T1505.003
+    fapte: user=tiberiu parinte=sshd-session proces=bash web_svc=False admin=True
+    -> suspicious / 85 / escalate_human  escaladat (suspicious, low_confidence, native_detection)  [19s]
+[7] Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload  (2026-10-13T09:21:04)
+    defend: behavior/detected risk=99 attck=T1037,T1554,T1505,T1505.003
+    fapte: user=tiberiu parinte=sshd-session proces=bash web_svc=False admin=True
+    -> suspicious / 95 / escalate_human  escaladat (suspicious, native_detection)  [28s]
+[8] Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload  (2026-10-13T09:11:04)
+    defend: behavior/detected risk=99 attck=T1037,T1554,T1505,T1505.003
+    fapte: user=tiberiu parinte=sshd-session proces=bash web_svc=False admin=True
+    -> suspicious / 75 / escalate_human  escaladat (suspicious, low_confidence, native_detection)  [24s]
+[9] Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload  (2026-10-13T09:01:04)
+    defend: behavior/detected risk=99 attck=T1037,T1554,T1505,T1505.003
+    fapte: user=tiberiu parinte=sshd-session proces=bash web_svc=False admin=True
+    -> suspicious / 90 / escalate_human  escaladat (suspicious, native_detection)  [32s]
+[10] Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload  (2026-10-13T08:51:03)
+    defend: behavior/detected risk=99 attck=T1037,T1554,T1505,T1505.003
+    fapte: user=tiberiu parinte=sshd-session proces=bash web_svc=False admin=True
+    -> suspicious / 95 / escalate_human  escaladat (suspicious, native_detection)  [17s]
+[11] Malicious Behavior Detection Alert: System Binary Copied or Moved  (2026-09-28T06:14:24)
+    defend: behavior/detected risk=99 attck=T1036,T1036.003,T1564
+    fapte: user=www-data parinte=dash proces=cp web_svc=True admin=False
+    -> suspicious / 95 / escalate_human  escaladat (suspicious, native_detection)  [15s]
+
+REZUMAT: {'suspicious': 11, 'escalated': 11, 'floor': 1}
+JSON: [{"rule": "Malicious Behavior Detection Alert: Payload Execution by Web Server", "ts": "2026-10-13T10:42:11.630Z", "classification": "suspicious", "confidence": 85, "escalate": true, "reasons": ["suspicious", "low_confidence", "native_detection"], "latency_s": 20.7}, {"rule": "Malicious Behavior Detection Alert: Payload Execution by Web Server", "ts": "2026-10-13T10:38:11.436Z", "classification": "suspicious", "confidence": 95, "escalate": true, "reasons": ["suspicious", "native_detection"], "latency_s": 15.7}, {"rule": "Malicious Behavior Detection Alert: Payload Execution by Web Server", "ts": "2026-10-13T10:12:07.368Z", "classification": "suspicious", "confidence": 60, "escalate": true, "reasons": ["suspicious", "floor_override", "low_confidence", "native_detection"], "latency_s": 35.1}, {"rule": "Malicious Behavior Detection Alert: Payload Execution by Web Server", "ts": "2026-10-13T09:47:06.078Z", "classification": "suspicious", "confidence": 95, "escalate": true, "reasons": ["suspicious", "native_detection"], "latency_s": 14.5}, {"rule": "Malicious Behavior Detection Alert: Payload Execution by Web Server", "ts": "2026-10-13T07:16:02.718Z", "classification": "suspicious", "confidence": 75, "escalate": true, "reasons": ["suspicious", "low_confidence", "native_detection"], "latency_s": 26.5}, {"rule": "Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload", "ts": "2026-10-13T09:31:05.502Z", "classification": "suspicious", "confidence": 85, "escalate": true, "reasons": ["suspicious", "low_confidence", "native_detection"], "latency_s": 18.8}, {"rule": "Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload", "ts": "2026-10-13T09:21:04.838Z", "classification": "suspicious", "confidence": 95, "escalate": true, "reasons": ["suspicious", "native_detection"], "latency_s": 27.5}, {"rule": "Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload", "ts": "2026-10-13T09:11:04.929Z", "classification": "suspicious", "confidence": 75, "escalate": true, "reasons": ["suspicious", "low_confidence", "native_detection"], "latency_s": 23.6}, {"rule": "Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload", "ts": "2026-10-13T09:01:04.560Z", "classification": "suspicious", "confidence": 90, "escalate": true, "reasons": ["suspicious", "native_detection"], "latency_s": 32.1}, {"rule": "Malicious Behavior Detection Alert: Potential Remote Code Execution via URL Encoded Payload", "ts": "2026-10-13T08:51:03.529Z", "classification": "suspicious", "confidence": 95, "escalate": true, "reasons": ["suspicious", "native_detection"], "latency_s": 16.6}, {"rule": "Malicious Behavior Detection Alert: System Binary Copied or Moved", "ts": "2026-09-28T06:14:24.366Z", "classification": "suspicious", "confidence": 95, "escalate": true, "reasons": ["suspicious", "native_detection"], "latency_s": 15.1}]
