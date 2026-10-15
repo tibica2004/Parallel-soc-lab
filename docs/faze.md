@@ -4,6 +4,12 @@ Sursa: promptul de lucru din conversatia claude.ai (2026-10-09) si lista de sarc
 
 Starea la 2026-10-09: faza 0 (CLAUDE.md) facuta; faza 1 implementata pe ramura faza-01-securitate, cu rezultatele in results/*-faza1-2026-10-09-0534.txt (harness dev 14/14; harness fast de verificat ca s-a terminat 4/4).
 
+Starea la 2026-10-15: fazele 1-10 facute (vezi git log si results/). Faza 11 pe ramura faza-11-tier3:
+- 11a incidente: gata (incidents.py, tier3.py --once; attack_run.sh -> un singur incident).
+- 11b reguli: gata in dry-run (rules.py, tier3.py --once --reguli). Sursele golului: etichete umane de atac si Tier 2 malicious cu acord A/B. Nimic nu se creeaza in Kibana pana la: cheia Kibana separata (tier3-generated), filtrul tier3-shadow in orchestrator (cu harness dev + fast) si aprobarea lui Tiberiu.
+- 11c vanatoare ATT&CK: dupa senzorii din faza 12.
+Ramase din diagrama: executorul dry-run (politici), scheduler-ul Tier 3 (timer systemd, de aprobat).
+
 ## Promptul original (fidel)
 
 FAZA 1 — Securitate si reparatii mici
