@@ -64,8 +64,14 @@ def _g(d: dict, path: str):
     return cur
 
 
+# Regulile Tier 3 in shadow alerteaza, dar nu intra in coada Tier 1: o regula
+# proaspata si inca nemasurata nu are voie sa inunde triajul (rules.py).
+SHADOW_RULE_TAG = "tier3-shadow"
+
+
 def fetch_alerts_between(since, until, limit: int) -> list[dict]:
-    """Alertele deschise din intervalul (since, until], cele mai vechi intai."""
+    """Alertele deschise din intervalul (since, until], cele mai vechi intai.
+    Fara cele ale regulilor Tier 3 aflate in shadow."""
     r = ES.search(index=ALERTS_IDX, size=limit,
                   sort=[{"@timestamp": "asc"}],
                   query={"bool": {"filter": [
@@ -73,6 +79,7 @@ def fetch_alerts_between(since, until, limit: int) -> list[dict]:
                                                 "lte": until.isoformat()}}},
                   ], "must_not": [
                       {"term": {"kibana.alert.workflow_status": "closed"}},
+                      {"term": {"kibana.alert.rule.tags": SHADOW_RULE_TAG}},
                   ]}})
     # _soc_ref: referinta opaca la documentul alertei, pentru evidence_refs.
     # Nu intra in contextul modelului (fast_path alege campurile explicit).

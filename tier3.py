@@ -18,6 +18,9 @@ Tier 3 deschide si uneste incidente; nu le inchide (principiul 6).
     python3 tier3.py --once --ore 24 --scrie         # scrie in soc-incidents
     python3 tier3.py --once --reguli --ore 168       # propuneri de reguli, dry-run
     python3 tier3.py --once --reguli --test-chain <chain_id>   # verificare pe un lant anume
+    python3 tier3.py --once --reguli --scrie-kibana  # reguli noi in shadow, spatiul Kibana tier3
+    python3 tier3.py --once --ciclu-reguli [--scrie-kibana]    # promovare / oprire
+    python3 tier3.py --once --opreste-reguli --scrie-kibana    # oprire globala
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 import degraded
 import incidents as I
+import kibana_rules as K
 import rules as R
 from elastic_tools import ES
 from llm import NO_THINK, get_llm, model_name, parse_json_response, strip_thinking
@@ -240,6 +244,34 @@ def run_rules(hours: int, test_chain: str | None = None) -> list[dict]:
     return out
 
 
+def publish(props: list[dict], kb: K.Kibana) -> None:
+    """Propunerile validate -> reguli noi in shadow. O regula deja existenta
+    (acelasi rule_id) nu se recreeaza; o regula oprita nu se reporneste."""
+    existing = {r["rule_id"] for r in kb.find_own()}
+    for d in props:
+        pl = d.get("kibana_payload")
+        if not pl:
+            continue
+        if pl["rule_id"] in existing:
+            print(f"  [kibana] {pl['rule_id']} exista deja, sar peste")
+            continue
+        try:
+            kb.create(pl)
+            d["kibana"] = "dry-run" if kb.dry_run else "creata in shadow"
+        except Exception as e:
+            d["kibana"] = f"EROARE: {type(e).__name__}: {str(e)[:200]}"
+        print(f"  [kibana] {pl['rule_id']}: {d['kibana']}")
+
+
+def run_lifecycle(kb: K.Kibana, kill_switch: bool) -> list[dict]:
+    res = K.lifecycle(ES, kb, kill_switch=kill_switch)
+    print(f"=== Tier 3 ciclul regulilor: {len(res)} reguli proprii "
+          f"({'oprire globala, ' if kill_switch else ''}{'dry-run' if kb.dry_run else 'SCRIERE'}) ===")
+    for r in res:
+        print(f"  {r['rule_id']}: {r['from']} -> {r['to']} ({r['reason']})")
+    return res
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="o singura rulare (singurul mod deocamdata)")
@@ -248,6 +280,10 @@ def main() -> int:
     ap.add_argument("--fara-naratiune", action="store_true")
     ap.add_argument("--reguli", action="store_true", help="propuneri de reguli EQL (dry-run) in loc de incidente")
     ap.add_argument("--test-chain", help="cu --reguli: propune pentru acest lant, chiar daca nu e gol (verificare)")
+    ap.add_argument("--ciclu-reguli", action="store_true", help="shadow -> promovare / oprire pentru regulile proprii")
+    ap.add_argument("--opreste-reguli", action="store_true", help="oprire globala: dezactiveaza toate regulile tier3")
+    ap.add_argument("--scrie-kibana", action="store_true",
+                    help="cu --reguli / --ciclu-reguli / --opreste-reguli: scrie in spatiul Kibana tier3")
     args = ap.parse_args()
     if not args.once:
         print("Deocamdata doar --once; timerul systemd vine dupa aprobare.")
@@ -255,14 +291,25 @@ def main() -> int:
     if not 1 <= args.ore <= 24 * 14:
         print("--ore intre 1 si 336")
         return 1
+    kb = K.Kibana(dry_run=not args.scrie_kibana)
+    if args.scrie_kibana and not os.environ.get("KIBANA_TIER3_API_KEY"):
+        print("--scrie-kibana cere KIBANA_TIER3_API_KEY (rolul soc_tier3_rules, doar spatiul tier3)")
+        return 1
+    if args.ciclu_reguli or args.opreste_reguli:
+        res = run_lifecycle(kb, kill_switch=args.opreste_reguli)
+        path = ROOT / "results" / f"ciclu-reguli-{datetime.now():%Y-%m-%d-%H%M}.json"
+        path.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        print(f"\nSalvat: {path.relative_to(ROOT)}")
+        return 0
     if args.reguli:
         if args.scrie:
-            print("--scrie nu e disponibil pentru reguli: crearea in Kibana cere cheia separata si aprobarea")
+            print("pentru reguli se foloseste --scrie-kibana, nu --scrie")
             return 1
         if args.test_chain and not re.fullmatch(CHAIN_ID_RE, args.test_chain):
             print("--test-chain: chain_id invalid")
             return 1
         props = run_rules(args.ore, args.test_chain)
+        publish(props, kb)
         path = ROOT / "results" / f"reguli-{datetime.now():%Y-%m-%d-%H%M}.json"
         path.write_text(json.dumps(props, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"\nSalvat: {path.relative_to(ROOT)}")
