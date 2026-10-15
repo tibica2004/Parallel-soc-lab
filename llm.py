@@ -10,6 +10,7 @@ ROLES = {
     "hunt_b":    {"temperature": 0.7, "max_tokens": 4000},
     "critic":    {"temperature": 0.3, "max_tokens": 2000},
     "correlate": {"temperature": 0.2, "max_tokens": 4000},
+    "rules":     {"temperature": 0.1, "max_tokens": 1500},
 }
 
 NO_THINK = "\n\n/no_think"

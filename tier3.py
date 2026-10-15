@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-TIER 3 — rulare programata (deocamdata de mana: --once). Faza 11a: incidente.
+TIER 3 — rulare programata (deocamdata de mana: --once). Faza 11a: incidente;
+faza 11b: propuneri de reguli EQL (--reguli, doar dry-run, vezi rules.py).
 
   1. collect: verdictele neinchise din ultimele --ore, cu liniajul proceselor;
   2. cluster: grupare determinista (incidents.py);
@@ -15,6 +16,8 @@ Tier 3 deschide si uneste incidente; nu le inchide (principiul 6).
 
     python3 tier3.py --once --ore 24                 # dry-run
     python3 tier3.py --once --ore 24 --scrie         # scrie in soc-incidents
+    python3 tier3.py --once --reguli --ore 168       # propuneri de reguli, dry-run
+    python3 tier3.py --once --reguli --test-chain <chain_id>   # verificare pe un lant anume
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,8 +34,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 import degraded
 import incidents as I
+import rules as R
 from elastic_tools import ES
-from llm import NO_THINK, get_llm, model_name, strip_thinking
+from llm import NO_THINK, get_llm, model_name, parse_json_response, strip_thinking
+from schemas import CHAIN_ID_RE
 
 ROOT = Path(__file__).resolve().parent
 NARRATIVE_TIMEOUT_S = 120
@@ -138,12 +144,110 @@ def run_once(hours: int, do_write: bool, with_narrative: bool = True) -> list[di
     return out
 
 
+# ------------------------------------------------------------------------------
+# Faza 11b: propuneri de reguli (rules.py). Doar dry-run: nimic in Kibana.
+# ------------------------------------------------------------------------------
+
+DRAFT_TIMEOUT_S = 120
+
+
+def draft_rule(events: list[dict], feedback: str | None, llm=None) -> R.RuleDraft:
+    """Modelul alege sablonul. Orice abatere (JSON stricat, camp in plus, valoare
+    respinsa) ridica exceptie, iar eroarea ajunge la reincercare."""
+    llm = llm or get_llm("rules")
+    human = "<<<TELEMETRIE_NEINCREZATOARE\n" + R.event_lines(events) + "\nTELEMETRIE_NEINCREZATOARE>>>"
+    if feedback:
+        human += f"\n\nPropunerea anterioara a fost respinsa de validare: {feedback}\nAlege altceva."
+    out = degraded.run_with_timeout(
+        lambda: llm.invoke([SystemMessage(content=R.DRAFT_PROMPT + NO_THINK), HumanMessage(content=human)]),
+        DRAFT_TIMEOUT_S)
+    return R.RuleDraft.model_validate(parse_json_response(out.content or ""))
+
+
+def propose(v: dict, source: R.GapSource, events: list[dict], now: datetime, llm=None) -> R.RuleProposal:
+    """draft -> grounded -> render -> validate, cu cel mult MAX_DRAFT_RETRIES reincercari."""
+    t = R._ts(events[0]["@timestamp"])
+    base = dict(created_at=now, gap_source=source, chain_id=v["chain_id"], host=v["entity_id"],
+                case_event_ids=[e["_id"] for e in events][:50], case_time=t, model_id=model_name("rules"))
+    errors: list[str] = []
+    feedback = None
+    last = (None, None, None)     # ultima propunere ajunsa la validare
+    for attempt in range(1, R.MAX_DRAFT_RETRIES + 2):
+        try:
+            d = draft_rule(events, feedback, llm)
+        except Exception as e:
+            feedback = f"raspuns invalid: {type(e).__name__}: {str(e)[:300]}"
+            errors.append(feedback)
+            continue
+        if not R.grounded(d, events):
+            feedback = "valorile nu apar impreuna in acelasi eveniment al cazului"
+            errors.append(feedback)
+            continue
+        eql = R.render_eql(d)
+        val = R.validate(ES, eql, v["entity_id"], base["case_event_ids"], t, now)
+        if val.passed:
+            return R.RuleProposal(**base, rule_id=R.rule_id(eql), draft=d, eql=eql, validation=val,
+                                  attempts=attempt, errors=errors, status=R.RuleStatus.PROPOSED)
+        feedback = val.error
+        errors.append(f"{eql} -> {val.error}")
+        last = (d, eql, val)
+    d, eql, val = last
+    return R.RuleProposal(**base, rule_id=R.rule_id(eql) if eql else None, draft=d, eql=eql,
+                          validation=val, attempts=R.MAX_DRAFT_RETRIES + 1, errors=errors[-10:],
+                          status=R.RuleStatus.REJECTED)
+
+
+def run_rules(hours: int, test_chain: str | None = None) -> list[dict]:
+    now = datetime.now(timezone.utc)
+    if test_chain:
+        v = R.fetch_verdict_by_chain(ES, test_chain)
+        cands = [(v, R.GapSource.TEST)] if v else []
+    else:
+        cands = [(v, R.gap_source(v)) for v in R.fetch_candidates(ES, now - timedelta(hours=hours), now)]
+    t1 = R.tier1_chains(ES, [v["chain_id"] for v, _ in cands])
+    print(f"=== Tier 3 reguli: {len(cands)} candidati in {hours} h (dry-run, nimic in Kibana) ===", flush=True)
+    if cands and not degraded.llm_healthy("rules"):
+        print("  modelul pentru reguli nu raspunde: nicio propunere (vizibilitatea nu scade)")
+        return []
+    out, seen_chains = [], set()
+    for v, source in cands:
+        if v["chain_id"] in seen_chains:
+            continue
+        seen_chains.add(v["chain_id"])
+        events = [e for e in R.fetch_events(ES, R.process_refs(v)) if "start" in (e.get("event", {}).get("type") or [])]
+        events.sort(key=lambda e: e["@timestamp"])
+        covered = R.alerts_on_case(ES, v["entity_id"], [R._pname(e, "process", "entity_id") for e in events],
+                                   R._ts(events[0]["@timestamp"])) if events else 0
+        reason = R.gap_reason(v, t1, covered, len(events))
+        if reason and not (source is R.GapSource.TEST and events):
+            print(f"\n[{v['chain_id'][:8]}] {source.value}: nu e gol ({reason})")
+            continue
+        if reason:
+            print(f"\n[{v['chain_id'][:8]}] TEST: nu e gol real ({reason}), validez totusi propunerea")
+        p = propose(v, source, events, now)
+        print(f"\n[{v['chain_id'][:8]}] {source.value} -> {p.status.value} dupa {p.attempts} incercari")
+        if p.eql:
+            print(f"    {p.eql}")
+        if p.validation:
+            print(f"    validare: sintaxa={p.validation.syntax_ok} prinde={p.validation.catches} "
+                  f"zgomot={p.validation.noise_hits}/{R.NOISE_MAX}")
+        for e in p.errors:
+            print(f"    respins: {e}")
+        doc = p.model_dump(mode="json")
+        if p.status is R.RuleStatus.PROPOSED and source is not R.GapSource.TEST:
+            doc["kibana_payload"] = R.kibana_payload(p)
+        out.append(doc)
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="o singura rulare (singurul mod deocamdata)")
     ap.add_argument("--ore", type=int, default=24, help="fereastra verdictelor (implicit 24)")
     ap.add_argument("--scrie", action="store_true", help="scrie in soc-incidents (implicit dry-run)")
     ap.add_argument("--fara-naratiune", action="store_true")
+    ap.add_argument("--reguli", action="store_true", help="propuneri de reguli EQL (dry-run) in loc de incidente")
+    ap.add_argument("--test-chain", help="cu --reguli: propune pentru acest lant, chiar daca nu e gol (verificare)")
     args = ap.parse_args()
     if not args.once:
         print("Deocamdata doar --once; timerul systemd vine dupa aprobare.")
@@ -151,6 +255,18 @@ def main() -> int:
     if not 1 <= args.ore <= 24 * 14:
         print("--ore intre 1 si 336")
         return 1
+    if args.reguli:
+        if args.scrie:
+            print("--scrie nu e disponibil pentru reguli: crearea in Kibana cere cheia separata si aprobarea")
+            return 1
+        if args.test_chain and not re.fullmatch(CHAIN_ID_RE, args.test_chain):
+            print("--test-chain: chain_id invalid")
+            return 1
+        props = run_rules(args.ore, args.test_chain)
+        path = ROOT / "results" / f"reguli-{datetime.now():%Y-%m-%d-%H%M}.json"
+        path.write_text(json.dumps(props, ensure_ascii=False, indent=1), encoding="utf-8")
+        print(f"\nSalvat: {path.relative_to(ROOT)}")
+        return 0
     incs = run_once(args.ore, args.scrie, not args.fara_naratiune)
     path = ROOT / "results" / f"incidente-{datetime.now():%Y-%m-%d-%H%M}.json"
     path.write_text(json.dumps(incs, ensure_ascii=False, indent=1), encoding="utf-8")
