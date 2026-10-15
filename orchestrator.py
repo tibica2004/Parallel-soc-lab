@@ -347,6 +347,21 @@ class HuntRunner:
         return failure
 
 
+def finding_pair_refs(f) -> list:
+    """Referinte la evenimentele perechii parinte-copil a unui finding de sweep.
+    Merg doar in verdict (pentru Tier 3), nu in intrarea modelului. Un esec aici
+    nu opreste investigatia."""
+    d = f.detail or {}
+    if f.kind != "new_parent_child" or not (d.get("parent") and d.get("child")):
+        return []
+    try:
+        from elastic_tools import pair_event_refs
+        return pair_event_refs(f.entity_id, d["parent"], d["child"], window_hours=2)
+    except Exception as e:
+        print(f"  [dovezi sweep] {type(e).__name__}: {e}", flush=True)
+        return []
+
+
 def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
     """Findings de raritate -> calea lenta -> politica -> audit.
     Model cazut / timeout / eroare -> undetermined + escalate_human, scris de cod;
@@ -364,7 +379,8 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
             continue
         done += 1
         try:
-            failure = hunt.run({"finding": f}, "LENT", entity, f.entity_id, f.evidence_refs)
+            refs = list(f.evidence_refs) + finding_pair_refs(f)
+            failure = hunt.run({"finding": f}, "LENT", entity, f.entity_id, refs)
             # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
             if failure is None:
                 seen.add(k)
