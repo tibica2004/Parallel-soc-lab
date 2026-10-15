@@ -56,7 +56,8 @@ ARG_RE = re.compile(r"^[\x21\x23-\x5b\x5d-\x7e]{1,128}$")   # ASCII tiparibil, f
 DIR_RE = re.compile(r"^/(?:[A-Za-z0-9._\-]+/)+$")
 # Prefixe prea generale: orice executabil al sistemului ar intra in regula.
 BROAD_DIRS = frozenset({"/usr/", "/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/lib/",
-                        "/usr/local/", "/usr/local/bin/", "/lib/", "/opt/"})
+                        "/usr/local/", "/usr/local/bin/", "/lib/", "/opt/", "/home/", "/var/",
+                        "/etc/", "/root/"})
 
 
 class GapSource(str, Enum):
@@ -69,6 +70,8 @@ class RuleTemplate(str, Enum):
     PARENT_CHILD = "parent_child"           # parinte -> copil
     PARENT_CHILD_ARG = "parent_child_arg"   # parinte -> copil, cu un argument anume
     EXEC_PREFIX = "exec_prefix"             # executabil pornit dintr-un director
+    ARG_PREFIX = "arg_prefix"               # parinte -> copil, cu un argument dintr-un director
+                                            # (scripturi: executabilul e interpretorul)
 
 
 class RuleStatus(str, Enum):
@@ -130,6 +133,7 @@ class RuleDraft(BaseModel):
             RuleTemplate.PARENT_CHILD: {"parent", "child"},
             RuleTemplate.PARENT_CHILD_ARG: {"parent", "child", "arg"},
             RuleTemplate.EXEC_PREFIX: {"dir"},
+            RuleTemplate.ARG_PREFIX: {"parent", "child", "dir"},
         }[self.template]
         given = {k for k in ("parent", "child", "arg", "dir") if getattr(self, k) is not None}
         if given != need:
@@ -193,6 +197,9 @@ def render_eql(d: RuleDraft) -> str:
     if d.template is RuleTemplate.PARENT_CHILD_ARG:
         return (f'process where event.type == "start" and process.parent.name == {_q(d.parent)} '
                 f'and process.name == {_q(d.child)} and process.args == {_q(d.arg)}')
+    if d.template is RuleTemplate.ARG_PREFIX:
+        return (f'process where event.type == "start" and process.parent.name == {_q(d.parent)} '
+                f'and process.name == {_q(d.child)} and startsWith(process.args, {_q(d.dir)})')
     return f'process where event.type == "start" and startsWith(process.executable, {_q(d.dir)})'
 
 
@@ -223,7 +230,12 @@ def grounded(d: RuleDraft, events: list[dict]) -> bool:
             continue
         if d.template is RuleTemplate.PARENT_CHILD:
             return True
-        if isinstance(args, list) and d.arg in args:
+        if not isinstance(args, list):
+            continue
+        if d.template is RuleTemplate.ARG_PREFIX:
+            if any(isinstance(a, str) and a.startswith(d.dir) for a in args):
+                return True
+        elif d.arg in args:
             return True
     return False
 
@@ -322,6 +334,11 @@ Sabloane (alegi doar dintre ele):
   - parent_child_arg: campuri parent, child, arg     (la fel, plus UN SINGUR element din lista args,
                                                       copiat exact, fara spatii; nu lipi mai multe elemente)
   - exec_prefix:      camp dir                       (executabil pornit dintr-un director; dir se termina cu /)
+  - arg_prefix:       campuri parent, child, dir     (parinte -> copil, cu un argument aflat in directorul dir;
+                                                      bun pentru scripturi, unde executabilul e interpretorul.
+                                                      dir = directorul argumentului, terminat cu /, nu fisierul)
+Prefera o regula care prinde si variante ale atacului (alt nume de fisier in
+acelasi director), nu doar comanda exacta, daca ramane specifica.
 
 Valorile trebuie copiate EXACT din acelasi eveniment de mai jos. Nu inventa.
 Raspunde DOAR cu JSON:

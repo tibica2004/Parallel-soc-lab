@@ -274,3 +274,40 @@ def test_sweep_fara_dovezi_nu_opreste(monkeypatch):
     f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
                       detail={"parent": "apache2", "child": "sh", "count": 1}, rarity_score=1.0)
     assert orchestrator.finding_pair_refs(f) == []
+
+
+# ---------------- sablonul arg_prefix ----------------
+
+def ap(dir_="/home/tiberiu/.cache/.kw/", **kw):
+    return R.RuleDraft.model_validate({"template": "arg_prefix", "parent": "bash", "child": "dash",
+                                       "dir": dir_, "technique": "T1059.004", **kw})
+
+
+SCRIPT = dict(parent="bash", child="dash", args=("/bin/sh", "/home/tiberiu/.cache/.kw/kthreadd-0734"))
+
+
+def test_arg_prefix_render():
+    assert R.render_eql(ap()) == ('process where event.type == "start" and process.parent.name == "bash" '
+                                  'and process.name == "dash" and startsWith(process.args, "/home/tiberiu/.cache/.kw/")')
+
+
+def test_arg_prefix_cere_parinte_copil_si_director():
+    with pytest.raises(ValidationError):
+        R.RuleDraft.model_validate({"template": "arg_prefix", "dir": "/home/x/", "technique": "T1059"})
+    with pytest.raises(ValidationError):
+        ap(arg="x")
+
+
+def test_arg_prefix_grounded():
+    assert R.grounded(ap(), [ev(**SCRIPT)])
+    assert not R.grounded(ap("/home/tiberiu/.cache/.kx/"), [ev(**SCRIPT)])
+    # prefixul de director nu se potriveste pe jumatate de nume: .kw/ nu e .kwx/
+    assert not R.grounded(ap(), [ev(parent="bash", child="dash", args=("/bin/sh", "/home/tiberiu/.cache/.kwx/a"))])
+    # perechea parinte-copil trebuie sa fie tot din acelasi eveniment
+    assert not R.grounded(ap(), [ev(parent="sshd-session", child="dash", args=SCRIPT["args"])])
+
+
+@pytest.mark.parametrize("d", ["/home/", "/var/", "/etc/", "/root/"])
+def test_arg_prefix_director_prea_general(d):
+    with pytest.raises(ValidationError):
+        ap(d)
