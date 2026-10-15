@@ -1,0 +1,16 @@
+=== Tier 3 reguli: 2 candidati in 6 h (dry-run, nimic in Kibana) ===
+
+[54049f6e] human -> proposed dupa 1 incercari
+    process where event.type == "start" and process.parent.name == "bash" and process.name == "dash" and process.args == "/home/tiberiu/.cache/.kw/kthreadd-0734"
+    validare: sintaxa=True prinde=True zgomot=0/5
+
+[5d76d133] human -> rejected dupa 3 incercari
+    respins: raspuns invalid: ValidationError: 1 validation error for RuleDraft
+parent
+  Value error, nume de proces respins: 'kworker/u10:3-events_unbound' [type=value_error, input_value='kworker/u10:3-events_unbound', input_type=str]
+    respins: raspuns invalid: ValidationError: 1 validation error for RuleDraft
+parent
+  Value error, nume de proces respins: 'kworker/u10:3-events_unbound' [type=value_error, input_value='kworker/u10:3-events_unbound', input_type=str]
+    respins: raspuns invalid: CaseTimeout: depasit 120s
+
+Salvat: results/reguli-2026-10-15-0747.json
