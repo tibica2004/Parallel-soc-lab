@@ -180,8 +180,27 @@ def persist_trace(doc: dict) -> None:
             _trace_warned = True
 
 
+def make_plan(verdict, decision):
+    """Planul executorului (dry-run) pentru o actiune care nu e gratuita.
+    Intoarce (plan sau None, text pentru action_result). Nu executa nimic."""
+    import executor
+    now = datetime.now(timezone.utc)
+    if not decision.executable:
+        return None, None
+    try:
+        p = executor.plan(verdict, decision, now,
+                          stats=executor.fetch_stats(ES, decision.chosen, now),
+                          criticality=executor.fetch_criticality(ES, verdict.entity_id),
+                          agent_id=(executor.fetch_agent_id(ES, verdict.entity_id)
+                                    if decision.chosen.value == "isolate_host" else None))
+    except executor.PlanError as e:
+        return None, f"dry-run: fara plan ({e}); ramane la om"[:500]
+    return p, executor.summary(p)
+
+
 def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
-            escalation: EscalationDecision | None = None, failure=None, tier2=None) -> None:
+            escalation: EscalationDecision | None = None, failure=None, tier2=None,
+            plan=None, action_result: str | None = None) -> None:
     """Scrie verdictul in istoric si o inregistrare de audit. ground_truth ramane
     GOL — doar omul il completeaza. Fara cheie de writer (dry-run), nu scrie nimic.
     `escalation` = decizia Tier 1 -> Tier 2 (None pe calea lenta).
@@ -205,7 +224,8 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
         queries_run=(extra or {}).get("queries_run", []),
         policy_decision=f"{decision.chosen.value}: {decision.reason}",
         action_executed=decision.chosen,
-        action_result="shadow: nu s-a executat" if decision.shadow_mode else "executat",
+        action_result=action_result or ("shadow: nu s-a executat" if decision.shadow_mode else "executat"),
+        execution_plan=plan,
         started_at=started, finished_at=finished, shadow_mode=decision.shadow_mode,
     )
     adoc = audit.model_dump(mode="json")
@@ -299,9 +319,16 @@ def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalatio
     v = with_chain(v, chain_id)
     v = with_evidence(v, list(refs) + (trace.refs() if trace else []))
     d = decide(v)
+    try:
+        plan, result = make_plan(v, d)
+    except Exception as e:
+        # Executorul doar descrie; o eroare a lui nu are voie sa piarda auditul.
+        plan, result = None, f"dry-run: eroare la plan ({type(e).__name__}); ramane la om"
     show(kind, entity, v, narrative, d, escalation)
+    if plan is not None or (result or "").startswith("dry-run"):
+        print(f"    executor: {result}", flush=True)
     persist(v, narrative, d, t0, datetime.now(timezone.utc), extra,
-            escalation=escalation, failure=failure, tier2=tier2)
+            escalation=escalation, failure=failure, tier2=tier2, plan=plan, action_result=result)
     if trace is not None:
         persist_trace(trace.document(chain_id=v.chain_id, investigation_id=v.investigation_id,
                                      source_path=v.source_path, entity=entity,

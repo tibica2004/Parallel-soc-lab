@@ -231,6 +231,49 @@ class RarityFinding(BaseModel):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
 
 
+class PlanStep(BaseModel):
+    """Un pas concret al unei actiuni: argv pe host (niciodata sir de shell) sau
+    un apel API. Doar descriere: executorul ruleaza exclusiv dry-run."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: Literal["ssh_argv", "kibana_api"]
+    argv: list[str] | None = Field(default=None, max_length=20)
+    method: Literal["POST"] | None = None
+    path: str | None = Field(default=None, max_length=200)
+    body: dict | None = None
+
+    @model_validator(mode="after")
+    def _shape(self) -> "PlanStep":
+        if self.kind == "ssh_argv" and (not self.argv or self.method or self.path or self.body):
+            raise ValueError("ssh_argv cere doar argv")
+        if self.kind == "kibana_api" and (self.argv or not (self.method and self.path)):
+            raise ValueError("kibana_api cere method + path, fara argv")
+        for a in self.argv or []:
+            if not a or len(a) > 512 or _CONTROL_RE.search(a):
+                raise ValueError(f"argument respins: {a!r}")
+        return self
+
+
+class ActionPlan(BaseModel):
+    """Ce AR face executorul. Construit de cod din Verdict + Decision; nimic din
+    el nu vine ca text liber de la model (tinta e validata dupa tipul ei)."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    action: ActionType
+    host: str = Field(pattern=r"^[A-Za-z0-9_.\-]{1,253}$")
+    target: str = Field(max_length=253)
+    reversibility: Reversibility
+    steps: list[PlanStep] = Field(min_length=1, max_length=10)
+    rollback: list[PlanStep] = Field(default_factory=list, max_length=10)
+    expires_at: datetime | None = None          # anulare automata daca nu e confirmata
+    asset_criticality: str | None = Field(default=None, max_length=32)
+    graduated: bool = False                     # clasa absolvita din etichete umane
+    graduation_reason: str = Field(default="", max_length=300)
+    requires_approval: bool = True
+    approval_reason: str = Field(default="", max_length=300)
+    mode: Literal["dry-run"] = "dry-run"        # singurul mod (CLAUDE.md, principiul 4)
+
+
 class AuditRecord(BaseModel):
     """
     UN artefact per investigatie, nu unul per agent.
@@ -262,6 +305,8 @@ class AuditRecord(BaseModel):
     policy_decision: str
     action_executed: ActionType
     action_result: str | None = None
+    # Planul executorului (dry-run) pentru o actiune care nu e gratuita; None altfel.
+    execution_plan: ActionPlan | None = None
     started_at: datetime
     finished_at: datetime
 

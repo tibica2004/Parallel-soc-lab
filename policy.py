@@ -54,6 +54,11 @@ class Decision:
     shadow_mode: bool
     reason: str
 
+    @property
+    def executable(self) -> bool:
+        """Actiunea aleasa face ceva in lume (deci are nevoie de executor)."""
+        return self.chosen not in (ActionType.NONE, ActionType.ENRICH_ONLY, ActionType.ESCALATE_HUMAN)
+
 
 def _shadow() -> bool:
     return os.environ.get("SHADOW_MODE", "true").lower() != "false"
