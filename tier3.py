@@ -201,7 +201,21 @@ def propose(v: dict, source: R.GapSource, events: list[dict], now: datetime, llm
                           status=R.RuleStatus.REJECTED)
 
 
-def run_rules(hours: int, test_chain: str | None = None) -> list[dict]:
+def load_done(path: Path) -> set[str]:
+    """Lanturile care au ajuns deja la model (propuse sau respinse). Un fisier
+    lipsa sau stricat inseamna 'niciunul': cel mult se repeta o propunere."""
+    try:
+        return set(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def save_done(path: Path, done: set[str]) -> None:
+    path.write_text(json.dumps(sorted(done)), encoding="utf-8")
+
+
+def run_rules(hours: int, test_chain: str | None = None, skip: set[str] | None = None) -> list[dict]:
+    """skip: lanturi deja procesate (rularile programate nu le mai trimit la model)."""
     now = datetime.now(timezone.utc)
     if test_chain:
         v = R.fetch_verdict_by_chain(ES, test_chain)
@@ -213,7 +227,7 @@ def run_rules(hours: int, test_chain: str | None = None) -> list[dict]:
     if cands and not degraded.llm_healthy("rules"):
         print("  modelul pentru reguli nu raspunde: nicio propunere (vizibilitatea nu scade)")
         return []
-    out, seen_chains = [], set()
+    out, seen_chains = [], set(skip or ())
     for v, source in cands:
         if v["chain_id"] in seen_chains:
             continue
@@ -285,6 +299,9 @@ def main() -> int:
     ap.add_argument("--opreste-reguli", action="store_true", help="oprire globala: dezactiveaza toate regulile tier3")
     ap.add_argument("--scrie-kibana", action="store_true",
                     help="cu --reguli / --ciclu-reguli / --opreste-reguli: scrie in spatiul Kibana tier3")
+    ap.add_argument("--iesire", default="results", help="directorul fisierelor JSON (timerul: data/tier3)")
+    ap.add_argument("--doar-noi", action="store_true",
+                    help="cu --reguli: sare peste lanturile deja trimise la model (registru in --iesire)")
     args = ap.parse_args()
     if not args.once:
         print("Deocamdata doar --once; timerul systemd vine dupa aprobare.")
@@ -292,15 +309,23 @@ def main() -> int:
     if not 1 <= args.ore <= 24 * 14:
         print("--ore intre 1 si 336")
         return 1
+    out_dir = (ROOT / args.iesire).resolve()
+    if ROOT not in out_dir.parents and out_dir != ROOT:
+        print("--iesire trebuie sa fie in directorul proiectului")
+        return 1
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    def save(prefix: str, obj) -> None:
+        path = out_dir / f"{prefix}-{datetime.now():%Y-%m-%d-%H%M}.json"
+        path.write_text(json.dumps(obj, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+        print(f"\nSalvat: {path.relative_to(ROOT)}")
+
     kb = K.Kibana(dry_run=not args.scrie_kibana)
     if args.scrie_kibana and not os.environ.get("KIBANA_TIER3_API_KEY"):
         print("--scrie-kibana cere KIBANA_TIER3_API_KEY (rolul soc_tier3_rules, doar spatiul tier3)")
         return 1
     if args.ciclu_reguli or args.opreste_reguli:
-        res = run_lifecycle(kb, kill_switch=args.opreste_reguli)
-        path = ROOT / "results" / f"ciclu-reguli-{datetime.now():%Y-%m-%d-%H%M}.json"
-        path.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-        print(f"\nSalvat: {path.relative_to(ROOT)}")
+        save("ciclu-reguli", run_lifecycle(kb, kill_switch=args.opreste_reguli))
         return 0
     if args.reguli:
         if args.scrie:
@@ -309,16 +334,15 @@ def main() -> int:
         if args.test_chain and not re.fullmatch(CHAIN_ID_RE, args.test_chain):
             print("--test-chain: chain_id invalid")
             return 1
-        props = run_rules(args.ore, args.test_chain)
+        ledger = out_dir / "reguli-procesate.json"
+        done = load_done(ledger) if args.doar_noi and not args.test_chain else set()
+        props = run_rules(args.ore, args.test_chain, skip=done)
         publish(props, kb)
-        path = ROOT / "results" / f"reguli-{datetime.now():%Y-%m-%d-%H%M}.json"
-        path.write_text(json.dumps(props, ensure_ascii=False, indent=1), encoding="utf-8")
-        print(f"\nSalvat: {path.relative_to(ROOT)}")
+        if args.doar_noi and not args.test_chain:
+            save_done(ledger, done | {d["chain_id"] for d in props})
+        save("reguli", props)
         return 0
-    incs = run_once(args.ore, args.scrie, not args.fara_naratiune)
-    path = ROOT / "results" / f"incidente-{datetime.now():%Y-%m-%d-%H%M}.json"
-    path.write_text(json.dumps(incs, ensure_ascii=False, indent=1), encoding="utf-8")
-    print(f"\nSalvat: {path.relative_to(ROOT)}")
+    save("incidente", run_once(args.ore, args.scrie, not args.fara_naratiune))
     return 0
 
 

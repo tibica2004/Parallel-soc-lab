@@ -311,3 +311,35 @@ def test_arg_prefix_grounded():
 def test_arg_prefix_director_prea_general(d):
     with pytest.raises(ValidationError):
         ap(d)
+
+
+# ---------------- rularile programate: registrul lanturilor procesate ----------------
+
+def test_registru_lipsa_sau_stricat_inseamna_gol(tmp_path):
+    import tier3
+    assert tier3.load_done(tmp_path / "nu-exista.json") == set()
+    (tmp_path / "r.json").write_text("{stricat")
+    assert tier3.load_done(tmp_path / "r.json") == set()
+
+
+def test_registru_dus_intors(tmp_path):
+    import tier3
+    tier3.save_done(tmp_path / "r.json", {CHAIN})
+    assert tier3.load_done(tmp_path / "r.json") == {CHAIN}
+
+
+def test_lant_procesat_nu_mai_ajunge_la_model(monkeypatch):
+    import tier3
+    v = {"chain_id": CHAIN, "entity_id": "web-prod", "label_source": "human", "ground_truth": "attack"}
+    monkeypatch.setattr(R, "fetch_candidates", lambda es, a, b: [v])
+    monkeypatch.setattr(R, "tier1_chains", lambda es, ids: set())
+    monkeypatch.setattr(R, "fetch_events", lambda es, ids: pytest.fail("lant deja procesat"))
+    monkeypatch.setattr(tier3, "propose", lambda *a, **k: pytest.fail("lant deja procesat"))
+    assert tier3.run_rules(24, skip={CHAIN}) == []
+
+
+def test_iesire_in_afara_proiectului_refuzata(monkeypatch, capsys):
+    import sys
+    import tier3
+    monkeypatch.setattr(sys, "argv", ["tier3.py", "--once", "--reguli", "--iesire", "../../tmp"])
+    assert tier3.main() == 1 and "directorul proiectului" in capsys.readouterr().out
