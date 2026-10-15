@@ -209,7 +209,7 @@ def run_rules(hours: int, test_chain: str | None = None) -> list[dict]:
     else:
         cands = [(v, R.gap_source(v)) for v in R.fetch_candidates(ES, now - timedelta(hours=hours), now)]
     t1 = R.tier1_chains(ES, [v["chain_id"] for v, _ in cands])
-    print(f"=== Tier 3 reguli: {len(cands)} candidati in {hours} h (dry-run, nimic in Kibana) ===", flush=True)
+    print(f"=== Tier 3 reguli: {len(cands)} candidati in {hours} h ===", flush=True)
     if cands and not degraded.llm_healthy("rules"):
         print("  modelul pentru reguli nu raspunde: nicio propunere (vizibilitatea nu scade)")
         return []
@@ -247,6 +247,7 @@ def run_rules(hours: int, test_chain: str | None = None) -> list[dict]:
 def publish(props: list[dict], kb: K.Kibana) -> None:
     """Propunerile validate -> reguli noi in shadow. O regula deja existenta
     (acelasi rule_id) nu se recreeaza; o regula oprita nu se reporneste."""
+    print(f"\n=== Kibana: {'dry-run, nimic scris' if kb.dry_run else 'SCRIERE in spatiul ' + K.SPACE} ===", flush=True)
     existing = {r["rule_id"] for r in kb.find_own()}
     for d in props:
         pl = d.get("kibana_payload")
