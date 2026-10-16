@@ -254,18 +254,43 @@ def save_state(path: Path, state: dict) -> None:
 # Evaluarea (H3, cod): randuri -> grupuri -> cazuri
 # ------------------------------------------------------------------------------
 
+MERGE_MINUTES = 15
+
+
+def _ts(x: str | None) -> float:
+    try:
+        return datetime.fromisoformat(str(x).replace("Z", "+00:00")).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def groups(rows: list[dict]) -> list[dict]:
-    """Randurile sablonului, normalizate la COLS, fara host, ordonate: cele mai recente
-    primele, plafonate. Valorile din telemetrie se scurteaza (ajung la model ca DATE)."""
-    out = []
+    """Randurile sablonului, normalizate la COLS, unite in actiuni, ordonate (cele mai
+    recente primele), plafonate. Aceeasi actiune lasa mai multe randuri (crontab -e
+    scrie un temporar, directorul, fisierul final): acelasi host + proces + utilizator
+    la cel mult MERGE_MINUTES distanta devin o singura potrivire. Valorile din
+    telemetrie se scurteaza (ajung la model ca DATE)."""
+    norm = []
     for r in rows:
-        host = r.get("host")
-        if not host:
+        if not r.get("host"):
             continue
-        out.append({k: (str(r.get(k))[:300] if r.get(k) is not None else None) for k in COLS}
-                   | {"cnt": int(r.get("cnt") or 0)})
-    out.sort(key=lambda g: g.get("t_last") or "", reverse=True)
-    return out[:MAX_CASES_PER_HUNT]
+        norm.append({k: (str(r.get(k))[:300] if r.get(k) is not None else None) for k in COLS}
+                    | {"cnt": int(r.get("cnt") or 0)})
+    norm.sort(key=lambda g: _ts(g.get("t_first")))
+    merged: list[dict] = []
+    for g in norm:
+        last = next((m for m in reversed(merged)
+                     if (m["host"], m["proc"], m["who"]) == (g["host"], g["proc"], g["who"])), None)
+        if last is not None and _ts(g["t_first"]) - _ts(last["t_last"]) <= MERGE_MINUTES * 60:
+            if g["what"] and g["what"] not in (last["what"] or "").split("; "):
+                last["what"] = "; ".join(x for x in (last["what"], g["what"]) if x)[:300]
+            last["cnt"] += g["cnt"]
+            if _ts(g["t_last"]) > _ts(last["t_last"]):
+                last["t_last"] = g["t_last"]
+            continue
+        merged.append(dict(g))
+    merged.sort(key=lambda g: _ts(g.get("t_last")), reverse=True)
+    return merged[:MAX_CASES_PER_HUNT]
 
 
 def coverage_record(plan: HuntPlan, status: str, hits: int, cases: int, q: str,

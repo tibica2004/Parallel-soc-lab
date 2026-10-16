@@ -109,9 +109,22 @@ def _row(**kw):
 
 
 def test_groups_plafon_si_ordine():
-    rows = [_row(t_last=f"2026-10-16T0{i}:00:00Z") for i in range(8)] + [_row(host=None)]
+    rows = [_row(what=f"/etc/cron.d/x{i}", t_first=f"2026-10-16T0{i}:00:00Z", t_last=f"2026-10-16T0{i}:00:00Z")
+            for i in range(8)] + [_row(host=None)]
     g = H.groups(rows)
     assert len(g) == H.MAX_CASES_PER_HUNT and g[0]["t_last"].startswith("2026-10-16T07")
+
+
+def test_aceeasi_actiune_o_singura_potrivire():
+    # crontab -e real: temporarul, directorul, fisierul final, in acelasi minut
+    rows = [_row(what=w, t_first="2026-10-16T06:00:0%dZ" % i, t_last="2026-10-16T06:00:0%dZ" % i, cnt=1)
+            for i, w in enumerate(["/var/spool/cron/crontabs/tmp.gN7jMm", "/var/spool/cron/",
+                                   "/var/spool/cron/crontabs/tiberiu"])]
+    (g,) = H.groups(rows)
+    assert g["cnt"] == 3 and g["what"].count("; ") == 2 and g["t_last"].endswith("02Z")
+    # alt utilizator sau la o ora distanta -> potriviri separate
+    other = rows + [_row(who="www-data"), _row(t_first="2026-10-16T08:00:00Z", t_last="2026-10-16T08:00:00Z")]
+    assert len(H.groups(other)) == 3
 
 
 def test_cazul_de_vanatoare():
