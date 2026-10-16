@@ -90,6 +90,8 @@ class EscalationReason(str, Enum):
     # Detectie a unui senzor propriu (sensor_rules.RULES, ex. YARA pe webroot): poate
     # fi fals pozitiva, dar nu o inchide Tier 1 singur (ca native_detection).
     SENSOR_DETECTION = "sensor_detection"
+    # Un sablon de vanatoare Tier 3 (hunt.py) a gasit urma tehnicii cautate.
+    HUNT_MATCH = "hunt_match"
 
 
 class FailureKind(str, Enum):
@@ -325,6 +327,29 @@ class AuditRecord(BaseModel):
     shadow_mode: bool = True
 
 
+class HuntMatch(BaseModel):
+    """Ce a gasit un sablon de vanatoare (Tier 3). Faptele grupului, nu o judecata.
+    `what` si `who` vin din telemetrie (cale, linie de comanda, destinatie): scurtate,
+    fara caractere de control, ajung la model doar ca DATE."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    technique: str = Field(pattern=r"^T\d{4}(\.\d{3})?$")
+    template_id: str = Field(pattern=r"^[a-z0-9_]{1,40}$")
+    what: str | None = Field(default=None, max_length=300)
+    who: str | None = Field(default=None, max_length=100)
+    count: int = Field(default=0, ge=0)
+    first_seen: str | None = Field(default=None, max_length=40)
+    last_seen: str | None = Field(default=None, max_length=40)
+
+    @field_validator("what", "who")
+    @classmethod
+    def _no_ctrl(cls, v: str | None) -> str | None:
+        if v is not None and any(ord(ch) < 32 for ch in v):
+            raise ValueError("caractere de control respinse")
+        return v
+
+
 class Case(BaseModel):
     """
     Ce primeste Tier 2 cand Tier 1 escaladeaza (sau cand sweep-ul / Tier 3 gasesc ceva).
@@ -352,6 +377,8 @@ class Case(BaseModel):
     # Fapt calculat de cod (perechea parinte-copil fata de baseline), nu judecata
     # modelului: 0.0 = vazuta in baseline, 1.0 = nevazuta sau neverificabila.
     rarity_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    # Doar pentru origin=tier3_hunt: ce a gasit sablonul.
+    hunt_match: HuntMatch | None = None
 
     @field_validator("host")
     @classmethod

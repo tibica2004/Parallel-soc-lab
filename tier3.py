@@ -21,6 +21,8 @@ Tier 3 deschide si uneste incidente; nu le inchide (principiul 6).
     python3 tier3.py --once --reguli --scrie-kibana  # reguli noi in shadow, spatiul Kibana tier3
     python3 tier3.py --once --ciclu-reguli [--scrie-kibana]    # promovare / oprire
     python3 tier3.py --once --opreste-reguli --scrie-kibana    # oprire globala
+    python3 tier3.py --once --vanatoare                # 2 tehnici, dry-run (fara Tier 2, fara scriere)
+    python3 tier3.py --once --vanatoare --tehnica T1053.003 --scrie   # Tier 2 + soc-hunts
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage, SystemMessage
 
 import degraded
+import hunt as HU
 import incidents as I
 import kibana_rules as K
 import rules as R
@@ -287,6 +290,109 @@ def run_lifecycle(kb: K.Kibana, kill_switch: bool) -> list[dict]:
     return res
 
 
+# ------------------------------------------------------------------------------
+# Faza 11c: vanatoare pe ipoteze ATT&CK (hunt.py). Codul alege tehnicile si ruleaza
+# doar sabloanele aprobate; modelul scrie ipoteza si alege sablonul si fereastra.
+# ------------------------------------------------------------------------------
+
+HUNT_PLAN_TIMEOUT_S = 90
+HUNT_INDEX = "soc-hunts"
+
+
+def hunt_plan(technique: str, last: dict | None, llm=None) -> tuple[HU.HuntPlan, str, str | None]:
+    """(plan, sursa, eroare). Orice esec al modelului -> planul implicit; vanatoarea ruleaza oricum."""
+    try:
+        llm = llm or get_llm("rules")
+        out = degraded.run_with_timeout(
+            lambda: llm.invoke([SystemMessage(content=HU.PLAN_PROMPT + NO_THINK),
+                                HumanMessage(content=HU.plan_message(technique, last))]),
+            HUNT_PLAN_TIMEOUT_S)
+        return HU.parse_plan(parse_json_response(out.content or ""), technique), "model", None
+    except Exception as e:
+        return HU.default_plan(technique), "default", f"{type(e).__name__}: {str(e)[:200]}"
+
+
+def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = None,
+              use_model: bool = True, tier2_budget: int = HU.TIER2_BUDGET, runner=None) -> list[dict]:
+    """O rulare de vanatoare. Fara --scrie: nimic nu se scrie si Tier 2 nu ruleaza
+    (dry-run: planuri, interogari, potriviri). Cu --scrie: primele `tier2_budget`
+    potriviri noi trec prin Tier 2 (verdict + audit, shadow), restul raman in
+    soc-hunts ca potriviri neinvestigate, pentru om; starea de planificare se salveaza."""
+    from elastic_tools import _esql
+    import uuid
+    state = HU.load_state(state_path)
+    tech_state = state.setdefault("techniques", {})
+    seen = HU.prune_seen(state.get("seen", {}), HU.now())
+    techs = [technique] if technique else HU.pick_techniques(tech_state, n)
+    budget = tier2_budget
+    if write and runner is None:
+        import orchestrator
+        runner = orchestrator.HuntRunner()
+    results = []
+    for tech in techs:
+        last = tech_state.get(tech)
+        plan, src, perr = hunt_plan(tech, last) if use_model else (HU.default_plan(tech), "default", None)
+        t = HU.TEMPLATES[plan.template_id]
+        q = HU.render(t, plan.window_hours)
+        print(f"\n[VANATOARE] {tech} · {t.name} · {plan.window_hours} h · plan: {src}"
+              + (f" ({perr})" if perr else ""), flush=True)
+        print(f"  ipoteza: {plan.hypothesis[:200]}", flush=True)
+        started = HU.now()
+        err = None
+        try:
+            gs = HU.groups(_esql(q))
+        except Exception as e:
+            gs, err = [], f"{type(e).__name__}: {str(e)[:250]}"
+        status = "error" if err else ("found" if gs else "not_found")
+        matches = []
+        for g in gs:
+            key = HU.match_key(t.id, g)
+            m = {"key": key, "what": g.get("what"), "proc": g.get("proc"), "who": g.get("who"),
+                 "host": g.get("host"), "count": g.get("cnt"), "last_seen": g.get("t_last")}
+            if key in seen:
+                m["outcome"] = "deja_trimis"
+            else:
+                chain_id = str(uuid.uuid4())
+                try:
+                    case = HU.make_case(plan, g, chain_id)
+                except ValueError as e:
+                    m["outcome"] = f"respins_la_validare: {str(e)[:120]}"
+                    matches.append(m)
+                    continue
+                if write and budget > 0:
+                    entity = f"{case.host} · vanatoare {t.id}"
+                    runner.run({"case": case}, "VANATOARE", entity, case.host,
+                               case.evidence_refs, chain_id=chain_id)
+                    budget -= 1
+                    seen[key] = HU.now().timestamp()
+                    m.update(outcome="tier2", chain_id=chain_id)
+                else:
+                    m["outcome"] = "la_om" if write else "dry_run"
+                    if write:
+                        seen[key] = HU.now().timestamp()
+            print(f"  potrivire: {(m['what'] or '')[:80]} · {m['proc']} · {m['who']} -> {m['outcome']}", flush=True)
+            matches.append(m)
+        finished = HU.now()
+        rec = HU.coverage_record(plan, status, len(gs), sum(m.get("outcome") == "tier2" for m in matches),
+                                 q, started, finished, src, err) | {"matches": matches}
+        print(f"  rezultat: {status} ({len(gs)} potriviri)" + (f" — {err}" if err else ""), flush=True)
+        if write:
+            tech_state[tech] = {"last": finished.isoformat(), "status": status,
+                                "template_id": t.id, "hits": len(gs)}
+            try:
+                import orchestrator
+                if orchestrator.WRITER is not None:
+                    orchestrator.WRITER.index(index=HUNT_INDEX, document=rec)
+            except Exception as e:
+                # Acoperirea nu se pierde: ramane in fisierul de rezultate si in starea locala.
+                print(f"  [soc-hunts] nescris: {type(e).__name__}: {str(e)[:150]}", flush=True)
+        results.append(rec)
+    if write:
+        state["seen"] = seen
+        HU.save_state(state_path, state)
+    return results
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="o singura rulare (singurul mod deocamdata)")
@@ -302,6 +408,9 @@ def main() -> int:
     ap.add_argument("--iesire", default="results", help="directorul fisierelor JSON (timerul: data/tier3)")
     ap.add_argument("--doar-noi", action="store_true",
                     help="cu --reguli: sare peste lanturile deja trimise la model (registru in --iesire)")
+    ap.add_argument("--vanatoare", action="store_true", help="vanatoare pe ipoteze ATT&CK (hunt.py)")
+    ap.add_argument("--tehnica", help="cu --vanatoare: doar aceasta tehnica (ex. T1053.003)")
+    ap.add_argument("--fara-model", action="store_true", help="cu --vanatoare: planul implicit, fara model")
     args = ap.parse_args()
     if not args.once:
         print("Deocamdata doar --once; timerul systemd vine dupa aprobare.")
@@ -324,6 +433,13 @@ def main() -> int:
     if args.scrie_kibana and not os.environ.get("KIBANA_TIER3_API_KEY"):
         print("--scrie-kibana cere KIBANA_TIER3_API_KEY (rolul soc_tier3_rules, doar spatiul tier3)")
         return 1
+    if args.vanatoare:
+        if args.tehnica and args.tehnica not in HU.TECHNIQUES:
+            print(f"--tehnica: una din {', '.join(HU.TECHNIQUES)}")
+            return 1
+        save("vanatoare", run_hunts(HU.PER_RUN, args.scrie, out_dir / "vanatoare-stare.json",
+                                    technique=args.tehnica, use_model=not args.fara_model))
+        return 0
     if args.ciclu_reguli or args.opreste_reguli:
         save("ciclu-reguli", run_lifecycle(kb, kill_switch=args.opreste_reguli))
         return 0

@@ -5,6 +5,7 @@ tastatura, nesalvata). Fiecare schimbare cere confirmare. Nu afiseaza secrete.
 
   verifica  — doar citire: ce drepturi are acum cheia de writer, ce feature-uri
               de securitate exista in Kibana, daca spatiul tier3 exista.
+  writer    — doar pasul 4 de mai jos (indici noi pentru cheia de writer).
   aplica    — dupa verifica:
      1. spatiul Kibana `tier3` (regulile Tier 3 stau separat de ale omului);
      2. rolul soc_tier3_rules: feature-urile date cu --feature, DOAR in spatiul
@@ -12,8 +13,8 @@ tastatura, nesalvata). Fiecare schimbare cere confirmare. Nu afiseaza secrete.
         drepturile cheii care le-a creat);
      3. utilizatorul soc_tier3 (parola aleatoare, nefolosita de om) si o cheie
         API acordata lui -> KIBANA_TIER3_API_KEY adaugata in env.sh, neafisata;
-     4. cheia de writer primeste si soc-traces, soc-incidents (restul drepturilor
-        ei raman exact cum sunt).
+     4. cheia de writer primeste si soc-traces, soc-incidents, soc-hunts (restul
+        drepturilor ei raman exact cum sunt).
 
     cd ~/lab && source env.sh
     python3 deploy/kibana/tier3_access.py verifica
@@ -39,7 +40,7 @@ SPACE = "tier3"
 ROLE = "soc_tier3_rules"
 USER = "soc_tier3"
 SOURCE_IDX = ["logs-endpoint.events.process-*"]
-WRITER_ADD = ["soc-traces", "soc-incidents"]
+WRITER_ADD = ["soc-traces", "soc-incidents", "soc-hunts"]
 ENV_SH = Path(__file__).resolve().parents[2] / "env.sh"
 
 
@@ -130,7 +131,13 @@ def aplica(c: Client, features: list[str]) -> None:
             f.write(f"\nexport KIBANA_TIER3_API_KEY='{k['encoded']}'\n")
         print(f"  cheia {k['id']} adaugata in {ENV_SH.name} (neafisata)")
 
-    # 4. writer: + soc-traces, soc-incidents, restul neschimbat
+    # 4. writer: + indicii Tier 3, restul neschimbat
+    writer_add(c)
+
+
+def writer_add(c: Client) -> None:
+    """Doar pasul 4: adauga indicii din WRITER_ADD care lipsesc la blocul cheii de
+    writer care contine verdicts-history. Restul drepturilor raman exact cum sunt."""
     key = show_writer(c)
     rd = json.loads(json.dumps(key.get("role_descriptors") or {}))
     target = None
@@ -143,7 +150,7 @@ def aplica(c: Client, features: list[str]) -> None:
         return
     missing = [n for n in WRITER_ADD if n not in target["names"]]
     if not missing:
-        print("\nCheia de writer are deja soc-traces si soc-incidents.")
+        print(f"\nCheia de writer are deja {WRITER_ADD}.")
         return
     target["names"] = target["names"] + missing
     print(f"\nAdaug {missing} la blocul {target['names']} -> {target['privileges']}")
@@ -154,11 +161,12 @@ def aplica(c: Client, features: list[str]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["verifica", "aplica"])
+    ap.add_argument("cmd", choices=["verifica", "aplica", "writer"])
     ap.add_argument("--feature", action="append", default=[])
     a = ap.parse_args()
     c = Client()
-    verifica(c) if a.cmd == "verifica" else aplica(c, a.feature)
+    {"verifica": lambda: verifica(c), "aplica": lambda: aplica(c, a.feature),
+     "writer": lambda: writer_add(c)}[a.cmd]()
     return 0
 
 

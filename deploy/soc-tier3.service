@@ -1,5 +1,5 @@
 [Unit]
-Description=Agentic SOC - Tier 3 programat (reguli in spatiul Kibana tier3, incidente)
+Description=Agentic SOC - Tier 3 programat (reguli in spatiul Kibana tier3, incidente, vanatoare)
 After=network-online.target docker.service soc-llm-tunnel.service
 Wants=network-online.target soc-llm-tunnel.service
 
@@ -10,13 +10,16 @@ WorkingDirectory=/home/tiberiu/lab
 EnvironmentFile=/home/tiberiu/lab/soc.env
 Environment=PYTHONUNBUFFERED=1
 # Tier 3 nu executa nimic pe hosturi. SHADOW_MODE fortat oricum, ca la orchestrator.
-# Trei pasi independenti ('-' = esecul unuia nu ii opreste pe ceilalti), in ordinea:
+# Patru pasi independenti ('-' = esecul unuia nu ii opreste pe ceilalti), in ordinea:
 #  1. ciclul regulilor: oprirea celor zgomotoase vine inaintea oricarei reguli noi;
 #  2. incidente: grupare + naratiune, scrise in soc-incidents (deschide, nu inchide);
-#  3. reguli noi din goluri, in shadow; lanturile deja trimise la model se sar.
+#  3. reguli noi din goluri, in shadow; lanturile deja trimise la model se sar;
+#  4. vanatoare: 2 tehnici ATT&CK (cele vanate cel mai demult), max 3 cazuri la
+#     Tier 2 (shadow), acoperirea (si cea negativa) in soc-hunts.
 # Fisierele JSON merg in data/tier3 (ignorat de git), nu in results/.
 ExecStart=-/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python tier3.py --once --ciclu-reguli --scrie-kibana --iesire data/tier3
 ExecStart=-/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python tier3.py --once --ore 24 --scrie --iesire data/tier3
 ExecStart=-/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python tier3.py --once --reguli --ore 24 --doar-noi --scrie-kibana --iesire data/tier3
+ExecStart=-/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python tier3.py --once --vanatoare --scrie --iesire data/tier3
 TimeoutStartSec=50min
 Nice=5
