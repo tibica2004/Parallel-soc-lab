@@ -26,8 +26,10 @@ from datetime import datetime, timezone
 
 import case_adapter
 import degraded
+import honeytokens
 import tracing
 from escalation import EscalationDecision, should_escalate
+from schemas import EscalationReason
 from policy import decide
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
 
@@ -535,7 +537,8 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                         # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
                         esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
                                               pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
-                                              native_detection=bool((out.get("context") or {}).get("native_detection")))
+                                              native_detection=bool((out.get("context") or {}).get("native_detection")),
+                                              honeytoken=honeytokens.is_honeytoken(a))
                     except degraded.CaseTimeout:
                         failure = degraded.FailureKind.CASE_TIMEOUT
                     except Exception as e:
@@ -548,6 +551,11 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                 if failure is not None:
                     v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
                                          degraded.NARRATIVE[failure], degraded.failure_escalation())
+                # Momeala atinsa: motivul ajunge in audit si la Tier 2 si pe caile fara
+                # model (restanta, model cazut), unde should_escalate nu ruleaza.
+                if honeytokens.is_honeytoken(a) and EscalationReason.HONEYTOKEN not in esc.reasons:
+                    esc = EscalationDecision(escalate=True,
+                                             reasons=[*esc.reasons, EscalationReason.HONEYTOKEN])
                 tier2 = None
                 if esc.escalate:
                     tier2 = "investigated" if t2_used < t2_limit else "skipped_budget"

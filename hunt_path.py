@@ -49,6 +49,7 @@ from schemas import (
     ActionType,
     Classification,
     EntityType,
+    EscalationReason,
     EvidenceRef,
     Case,
     RarityFinding,
@@ -752,6 +753,10 @@ def node_finalize(state: HuntState) -> dict:
         _floor = True
     elif (_cls == "benign" and _ctx.get("sensitive_action")
           and not (_ctx.get("in_maintenance_window") and _ctx.get("ran_by_known_admin"))):
+        _floor = True
+    # Momeala atinsa (motiv decis de cod pe Tier 1): Tier 2 nu o poate inchide.
+    elif (_cls == "benign" and c is not None
+          and EscalationReason.HONEYTOKEN in (c.escalation_reasons or [])):
         _floor = True
     if _floor:
         p = dict(p)

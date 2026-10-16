@@ -30,6 +30,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
 import defend_native
+import honeytokens
 from elastic_tools import ES, _esql
 from hunt_path import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
@@ -47,6 +48,7 @@ RULE_TO_GUIDE = {
     "executable written to webroot": "webshell-webroot.md",
     "reverse shell": "reverse-shell.md",
     "temp directory": "temp-exec.md",
+    "honeytoken": "honeytoken.md",
 }
 
 # Calea rapida nu propune izolari: fie inchide, fie imbogateste, fie escaladeaza.
@@ -261,7 +263,7 @@ def build_context(alert: dict, history: bool = True) -> dict:
     fext = (_g(alert, "file.extension") or fpath.rsplit(".", 1)[-1]).lower()
     webroot_write = fpath.startswith(WEBROOTS) and fext in WEB_EXEC_EXT
 
-    return {
+    ctx = {
         # 1. fapte calculate de cod — cele mai importante
         "execution": facts,
         "ran_by_web_service_account": facts["user"] in WEB_SVC_USERS,
@@ -288,6 +290,10 @@ def build_context(alert: dict, history: bool = True) -> dict:
         # 4. ghidul — ultimul
         "investigation_guide": lookup_guide(rule) or "indisponibil",
     }
+    # Doar cand e adevarat, ca prompturile celorlalte alerte sa ramana neschimbate.
+    if honeytokens.is_honeytoken(alert):
+        ctx = {"honeytoken": True, **ctx}
+    return ctx
 
 
 # ==============================================================================
@@ -307,6 +313,8 @@ REGULI PE FAPTELE DETERMINISTE (calculate de cod, de incredere):
 - native_detection prezent -> Elastic Defend (EDR) a detectat el insusi comportamentul
   (tehnicile ATT&CK si descrierea sunt ale regulii Elastic). Nu inchide ca benign
   decat cu dovezi clare de activitate legitima; cazul merge oricum la un om.
+- honeytoken=true -> a fost atinsa o momeala pe care nimic legitim nu o atinge.
+  Nu e benign; cazul merge oricum la un om.
 """
 
 PATTERN_PROMPT = """Esti analist de patternuri intr-un SOC. Primesti date deja adunate.
@@ -521,6 +529,11 @@ def node_finalize(state: FastState) -> dict:
         cls = Classification("suspicious")
         action = "escalate_human"
         floor_applied = True
+    # Podea 0: momeala atinsa. Nicio explicatie a modelului nu o face benigna.
+    elif cls.value == "benign" and ctx.get("honeytoken"):
+        cls = Classification("suspicious")
+        action = "escalate_human"
+        floor_applied = True
     # Podea 2: actiune sensibila in afara ferestrei de mentenanta.
     elif (cls.value == "benign" and ctx.get("sensitive_action")
             and not (ctx.get("in_maintenance_window") and ctx.get("ran_by_known_admin"))):
@@ -531,7 +544,7 @@ def node_finalize(state: FastState) -> dict:
     # Podea 3: cand faptele spun "server web" sau "actiune sensibila in afara
     # ferestrei", un verdict suspicious/malicious NU poate ramane pe enrich_only
     # sau none — ar insemna un atac recunoscut pe care nu-l vede niciun om.
-    risky = (ctx.get("ran_by_web_service_account")
+    risky = (ctx.get("ran_by_web_service_account") or ctx.get("honeytoken")
              or (ctx.get("sensitive_action")
                  and not (ctx.get("in_maintenance_window") and ctx.get("ran_by_known_admin"))))
     if risky and cls.value in ("suspicious", "malicious") and action in ("none", "enrich_only"):

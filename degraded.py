@@ -25,6 +25,7 @@ import urllib.request
 import uuid
 from typing import Any, Callable
 
+import honeytokens
 from escalation import EscalationDecision
 from llm import base_url, model_name
 from schemas import (ActionType, Classification, EntityType, EscalationReason,
@@ -74,7 +75,9 @@ def is_backlog(n_alerts: int, threshold: int | None = None) -> bool:
 
 
 def is_severe(alert: dict) -> bool:
-    return (_g(alert, "kibana.alert.severity") or "").lower() in SEVERE_LEVELS
+    # Honeytoken: grav dupa rule_id, chiar daca cineva i-a schimbat severitatea in Kibana.
+    return ((_g(alert, "kibana.alert.severity") or "").lower() in SEVERE_LEVELS
+            or honeytokens.is_honeytoken(alert))
 
 
 def order_backlog(alerts: list[dict], criticality_of: Callable[[str], str | None]) -> list[dict]:

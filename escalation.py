@@ -28,7 +28,8 @@ class EscalationDecision(BaseModel):
 
 
 def should_escalate(v: Verdict, *, floor_applied: bool,
-                    pair_in_baseline: bool | None, native_detection: bool = False) -> EscalationDecision:
+                    pair_in_baseline: bool | None, native_detection: bool = False,
+                    honeytoken: bool = False) -> EscalationDecision:
     r: list[EscalationReason] = []
     c = v.classification
     if c is Classification.UNDETERMINED:
@@ -47,4 +48,7 @@ def should_escalate(v: Verdict, *, floor_applied: bool,
     # Detectia proprie a EDR-ului nu se inchide pe Tier 1, oricat de sigur e modelul.
     if native_detection:
         r.append(EscalationReason.NATIVE_DETECTION)
+    # Momeala atinsa: nu exista explicatie benigna pe care s-o accepte o masina.
+    if honeytoken:
+        r.append(EscalationReason.HONEYTOKEN)
     return EscalationDecision(escalate=bool(r), reasons=r)

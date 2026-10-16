@@ -84,6 +84,9 @@ class EscalationReason(str, Enum):
     # Alerta nativa Elastic Defend (malware, comportament, memorie): Tier 1 o
     # triaza si o imbogateste, dar nu o inchide niciodata (decizie 2026-10-13).
     NATIVE_DETECTION = "native_detection"
+    # Regula de honeytoken (honeytokens.RULES): nimic legitim nu atinge momeala,
+    # deci escaladeaza mereu, oricat de sigur ar fi modelul (faza 12).
+    HONEYTOKEN = "honeytoken"
 
 
 class FailureKind(str, Enum):

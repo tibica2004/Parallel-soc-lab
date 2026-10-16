@@ -44,4 +44,6 @@ FAZA 3 — Interfata de etichetare
 11. **Tier 3: incidente, reguli, vanatoare.** In ordine: gruparea in incidente (test cu attack_run.sh), propuneri de reguli EQL cu shadow si promovare, vanatoare pe ipoteze ATT&CK dupa senzorii noi.
 12. **Senzori pentru 0-day.** In ordine: honeytokens (atingere = escaladare mereu, criteriu nou in should_escalate); sweep extins (new_destination_asn, new_webroot_write, new_listening_port, response_size_outlier, cai URL noi) plus reguli New Terms; auditd + FIM; Suricata (beaconing, DNS, JA4); YARA pe webroot; anomalii ML simple in Python (beaconing, entropie DNS) ca findings. Atentie: joburile ML Elastic cer licenta platita, trial-ul expira la mijlocul lui octombrie.
 
+Faza 12, pasul 1 — honeytokens (ramura faza-12-senzori, 2026-10-16): honeytokens.py (momeli + 3 reguli cu rule_id fix), motivul de escaladare honeytoken (mereu), podele pe Tier 1 si Tier 2, grav in restanta. Plantarea pe web-prod si regulile din Kibana le face omul (deploy/web-prod/honeytokens.sh, deploy/kibana/honeytoken_rules.py).
+
 Executorul dry-run (ramura faza-13-executor, 2026-10-15): executor.py construieste planul (pasi argv / API, rollback, expirare, criticitate, absolvire din etichete umane: >= 50, precizie >= 95%, 0 FN in 30 zile); planul intra in soc-audit (execution_plan). Nu exista cod de executie reala.
