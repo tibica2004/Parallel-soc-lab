@@ -289,13 +289,19 @@ def groups(rows: list[dict]) -> list[dict]:
         last = next((m for m in reversed(merged)
                      if (m["host"], m["proc"], m["who"]) == (g["host"], g["proc"], g["who"])), None)
         if last is not None and _ts(g["t_first"]) - _ts(last["t_last"]) <= MERGE_MINUTES * 60:
-            if g["what"] and g["what"] not in (last["what"] or "").split("; "):
-                last["what"] = "; ".join(x for x in (last["what"], g["what"]) if x)[:300]
+            if g["what"] and g["what"] not in last["_whats"]:
+                last["_whats"].append(g["what"])
             last["cnt"] += g["cnt"]
             if _ts(g["t_last"]) > _ts(last["t_last"]):
                 last["t_last"] = g["t_last"]
             continue
-        merged.append(dict(g))
+        merged.append(dict(g, _whats=[g["what"]] if g["what"] else []))
+    for m in merged:
+        ws = m.pop("_whats")
+        if len(ws) > 1:
+            # Fiecare urma isi pastreaza inceputul: o comanda lunga n-o mai ascunde pe urmatoarea.
+            per = max(40, 300 // len(ws) - 2)
+            m["what"] = "; ".join(w[:per] for w in ws)[:300]
     merged.sort(key=lambda g: _ts(g.get("t_last")), reverse=True)
     return merged[:MAX_CASES_PER_HUNT]
 

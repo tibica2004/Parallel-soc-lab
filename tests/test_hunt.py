@@ -244,3 +244,13 @@ def test_regex_setuid(cl, want):
     import re
     assert bool(re.fullmatch(H.SETUID_RX, cl)) is want
     assert "\\s" not in H.SETUID_RX     # Lucene nu are \s
+
+
+def test_unirea_pastreaza_fiecare_comanda():
+    # Atomic T1003.008-4 (comanda lunga) + -5 (builtins), acelasi dash ca root
+    long = "sh -c unamestr=$(uname); if [ x = Linux ]; then " + "x" * 400
+    rows = [_row(proc="/usr/bin/dash", what=long, t_first="2026-10-16T11:30:00Z", t_last="2026-10-16T11:30:00Z"),
+            _row(proc="/usr/bin/dash", what="sh -c testcat(){ ... }; testcat /etc/shadow",
+                 t_first="2026-10-16T11:30:05Z", t_last="2026-10-16T11:30:05Z")]
+    (g,) = H.groups(rows)
+    assert "unamestr" in g["what"] and "testcat" in g["what"] and len(g["what"]) <= 300
