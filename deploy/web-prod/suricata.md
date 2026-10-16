@@ -50,3 +50,18 @@ il citeste deja tool_suricata_alerts (Tier 2).
 
     sudo systemctl disable --now suricata
     sudo cp /etc/suricata/suricata.yaml.orig /etc/suricata/suricata.yaml
+
+## Ajustari facute la instalare (2026-10-16)
+
+- `bpf-filter: "not (host 172.20.99.220 and tcp port 9200)"` (linia 687): agentul
+  trimite la Elasticsearch prin HTTP cu ApiKey; fiecare _bulk declansa alerta
+  2221034 si dubla volumul. Defend vede in continuare conexiunile.
+- `ja4: on` in iesirea eve tls (linia 257): JA4 se calcula, dar nu se scria.
+- threshold.config: `suppress gen_id 1, sig_id 2221034, track by_dst, ip 172.20.99.220`
+  (check-in-urile Fleet pe 8220, tot HTTP cu ApiKey).
+- Memorie dupa pornire: ~550 MB RSS, ~630 MB disponibili pe host.
+
+In Elasticsearch: host.name lipseste din documentele Suricata (integrarea il trateaza
+ca senzor); hostul e observer.hostname. JA4 e in suricata.eve.tls.ja4.
+
+De facut: actualizarea zilnica a regulilor (suricata-update + reload), cu aprobare.

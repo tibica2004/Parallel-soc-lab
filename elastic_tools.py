@@ -186,6 +186,10 @@ def sweep_new_parent_child(window_hours: int = 1) -> list[RarityFinding]:
         FROM {PROC_IDX}
         | WHERE @timestamp >= NOW() - {window_hours} hours
         | WHERE process.parent.name IS NOT NULL AND process.name IS NOT NULL
+        // Thread-urile kernelului (parinte kthreadd = PID 2, fara executabil) isi schimba
+        // numele cu coada de lucru (kworker/1:2-events) -> "noi" la nesfarsit. Nu dupa
+        // nume: un proces redenumit "kthreadd" are alt PID si un executabil, deci ramane.
+        | WHERE NOT (process.parent.pid == 2 AND process.executable IS NULL)
         | STATS cnt = COUNT(*) BY host.name, process.parent.name, process.name
         | LIMIT 5000
         """
@@ -339,6 +343,32 @@ def sweep_new_url_paths(window_hours: int = 1) -> list[RarityFinding]:
     ]
 
 
+def sweep_new_ja4(window_hours: int = 1) -> list[RarityFinding]:
+    """Amprenta TLS de client (JA4, din Suricata) nevazuta pe host in 30 de zile.
+    Un tool nou sau un implant care vorbeste HTTPS are alta amprenta decat curl,
+    apt sau agentul. Suricata nu stie procesul: il cauta Tier 2 dupa destinatie."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {SURICATA_IDX}
+        | WHERE {{w}} AND suricata.eve.event_type == "tls" AND suricata.eve.tls.ja4 IS NOT NULL
+        | EVAL host = COALESCE(host.name, observer.hostname)
+        | STATS cnt = COUNT(*), dst = MAX(destination.ip), sni = MAX(tls.client.server_name)
+            BY host, suricata.eve.tls.ja4
+        | LIMIT 5000
+        """
+    # Integrarea Suricata nu pune host.name (e senzor de retea): hostul e observer.hostname.
+    keys = ("host", "suricata.eve.tls.ja4")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_ja4", entity_type=EntityType.HOST, entity_id=r["host"],
+            detail={"ja4": str(r["suricata.eve.tls.ja4"])[:64], "destination_ip": str(r["dst"]),
+                    "sni": _url_path(r["sni"]) if r.get("sni") else None, "count": r["cnt"]},
+            rarity_score=0.8)
+        for r in rows
+    ]
+
+
 def size_outliers(recent: list[dict], history: list[dict]) -> list[dict]:
     """Pur: raspunsurile recente mult peste maximul istoric al aceleiasi cai."""
     hist = {(h["host.name"], h["url.path"]): h for h in history}
@@ -420,6 +450,7 @@ def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     import anomalies
     for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
                sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
+               sweep_new_ja4,
                anomalies.sweep_beaconing, anomalies.sweep_dns):
         try:
             findings.extend(fn(window_hours))

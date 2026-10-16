@@ -98,3 +98,26 @@ def test_cheia_nu_depinde_de_contor():
 def test_seed_marcheaza_caile_web_ca_date():
     assert "detail_note" in hunt_path._seed_payload(F("new_url_path", url_path="/a"), None)
     assert "detail_note" not in hunt_path._seed_payload(F("new_parent_child", parent="a", child="b"), None)
+
+
+def test_sweep_ja4(monkeypatch):
+    k = "suricata.eve.tls.ja4"
+    monkeypatch.setattr(E, "_esql", FakeEsql(
+        [{"host": "web-prod", k: "t13d1516h2_8daaf6152771_e5627efa2ab1", "cnt": 4,
+          "dst": "203.0.113.10", "sni": "c2.example.net"},
+         {"host": "web-prod", k: "t13d3013h2_1d37bd780c83_8537cf56674e", "cnt": 2,
+          "dst": "104.20.26.136", "sni": "example.org"}],
+        [{"host": "web-prod", k: "t13d3013h2_1d37bd780c83_8537cf56674e", "cnt": 50,
+          "dst": "104.20.26.136", "sni": "example.org"}]))
+    (f,) = E.sweep_new_ja4(1)
+    assert f.kind == "new_ja4" and f.detail["sni"] == "c2.example.net" and f.detail["destination_ip"] == "203.0.113.10"
+    assert "detail_note" in hunt_path._seed_payload(f, None)
+    assert orchestrator.dedup_key_finding(f).endswith("t13d1516h2_8daaf6152771_e5627efa2ab1")
+
+
+def test_parinte_copil_exclude_threadurile_kernelului_dupa_pid_nu_dupa_nume(monkeypatch):
+    seen = []
+    monkeypatch.setattr(E, "_esql", lambda q, params=None: seen.append(q) or [])
+    E.sweep_new_parent_child(1)
+    assert "NOT (process.parent.pid == 2 AND process.executable IS NULL)" in seen[0]
+    assert "process.parent.name == \"kthreadd\"" not in seen[0]

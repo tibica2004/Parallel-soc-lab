@@ -117,6 +117,7 @@ FINDING_KEY = {
     "response_size_outlier": ("url_path",),
     "beaconing": ("process", "destination_ip"),
     "dns_anomaly": ("process", "domain"),
+    "new_ja4": ("ja4",),
 }
 
 
