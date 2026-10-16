@@ -108,9 +108,31 @@ def dedup_key_alert(a: dict) -> str:
     ])
 
 
+# Ce identifica un finding, pe tip (fara contoare, care cresc de la un sweep la altul).
+FINDING_KEY = {
+    "new_webroot_write": ("path", "written_by"),
+    "new_destination_asn": ("process", "destination_ip"),
+    "new_listening_port": ("process", "port"),
+    "new_url_path": ("url_path",),
+    "response_size_outlier": ("url_path",),
+}
+
+
 def dedup_key_finding(f) -> str:
     d = f.detail or {}
-    return f"finding|{f.entity_id}|{d.get('parent')}|{d.get('child')}"
+    if f.kind == "new_parent_child":
+        # forma veche, ca cheile deja salvate in soc-state sa ramana valabile
+        return f"finding|{f.entity_id}|{d.get('parent')}|{d.get('child')}"
+    fields = FINDING_KEY.get(f.kind, tuple(sorted(k for k in d if k != "count")))
+    return "|".join(["finding", f.kind, f.entity_id, *(str(d.get(k)) for k in fields)])
+
+
+def describe_finding(f) -> str:
+    d = f.detail or {}
+    if f.kind == "new_parent_child":
+        return f"{f.entity_id} · {d.get('parent')} -> {d.get('child')}"
+    fields = FINDING_KEY.get(f.kind, ())
+    return f"{f.entity_id} · {f.kind} " + " ".join(str(d.get(k)) for k in fields)[:120]
 
 
 
@@ -412,7 +434,7 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
         if done >= limit:
             break
         k = dedup_key_finding(f)
-        entity = f"{f.entity_id} · {(f.detail or {}).get('parent')} -> {(f.detail or {}).get('child')}"
+        entity = describe_finding(f)
         if k in seen:
             continue
         done += 1
@@ -462,8 +484,8 @@ def run_positioned(args) -> int:
             run_sweep = (args.sweep if not args.loop
                          else args.sweep_every > 0 and (cycle - 1) % args.sweep_every == 0)
             if run_sweep:
-                from elastic_tools import sweep_new_parent_child
-                process_findings(sweep_new_parent_child(1), seen, args.hunt_limit,
+                from elastic_tools import run_full_sweep
+                process_findings(run_full_sweep(1), seen, args.hunt_limit,
                                  model_ok=degraded.llm_healthy("hunt"))
                 _save_seen(seen)
         except Exception as e:
@@ -633,8 +655,8 @@ def main() -> int:
               f"Tier 2: {stats.get('tier2', 0)} investigate, {stats.get('tier2_skipped', 0)} peste buget\n")
 
     if args.sweep:
-        from elastic_tools import sweep_new_parent_child
-        process_findings(sweep_new_parent_child(1), seen, args.limit,
+        from elastic_tools import run_full_sweep
+        process_findings(run_full_sweep(1), seen, args.limit,
                          model_ok=degraded.llm_healthy("hunt"))
 
     if WRITER is None:

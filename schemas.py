@@ -226,6 +226,7 @@ class RarityFinding(BaseModel):
         "new_ja4",
         "response_size_outlier",
         "new_listening_port",
+        "new_url_path",
     ]
     entity_type: EntityType
     entity_id: str
