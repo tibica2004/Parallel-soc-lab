@@ -417,8 +417,10 @@ def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, l
 
 def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     findings: list[RarityFinding] = []
+    import anomalies
     for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
-               sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers):
+               sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
+               anomalies.sweep_beaconing, anomalies.sweep_dns):
         try:
             findings.extend(fn(window_hours))
         except Exception as exc:  # un sweep cazut nu trebuie sa omoare restul

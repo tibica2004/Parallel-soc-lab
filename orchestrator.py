@@ -115,6 +115,8 @@ FINDING_KEY = {
     "new_listening_port": ("process", "port"),
     "new_url_path": ("url_path",),
     "response_size_outlier": ("url_path",),
+    "beaconing": ("process", "destination_ip"),
+    "dns_anomaly": ("process", "domain"),
 }
 
 

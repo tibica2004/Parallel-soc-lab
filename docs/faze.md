@@ -46,5 +46,7 @@ FAZA 3 — Interfata de etichetare
 
 Faza 12, pasul 1 — honeytokens (ramura faza-12-senzori, 2026-10-16): honeytokens.py (momeli + 3 reguli cu rule_id fix), motivul de escaladare honeytoken (mereu), podele pe Tier 1 si Tier 2, grav in restanta. Plantarea pe web-prod si regulile din Kibana le face omul (deploy/web-prod/honeytokens.sh, deploy/kibana/honeytoken_rules.py).
 Faza 12, pasul 2 — sweep extins: run_full_sweep legat in orchestrator (pana acum rula doar parinte-copil); destinatii noi, porturi noi care accepta conexiuni, cai URL noi servite cu succes, raspunsuri anormal de mari, scrieri in webroot grupate pe fisier. Baseline live pe 30 de zile, fara transform.
+Faza 12, pasul 3 — auditd + FIM (Fleet) si audit=1 la boot pe web-prod; honeytoken de citire soc-honeytoken-read (vede si citirea din apache2, deci din webshell PHP).
+Faza 12, pasul 4 — anomalii in Python (anomalies.py): beaconing (CV intervale <= 0.25, 6+ conexiuni in 6 h) si DNS (eticheta >= 20 caractere cu entropie >= 3.5, sau >= 30 subdomenii unice); verificate pe trafic real generat.
 
 Executorul dry-run (ramura faza-13-executor, 2026-10-15): executor.py construieste planul (pasi argv / API, rollback, expirare, criticitate, absolvire din etichete umane: >= 50, precizie >= 95%, 0 FN in 30 zile); planul intra in soc-audit (execution_plan). Nu exista cod de executie reala.
