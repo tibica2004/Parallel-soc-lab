@@ -31,6 +31,7 @@ from langgraph.graph import END, START, StateGraph
 
 import defend_native
 import honeytokens
+import sensor_rules
 from elastic_tools import ES, _esql
 from hunt_path import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
@@ -49,6 +50,7 @@ RULE_TO_GUIDE = {
     "reverse shell": "reverse-shell.md",
     "temp directory": "temp-exec.md",
     "honeytoken": "honeytoken.md",
+    "yara": "yara-webshell.md",
 }
 
 # Calea rapida nu propune izolari: fie inchide, fie imbogateste, fie escaladeaza.
@@ -293,6 +295,11 @@ def build_context(alert: dict, history: bool = True) -> dict:
     # Doar cand e adevarat, ca prompturile celorlalte alerte sa ramana neschimbate.
     if honeytokens.is_honeytoken(alert):
         ctx = {"honeytoken": True, **ctx}
+    # Alerta YARA: procesul din alerta e scannerul (root), nu autorul fisierului.
+    # Faptele reale (regula, fisier, hash) vin din mesajul validat al scannerului.
+    if sensor_rules.is_sensor_alert(alert):
+        ctx = {"sensor_detection": sensor_rules.yara_facts(alert) or {"sensor": "yara", "parsed": False}, **ctx}
+        ctx["execution"] = {**ctx["execution"], "note": "procesul e scannerul YARA, nu autorul fisierului"}
     return ctx
 
 
@@ -315,6 +322,9 @@ REGULI PE FAPTELE DETERMINISTE (calculate de cod, de incredere):
   decat cu dovezi clare de activitate legitima; cazul merge oricum la un om.
 - honeytoken=true -> a fost atinsa o momeala pe care nimic legitim nu o atinge.
   Nu e benign; cazul merge oricum la un om.
+- sensor_detection prezent -> scanarea YARA a gasit un fisier din webroot care
+  arata a webshell (regula si calea sunt in sensor_detection). Procesul din alerta
+  e scannerul, nu autorul fisierului. Cazul merge oricum la un om.
 """
 
 PATTERN_PROMPT = """Esti analist de patternuri intr-un SOC. Primesti date deja adunate.

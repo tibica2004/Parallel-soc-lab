@@ -29,7 +29,7 @@ class EscalationDecision(BaseModel):
 
 def should_escalate(v: Verdict, *, floor_applied: bool,
                     pair_in_baseline: bool | None, native_detection: bool = False,
-                    honeytoken: bool = False) -> EscalationDecision:
+                    honeytoken: bool = False, sensor_detection: bool = False) -> EscalationDecision:
     r: list[EscalationReason] = []
     c = v.classification
     if c is Classification.UNDETERMINED:
@@ -51,4 +51,6 @@ def should_escalate(v: Verdict, *, floor_applied: bool,
     # Momeala atinsa: nu exista explicatie benigna pe care s-o accepte o masina.
     if honeytoken:
         r.append(EscalationReason.HONEYTOKEN)
+    if sensor_detection:
+        r.append(EscalationReason.SENSOR_DETECTION)
     return EscalationDecision(escalate=bool(r), reasons=r)

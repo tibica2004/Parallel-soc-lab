@@ -49,5 +49,6 @@ Faza 12, pasul 2 — sweep extins: run_full_sweep legat in orchestrator (pana ac
 Faza 12, pasul 3 — auditd + FIM (Fleet) si audit=1 la boot pe web-prod; honeytoken de citire soc-honeytoken-read (vede si citirea din apache2, deci din webshell PHP).
 Faza 12, pasul 4 — anomalii in Python (anomalies.py): beaconing (CV intervale <= 0.25, 6+ conexiuni in 6 h) si DNS (eticheta >= 20 caractere cu entropie >= 3.5, sau >= 30 subdomenii unice); verificate pe trafic real generat.
 Faza 12, pasul 5 — Suricata 7.0.10 pe web-prod (IDS pasiv af-packet, community-id, JA4, ET Open 53k semnaturi, integrare Fleet); sweep new_ja4; sweep-ul parinte-copil exclude thread-urile kernelului (parinte PID 2, fara executabil).
+Faza 12, pasul 6 — YARA pe webroot: 5 reguli proprii (deploy/web-prod/yara), scanare la 10 min + la creare in /var/www/html, doar potrivirile noi in jurnal (soc-yara) -> regula Kibana soc-yara-webshell -> calea rapida cu motivul sensor_detection (fara podea: YARA poate fi FP).
 
 Executorul dry-run (ramura faza-13-executor, 2026-10-15): executor.py construieste planul (pasi argv / API, rollback, expirare, criticitate, absolvire din etichete umane: >= 50, precizie >= 95%, 0 FN in 30 zile); planul intra in soc-audit (execution_plan). Nu exista cod de executie reala.

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-REGULILE DE HONEYTOKEN IN KIBANA. Le ruleaza OMUL: sunt reguli ale omului, in
-spatiul default, nu reguli Tier 3. Definitiile vin din honeytokens.py (sursa
-unica, aceeasi pe care o folosesc orchestratorul si testele).
+REGULILE DE HONEYTOKEN SI DE SENZOR IN KIBANA. Le ruleaza OMUL: sunt reguli ale
+omului, in spatiul default, nu reguli Tier 3. Definitiile vin din honeytokens.py si
+sensor_rules.py (sursa unica, aceeasi pe care o folosesc orchestratorul si testele).
 
   arata    — fara retea: afiseaza corpurile regulilor.
   verifica — cu contul elastic, doar citire: exista regulile? sunt pornite?
@@ -29,6 +29,10 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import honeytokens as H  # noqa: E402
+import sensor_rules as S  # noqa: E402
+
+# rule_id -> functia care ii construieste corpul
+ALL = {**{rid: H.kibana_payload for rid in H.RULES}, **{rid: S.kibana_payload for rid in S.RULES}}
 
 KIBANA_URL = os.environ.get("KIBANA_URL", "http://localhost:5601")
 RULES_API = "/api/detection_engine/rules"
@@ -60,13 +64,13 @@ class Kibana:
 
 
 def arata() -> None:
-    for rid in H.RULES:
-        print(json.dumps(H.kibana_payload(rid), indent=1, ensure_ascii=False))
+    for rid, build in ALL.items():
+        print(json.dumps(build(rid), indent=1, ensure_ascii=False))
         print()
 
 
 def verifica(k: Kibana) -> None:
-    for rid in H.RULES:
+    for rid in ALL:
         r = k.get(rid)
         if r is None:
             print(f"  {rid:22s} LIPSESTE")
@@ -76,11 +80,11 @@ def verifica(k: Kibana) -> None:
 
 
 def aplica(k: Kibana) -> None:
-    for rid in H.RULES:
+    for rid, build in ALL.items():
         if k.get(rid) is not None:
             print(f"  {rid}: exista deja, neatinsa")
             continue
-        p = H.kibana_payload(rid)
+        p = build(rid)
         print(f"\n{rid}: {p['name']}\n  index: {p['index']}\n  query: {p['query']}")
         if ask(f"Creez regula {rid} (spatiul default, severitate {p['severity']})?"):
             r = k.create(p)

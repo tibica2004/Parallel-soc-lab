@@ -87,22 +87,29 @@ RULES: dict[str, dict] = {
     },
 }
 
-PARENT_NAME = {"T1552": "Unsecured Credentials"}
+PARENT_NAME = {"T1552": "Unsecured Credentials", "T1505": "Server Software Component"}
 TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Discovery"),
-          "T1078": ("TA0001", "Initial Access")}
+          "T1078": ("TA0001", "Initial Access"), "T1505.003": ("TA0003", "Persistence")}
+
+
+def rule_id_of(alert: dict) -> str | None:
+    """rule_id-ul regulii care a produs alerta (camp plat sau imbricat), sau None."""
+    rid = alert.get("kibana.alert.rule.rule_id")
+    if rid is None:
+        rid = (((alert.get("kibana") or {}).get("alert") or {}).get("rule") or {}).get("rule_id")
+    return rid if isinstance(rid, str) else None
 
 
 def is_honeytoken(alert: dict) -> bool:
     """Doar dupa rule_id; alerta vine din Elasticsearch, deci campul poate lipsi."""
-    rid = alert.get("kibana.alert.rule.rule_id")
-    if rid is None:
-        rid = (((alert.get("kibana") or {}).get("alert") or {}).get("rule") or {}).get("rule_id")
-    return isinstance(rid, str) and rid in RULES
+    return rule_id_of(alert) in RULES
 
 
-def kibana_payload(rule_id: str) -> dict:
-    """Corpul pentru POST /api/detection_engine/rules (spatiul default, al omului)."""
-    r = RULES[rule_id]
+def kibana_payload(rule_id: str, rules: dict | None = None, severity: str = SEVERITY,
+                   risk: int = RISK, tag: str = TAG) -> dict:
+    """Corpul pentru POST /api/detection_engine/rules (spatiul default, al omului).
+    Folosit si de sensor_rules (aceeasi forma, alta severitate si eticheta)."""
+    r = (rules or RULES)[rule_id]
     tech, tech_name = r["threat_technique"]
     tac, tac_name = TACTIC[tech]
     base = tech.split(".")[0]
@@ -114,7 +121,7 @@ def kibana_payload(rule_id: str) -> dict:
     return {
         "rule_id": rule_id, "name": r["name"], "description": r["description"],
         "type": r["type"], "language": r["language"], "index": r["index"], "query": r["query"],
-        "severity": SEVERITY, "risk_score": RISK, "tags": [TAG],
+        "severity": severity, "risk_score": risk, "tags": [tag],
         "interval": "1m", "from": "now-2m", "max_signals": 100, "enabled": True,
         "threat": [{"framework": "MITRE ATT&CK",
                     "tactic": {"id": tac, "name": tac_name,

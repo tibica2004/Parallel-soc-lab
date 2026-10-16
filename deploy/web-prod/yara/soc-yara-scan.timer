@@ -1,0 +1,9 @@
+[Unit]
+Description=SOC: scanare YARA a webroot-ului la 10 minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target
