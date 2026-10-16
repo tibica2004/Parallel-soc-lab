@@ -61,7 +61,7 @@ RULES: dict[str, dict] = {
         "type": "query",
         "language": "kuery",
         "index": ["logs-auditd_manager.auditd-*"],
-        # Agentul Elastic (FIM calculeaza hash-uri) nu e un atacator; FIM exclude oricum momeala.
+        # Agentul Elastic nu e un atacator (o eventuala integrare FIM ar citi fisierele).
         "query": f'tags : "{AUDIT_KEY}" and not process.executable : /opt/Elastic/*',
         "threat_technique": ("T1552.001", "Credentials In Files"),
     },

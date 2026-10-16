@@ -1,4 +1,4 @@
-# auditd + FIM pe web-prod (faza 12, pasul 3)
+# auditd pe web-prod (faza 12, pasul 3; FIM renuntat)
 
 Ambele sunt integrari Elastic Agent, adaugate din Fleet in politica lui web-prod.
 Nu se instaleaza nimic pe host: Auditd Manager vorbeste direct cu kernelul
@@ -8,8 +8,7 @@ De ce:
 - **auditd** vede ce Defend nu vede: CITIREA unui fisier. Momeala .env.bak citita
   cu `grep -r`, dintr-un webshell PHP (file_get_contents) sau de orice proces.
   Plus modificarile de identitate/persistenta si incarcarea de module de kernel.
-- **FIM** e un al doilea senzor pe fisiere, independent de Defend (Defend a murit
-  tacut de doua ori), cu hash-uri. Doar pe cateva directoare.
+  E si un al doilea senzor, independent de Defend (Defend a murit tacut de doua ori).
 
 ## 1. Auditd Manager
 
@@ -39,25 +38,21 @@ Integrations -> "Auditd Manager" -> Add -> politica agentului web-prod.
 
 Fara execve pentru toate procesele: Defend le are deja, iar volumul ar fi mare.
 
-## 2. File Integrity Monitoring
+## 2. File Integrity Monitoring — RENUNTAT (2026-10-16)
 
-Integrations -> "File Integrity Monitoring" -> Add -> aceeasi politica.
-- Paths:
-  - `/var/www/html`
-  - `/etc/cron.d`
-  - `/etc/systemd/system`
-  - `/usr/local/bin`
-- Recursive: da
-- Hash types: `sha256`
-- Exclude files (regex): `\.env\.bak$`
-
-Excluderea e obligatorie: FIM citeste fisierele ca sa le calculeze hash-ul, iar
-citirea momelii de catre agent ar declansa honeytoken-ul de citire.
+Integrarea n-a ajuns pe politica lui web-prod (salvarea a fost blocata de mesajul
+"Elastic Agent needs to be run with root/administrator privileges", desi agentul
+ruleaza ca root). Decizie: nu insistam. Ce ar fi adus e acoperit deja:
+- scrieri in webroot: Defend (cu procesul care a scris) + YARA (continutul, sha256);
+- persistenta si identitate (cron, systemd, chei SSH, conturi): auditd, independent
+  de Defend;
+- hash-uri: scannerul YARA pentru fisierele suspecte.
+Ce lipseste: hash-ul fiecarei modificari si un al treilea senzor pe fisiere.
 
 ## Verificare
 
     cd ~/lab && source env.sh
-    python3 -c "from elastic_tools import ES; print(ES.count(index='logs-auditd_manager.auditd-*')['count'], ES.count(index='logs-fim.event-*')['count'])"
+    python3 -c "from elastic_tools import ES; print(ES.count(index='logs-auditd_manager.auditd-*')['count'])"
 
 Regula honeytoken pentru citire (`soc-honeytoken-read`) se creeaza DUPA ce vin
 date, cu `deploy/kibana/honeytoken_rules.py aplica` (creeaza doar ce lipseste).
