@@ -67,6 +67,13 @@ _PROC_TAIL = """
 | LIMIT 200"""
 
 
+# chmod cu setuid/setgid: mod simbolic cu "s" (u+s, g+xs, a=rwxs, +s) sau octal cu
+# primul din patru cifre 2-7 (4755, 2755; 1777 = doar sticky). Regex Lucene: ancorat
+# implicit pe tot sirul si FARA prescurtari ca \s (gasit cu Atomic Red Team T1548.001:
+# varianta veche rata "chmod u+xs" si, din cauza lui \s, orice mod octal).
+SETUID_RX = ".* (([ugoa]*[+=][rwxXst]*s[rwxXst]*)|([2-7][0-7][0-7][0-7]))(( |,).*)?"
+
+
 @dataclass(frozen=True)
 class Template:
     id: str
@@ -128,7 +135,7 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in [
     Template("setuid_chmod", "T1548.001", "Bit setuid/setgid pus cu chmod (Defend)",
              "Escaladare prin setuid: chmod u+s / g+s / 4xxx pe un binar.",
              f"FROM {PROC_IDX}\n| WHERE {{w}} AND process.name == \"chmod\""
-             '\n| WHERE process.command_line RLIKE ".*([ugoa]*\\\\+s|\\\\s[2467][0-7]{3}\\\\s).*"' + _PROC_TAIL),
+             f'\n| WHERE process.command_line RLIKE "{SETUID_RX}"' + _PROC_TAIL),
     Template("shadow_read", "T1003.008", "/etc/shadow citit de o unealta obisnuita (Defend)",
              "Furtul de hash-uri: cat/cp/grep pe /etc/shadow, nu prin passwd/useradd.",
              f"FROM {PROC_IDX}\n| WHERE {{w}}"

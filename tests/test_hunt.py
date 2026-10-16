@@ -34,7 +34,7 @@ def test_fereastra_doar_din_lista():
 def test_sabloanele_nu_au_parametri_din_telemetrie():
     # Nimic de completat in afara ferestrei: fara ?, fara {} ramase.
     for t in H.TEMPLATES.values():
-        q = H.render(t, 72).replace("{3}", "")      # cuantificatorul din regex-ul setuid
+        q = H.render(t, 72).replace(H.SETUID_RX, "")      # regex-ul fix (are ? si paranteze)
         assert "?" not in q and "{" not in q and "}" not in q, t.id
 
 
@@ -227,3 +227,20 @@ def test_buget_tier2_si_restul_la_om(monkeypatch, tmp_path):
 def test_eroare_de_interogare_e_acoperire_cu_eroare(monkeypatch, tmp_path):
     res, _ = _run(monkeypatch, tmp_path, {"BOOM": []}, write=True, technique="T1070.002")
     assert res[0]["status"] == "error" and "index lipsa" in res[0]["error"]
+
+
+# Formele din Atomic Red Team T1548.001 (testele 3 si 5) si vecinii lor benigni.
+# Regex-ul Lucene e ancorat pe tot sirul: re.fullmatch e echivalentul lui aici.
+@pytest.mark.parametrize("cl,want", [
+    ("chmod u+xs /tmp/evilBinary", True), ("chmod g+xs /tmp/evilBinary", True),
+    ("chmod u+s /usr/bin/x", True), ("chmod 4755 /tmp/x", True), ("chmod 2755 /tmp/x", True),
+    ("chmod -R g+s /srv/share", True), ("chmod a=rwxs f", True), ("chmod u+s,g+s f", True),
+    ("chmod +s f", True),
+    ("chmod 755 /tmp/x", False), ("chmod 0644 f", False), ("chmod +x script.sh", False),
+    ("chmod --reference=/etc/shells /etc/shells.tmp", False), ("chmod 1777 /tmp/dir", False),
+    ("chmod go-w file", False), ("chmod 600 /home/u/.ssh/id_rsa", False),
+])
+def test_regex_setuid(cl, want):
+    import re
+    assert bool(re.fullmatch(H.SETUID_RX, cl)) is want
+    assert "\\s" not in H.SETUID_RX     # Lucene nu are \s
