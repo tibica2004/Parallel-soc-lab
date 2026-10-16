@@ -343,3 +343,28 @@ def test_iesire_in_afara_proiectului_refuzata(monkeypatch, capsys):
     import tier3
     monkeypatch.setattr(sys, "argv", ["tier3.py", "--once", "--reguli", "--iesire", "../../tmp"])
     assert tier3.main() == 1 and "directorul proiectului" in capsys.readouterr().out
+
+
+# ---------------- tehnica ATT&CK: doar Linux ----------------
+
+@pytest.mark.parametrize("t", ["T1059.003", "T1059.001", "T1547.001", "T1053.005", "T1003.001", "T9999"])
+def test_tehnica_windows_sau_inexistenta_respinsa(t):
+    # T1059.003 e cazul real (t3-ad858a1ca85a29c7): Windows Command Shell pe un atac Linux
+    with pytest.raises(ValidationError) as e:
+        draft(technique=t)
+    assert "Linux" in str(e.value) and "T1059.004" in str(e.value)   # modelul afla din ce sa aleaga
+
+
+@pytest.mark.parametrize("t", ["T1059.004", "T1036.005", "T1505.003", "T1105", "T1059"])
+def test_tehnica_linux_acceptata(t):
+    assert draft(technique=t).technique == t
+
+
+def test_lista_linux_are_forma_valida():
+    from schemas import MITRE_RE
+    assert all(MITRE_RE.match(t) for t in R.LINUX_TECHNIQUES)
+    assert "T1059.003" not in R.LINUX_TECHNIQUES
+
+
+def test_promptul_cere_tehnica_linux():
+    assert "Linux" in R.DRAFT_PROMPT and "Windows" in R.DRAFT_PROMPT
