@@ -151,3 +151,15 @@ def test_regulile_contin_momelile():
     assert all(u in H.RULES["soc-honeytoken-http"]["query"] for u in H.DECOY_URLS)
     assert H.DECOY_USER in H.RULES["soc-honeytoken-user"]["query"]
     assert H.kibana_payload("soc-honeytoken-host")["threat"][0]["technique"][0]["subtechnique"][0]["id"] == "T1552.001"
+
+
+# ---------------- deduplicare: alertele web/auth se separa dupa IP ----------------
+
+def test_dedup_separa_atacatorii_dupa_ip():
+    k = orchestrator.dedup_key_alert
+    a1 = HT(process={}, source={"ip": "203.0.113.5"})
+    a2 = HT(process={}, source={"ip": "203.0.113.5"}, **{"@timestamp": "2026-10-09T00:00:09Z"})
+    b = HT(process={}, source={"ip": "198.51.100.7"})
+    assert k(a1) == k(a2) and k(a1) != k(b)
+    # alertele de proces raman pe entity_id, ca inainte
+    assert k(_alert(1, source={"ip": "1.1.1.1"})) == k(_alert(1, source={"ip": "2.2.2.2"}))

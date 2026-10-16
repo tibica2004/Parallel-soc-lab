@@ -98,11 +98,13 @@ def fetch_new_alerts(minutes: int, limit: int) -> list[dict]:
 
 def dedup_key_alert(a: dict) -> str:
     """Doua alerte de la aceeasi regula, pe aceeasi entitate de proces, sunt
-    acelasi caz — nu-l investigam de doua ori."""
+    acelasi caz — nu-l investigam de doua ori. Alertele fara proces si fara
+    fisier (cereri web, autentificari) se separa dupa IP-ul sursa: altfel un al
+    doilea atacator pe aceeasi regula ar fi sarit ca duplicat 24 de ore."""
     return "|".join(str(x) for x in [
         _g(a, "kibana.alert.rule.name"),
         _g(a, "host.name"),
-        _g(a, "process.entity_id") or _g(a, "file.path") or "",
+        _g(a, "process.entity_id") or _g(a, "file.path") or _g(a, "source.ip") or "",
     ])
 
 
