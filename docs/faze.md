@@ -7,7 +7,7 @@ Starea la 2026-10-09: faza 0 (CLAUDE.md) facuta; faza 1 implementata pe ramura f
 Starea la 2026-10-15: fazele 1-10 facute (vezi git log si results/). Faza 11 pe ramura faza-11-tier3:
 - 11a incidente: gata (incidents.py, tier3.py --once; attack_run.sh -> un singur incident).
 - 11b reguli: gata in dry-run (rules.py, tier3.py --once --reguli). Sursele golului: etichete umane de atac si Tier 2 malicious cu acord A/B. Nimic nu se creeaza in Kibana pana la: cheia Kibana separata (tier3-generated), filtrul tier3-shadow in orchestrator (cu harness dev + fast) si aprobarea lui Tiberiu.
-- 11c vanatoare ATT&CK (ramura faza-11c-vanatoare, 2026-10-16): hunt.py, 13 sabloane ES|QL scrise de om pe 12 tehnici; codul alege 2 tehnici/ora (cele vanate cel mai demult), modelul scrie ipoteza si alege sablonul + fereastra (HuntPlan validat, implicite la esec); potrivirile noi -> Case origin=tier3_hunt -> Tier 2 (max 3/rulare), restul la om; acoperirea, inclusiv negativa, in soc-hunts.
+- 11c vanatoare ATT&CK (ramura faza-11c-vanatoare, 2026-10-16): hunt.py, 13 sabloane ES|QL scrise de om pe 12 tehnici; codul alege 2 tehnici/ora (cele vanate cel mai demult), modelul scrie ipoteza si alege sablonul + fereastra (HuntPlan validat, implicite la esec); potrivirile noi -> Case origin=tier3_hunt -> Tier 2 (max 3/rulare), restul la om; acoperirea, inclusiv negativa, in soc-hunts. Porti: dev 14/14 (recall 100%, FP 0/6); 566 teste. Timer: prima vanatoare automata 2026-10-16 07:06 (systemd: 2 potriviri la Tier 2; chei SSH: negasit).
 Ramase din diagrama: executorul dry-run (politici), scheduler-ul Tier 3 (timer systemd, de aprobat).
 
 ## Promptul original (fidel)
