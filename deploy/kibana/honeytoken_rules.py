@@ -9,11 +9,16 @@ sensor_rules.py (sursa unica, aceeasi pe care o folosesc orchestratorul si teste
   aplica   — cu contul elastic (parola la tastatura, nesalvata): creeaza
              regulile care lipsesc, cu confirmare pentru fiecare. Nu modifica
              si nu sterge reguli existente.
+  actualizeaza — pentru regulile noastre (rule_id din definitii) care exista deja:
+             arata diferentele de detectie (query, index, nume, descriere) si,
+             cu confirmare, le aliniaza la definitie. Nimic altceva nu se atinge
+             (exceptii, actiuni, stare pornit/oprit raman cum sunt).
 
     cd ~/lab && source env.sh
     python3 deploy/kibana/honeytoken_rules.py arata
     python3 deploy/kibana/honeytoken_rules.py verifica
     python3 deploy/kibana/honeytoken_rules.py aplica
+    python3 deploy/kibana/honeytoken_rules.py actualizeaza
 """
 
 from __future__ import annotations
@@ -56,6 +61,12 @@ class Kibana:
             sys.exit(f"Kibana GET {rule_id}: {r.status_code} {r.text[:300]}")
         return r.json()
 
+    def patch(self, body: dict) -> dict:
+        r = requests.patch(KIBANA_URL + RULES_API, json=body, auth=self.auth, headers=self.h, timeout=30)
+        if r.status_code >= 400:
+            sys.exit(f"Kibana PATCH {body['rule_id']}: {r.status_code} {r.text[:300]}")
+        return r.json()
+
     def create(self, payload: dict) -> dict:
         r = requests.post(KIBANA_URL + RULES_API, json=payload, auth=self.auth, headers=self.h, timeout=30)
         if r.status_code >= 400:
@@ -91,15 +102,40 @@ def aplica(k: Kibana) -> None:
             print(f"  creata: id={r.get('id')} pornita={r.get('enabled')}")
 
 
+DETECTION_KEYS = ("name", "description", "query", "index", "language")
+
+
+def drift(current: dict, wanted: dict) -> dict:
+    """Campurile de detectie care difera intre regula din Kibana si definitie. Pur."""
+    return {k: wanted[k] for k in DETECTION_KEYS if current.get(k) != wanted.get(k)}
+
+
+def actualizeaza(k: Kibana) -> None:
+    for rid, build in ALL.items():
+        cur = k.get(rid)
+        if cur is None:
+            print(f"  {rid}: lipseste (foloseste aplica)")
+            continue
+        d = drift(cur, build(rid))
+        if not d:
+            print(f"  {rid}: la zi")
+            continue
+        for key, val in d.items():
+            print(f"\n{rid}.{key}\n  acum:  {cur.get(key)}\n  devine: {val}")
+        if ask(f"Actualizez {rid} ({', '.join(d)})?"):
+            k.patch({"rule_id": rid, **d})
+            print("  actualizata")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=["arata", "verifica", "aplica"])
+    ap.add_argument("cmd", choices=["arata", "verifica", "aplica", "actualizeaza"])
     a = ap.parse_args()
     if a.cmd == "arata":
         arata()
         return 0
     k = Kibana()
-    verifica(k) if a.cmd == "verifica" else aplica(k)
+    {"verifica": verifica, "aplica": aplica, "actualizeaza": actualizeaza}[a.cmd](k)
     return 0
 
 

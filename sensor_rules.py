@@ -22,6 +22,7 @@ import honeytokens
 
 TAG = "soc-sensor"
 YARA_TAG = "soc-yara"                 # identificatorul din jurnal (syslog) al scannerului
+YARA_PROC = "soc-yara-scan"           # numele procesului (scriptul din /usr/local/sbin)
 
 RULES: dict[str, dict] = {
     "soc-yara-webshell": {
@@ -31,7 +32,10 @@ RULES: dict[str, dict] = {
         "type": "query",
         "language": "kuery",
         "index": ["logs-system.syslog-*"],
-        "query": f'process.name : "{YARA_TAG}" and message : "yara_match"',
+        # Integrarea System (journald): eticheta syslog e in log.syslog.appname, iar
+        # process.name e numele procesului (scriptul). Ambele trebuie sa se potriveasca.
+        "query": f'log.syslog.appname : "{YARA_TAG}" and process.name : "{YARA_PROC}" '
+                 f'and message : "yara_match"',
         "threat_technique": ("T1505.003", "Web Shell"),
     },
 }

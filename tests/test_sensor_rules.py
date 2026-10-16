@@ -81,7 +81,8 @@ def test_orchestrator_model_cazut_pastreaza_motivul(rec):
 
 def test_payload():
     p = S.kibana_payload("soc-yara-webshell")
-    assert p["severity"] == "high" and p["tags"] == [S.TAG] and S.YARA_TAG in p["query"]
+    assert p["severity"] == "high" and p["tags"] == [S.TAG]
+    assert 'log.syslog.appname : "soc-yara"' in p["query"] and 'process.name : "soc-yara-scan"' in p["query"]
     t = p["threat"][0]
     assert t["tactic"]["id"] == "TA0003" and t["technique"][0]["subtechnique"][0]["id"] == "T1505.003"
 
@@ -115,3 +116,15 @@ def test_regulile_yara_pe_mostre():
     assert hit('<?php eval(gzinflate(base64_decode("eA=="))); ?>') == ["soc_php_obfuscated_eval"]
     assert hit('<?php $c = escapeshellarg($f); exec("convert " . $c); ?>') == []
     assert hit('<?php eval("return 1;"); ?>') == []
+
+
+def test_drift_doar_campurile_de_detectie():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("hr", Path(__file__).resolve().parents[1] / "deploy" / "kibana" / "honeytoken_rules.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    want = S.kibana_payload("soc-yara-webshell")
+    cur = {**want, "query": 'process.name : "soc-yara" and message : "yara_match"', "enabled": False,
+           "exceptions_list": [{"id": "x"}]}
+    assert m.drift(cur, want) == {"query": want["query"]}
+    assert m.drift(want, want) == {}
