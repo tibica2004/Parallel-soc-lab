@@ -18,9 +18,10 @@ Momelile (plantate de om pe web-prod, vezi deploy/web-prod/README.md):
   3. DECOY_USER: utilizator inexistent pe host, prezent doar in .env.bak. Folosirea
      lui la SSH inseamna ca cineva a citit fisierul si incearca credentialele.
 
-Limita cunoscuta: Elastic Defend pe Linux nu logheaza citirile de fisiere. Un
-`cat .env.bak` se vede (calea e in argumente), un `grep -r pass /var/www` sau
-un file_get_contents() dintr-un webshell nu. Le acopera auditd (pasul urmator).
+Elastic Defend pe Linux nu logheaza citirile de fisiere: un `cat .env.bak` se
+vede (calea e in argumente), un `grep -r pass /var/www` sau un file_get_contents()
+dintr-un webshell nu. Le vede auditd (deploy/web-prod/auditd-fim.md), cu conditia
+ca procesul sa fi pornit dupa activarea auditului: de aici audit=1 la boot.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from __future__ import annotations
 DECOY_FILE = "/var/www/html/.env.bak"
 DECOY_URLS = ("/.env.bak", "/admin.old.php")
 DECOY_USER = "svc_deploy"
+AUDIT_KEY = "soc_honeytoken"     # cheia regulii auditd: -w DECOY_FILE -p r -k soc_honeytoken
 
 TAG = "soc-honeytoken"
 SEVERITY = "critical"          # in restanta, alertele critical escaladeaza fara model
@@ -50,6 +52,17 @@ RULES: dict[str, dict] = {
             '     event.type in ("change", "deletion"))\n'
             ')'
         ),
+        "threat_technique": ("T1552.001", "Credentials In Files"),
+    },
+    "soc-honeytoken-read": {
+        "name": "Honeytoken: fisier momeala citit (auditd)",
+        "description": "Kernelul (auditd, cheia soc_honeytoken) a vazut un proces deschizand fisierul momeala "
+                       "pentru citire: grep, un webshell PHP, orice. Defend nu vede citirile.",
+        "type": "query",
+        "language": "kuery",
+        "index": ["logs-auditd_manager.auditd-*"],
+        # Agentul Elastic (FIM calculeaza hash-uri) nu e un atacator; FIM exclude oricum momeala.
+        "query": f'tags : "{AUDIT_KEY}" and not process.executable : /opt/Elastic/*',
         "threat_technique": ("T1552.001", "Credentials In Files"),
     },
     "soc-honeytoken-http": {

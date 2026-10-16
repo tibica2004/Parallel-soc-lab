@@ -61,3 +61,18 @@ citirea momelii de catre agent ar declansa honeytoken-ul de citire.
 
 Regula honeytoken pentru citire (`soc-honeytoken-read`) se creeaza DUPA ce vin
 date, cu `deploy/kibana/honeytoken_rules.py aplica` (creeaza doar ce lipseste).
+
+## 3. audit=1 la boot (obligatoriu)
+
+Descoperit la test (2026-10-16): kernelul auditeaza apelurile de sistem doar
+pentru procesele pornite DUPA activarea auditului. apache2, sshd, cron rulau
+dinainte, deci citirea momelii prin HTTP (adica si de catre un webshell PHP, care
+ruleaza in apache2) NU aparea; un `grep` nou pornit, da. Cu `audit=1` pe linia de
+comanda a kernelului, fiecare proces are context de audit de la boot.
+
+    echo 'GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX audit=1 audit_backlog_limit=8192"' \
+      | sudo tee /etc/default/grub.d/soc-audit.cfg
+    sudo update-grub
+    sudo reboot
+
+Verificare dupa reboot: `grep -o 'audit=1' /proc/cmdline`.

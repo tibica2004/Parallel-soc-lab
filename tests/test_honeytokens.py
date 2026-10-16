@@ -150,6 +150,7 @@ def test_regulile_contin_momelile():
     assert H.DECOY_FILE in q and H.DECOY_USER in q and q.count("(") == q.count(")")
     assert all(u in H.RULES["soc-honeytoken-http"]["query"] for u in H.DECOY_URLS)
     assert H.DECOY_USER in H.RULES["soc-honeytoken-user"]["query"]
+    assert H.AUDIT_KEY in H.RULES["soc-honeytoken-read"]["query"]
     assert H.kibana_payload("soc-honeytoken-host")["threat"][0]["technique"][0]["subtechnique"][0]["id"] == "T1552.001"
 
 
