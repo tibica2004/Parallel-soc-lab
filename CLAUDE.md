@@ -11,13 +11,13 @@ CONTEXT
 Infrastructura (laborator):
 - elastic-lab 172.20.99.220: Elasticsearch + Kibana 9.5.1 in Docker, Fleet Server, orchestratorul ca serviciu systemd `soc-orchestrator` (shadow fortat in ExecStart), tunel autossh `soc-llm-tunnel`.
 - web-prod 172.20.99.240: Debian 13, Apache 2.4 + PHP 8.4, Elastic Agent + Defend eBPF, canar in /etc/cron.d/soc-canary. Acces: ssh tiberiu@172.20.99.240.
-- GPU 172.30.6.231 prin tunel: Ollama qwen3:14b pe localhost:11434 (Tier 2), RedSage-Qwen3-8B-DPO pe localhost:11435 (Tier 1). Modelul si adresa se aleg per rol in llm.py: MODEL_<ROL>, LLM_BASE_URL_<ROL>.
+- GPU 172.30.6.231 prin tunel: Ollama qwen3:14b pe localhost:11434, folosit acum de Tier 1 si Tier 2 (decizie 2026-10-19). RedSage-Qwen3-8B-DPO (localhost:11435) e optional pentru Tier 1: cere portul 11435 in soc-llm-tunnel si MODEL_FAST / LLM_BASE_URL_FAST. Modelul si adresa se aleg per rol in llm.py: MODEL_<ROL>, LLM_BASE_URL_<ROL>.
 - Mediu: `source env.sh` (venv + ES_URL + cheile). Secretele sunt in env.sh, soc.env, .env: NU le afisa, NU le comite, NU le copia in alte fisiere.
 - Indici: .alerts-security.alerts-*, logs-endpoint.events.*, baseline-entity-parentchild, asset-inventory, verdicts-history, soc-audit. Doua chei: ES_API_KEY (read-only) si ES_WRITER_API_KEY (scrie doar verdicts-history si soc-audit; indicii noi trebuie adaugati in drepturile ei — imi spui, nu folosesti contul elastic).
 
 Arhitectura tinta (3 niveluri):
 - Senzori -> Detectie (reguli EQL, New Terms, sweep de raritate, anomalii) -> Intrare (normalizare, coada prioritizata, verificare sanatate, mod degradat).
-- Tier 1 (triaj, RedSage 8B): enrich -> rag -> l1_agent <-> tools (max 3) -> verdict -> finalize (podele) -> should_escalate(). Inchide doar benign clar; restul escaladeaza cu MOTIVE.
+- Tier 1 (triaj, Qwen3 14B; RedSage 8B optional): enrich -> rag -> l1_agent <-> tools (max 3) -> verdict -> finalize (podele) -> should_escalate(). Inchide doar benign clar; restul escaladeaza cu MOTIVE.
 - Tier 2 (investigatie, Qwen3 14B): case_adapter -> seed -> investigator_a <-> tools (max 12) -> [investigator_b daca suportul = 2] -> corroborate -> finalize -> decide() (motor de politici).
 - Tier 3 (proactiv, programat): vanatoare pe ipoteze ATT&CK, grupare in incidente, propuneri de reguli EQL cu shadow si promovare automata.
 - Memorie: verdicts-history, soc-audit, soc-traces, soc-incidents. Om: interfata de etichetare, dashboard.
