@@ -40,7 +40,7 @@ SPACE = "tier3"
 ROLE = "soc_tier3_rules"
 USER = "soc_tier3"
 SOURCE_IDX = ["logs-endpoint.events.process-*"]
-WRITER_ADD = ["soc-traces", "soc-incidents", "soc-hunts"]
+WRITER_ADD = ["soc-traces", "soc-incidents", "soc-hunts", "soc-metrics"]
 ENV_SH = Path(__file__).resolve().parents[2] / "env.sh"
 
 
