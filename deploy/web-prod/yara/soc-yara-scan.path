@@ -1,0 +1,9 @@
+[Unit]
+Description=SOC: scanare YARA cand se schimba /var/www/html
+
+[Path]
+PathChanged=/var/www/html
+Unit=soc-yara-scan.service
+
+[Install]
+WantedBy=paths.target

@@ -1,0 +1,14 @@
+[
+ {
+  "rule_id": "t3-ad858a1ca85a29c7",
+  "from": "shadow",
+  "to": "disabled",
+  "reason": "oprire globala a regulilor tier3",
+  "stats": {
+   "alerts_last_hour": 0,
+   "alerts_total": 0,
+   "days_in_status": 0.008422934282407408,
+   "human_fp": 0
+  }
+ }
+]

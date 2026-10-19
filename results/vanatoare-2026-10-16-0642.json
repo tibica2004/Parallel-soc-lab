@@ -1,0 +1,108 @@
+[
+ {
+  "@timestamp": "2026-10-16T10:42:51.798888+00:00",
+  "technique": "T1053.003",
+  "template_id": "cron_write",
+  "template_name": "Scriere in cron (auditd)",
+  "window_hours": 168,
+  "status": "found",
+  "hits": 3,
+  "cases": 0,
+  "query_hash": "9ffaf55ac220c0e5",
+  "plan_source": "model",
+  "hypothesis": "Un atacator încearcă să instaleze o persistență pe server prin modificarea fișierelor cron, cum ar fi /etc/cron* sau /var/spool/cron, pentru a executa comenzi automate.",
+  "started_at": "2026-10-16T10:42:51.777583+00:00",
+  "duration_ms": 21,
+  "error": null,
+  "matches": [
+   {
+    "key": "cron_write|3ae573e1112faee6907c",
+    "what": "/var/spool/cron/crontabs/tiberiu",
+    "proc": "/usr/bin/crontab",
+    "who": "tiberiu",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T10:09:39.071Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "cron_write|fd90997ef6da3dc05d52",
+    "what": "/var/spool/cron/",
+    "proc": "/usr/bin/crontab",
+    "who": "tiberiu",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T10:09:39.063Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "cron_write|08e051750c9d75d64e1f",
+    "what": "/var/spool/cron/crontabs/tmp.gN7jMm",
+    "proc": "/usr/bin/crontab",
+    "who": "tiberiu",
+    "host": "web-prod",
+    "count": 2,
+    "last_seen": "2026-10-16T10:09:39.063Z",
+    "outcome": "dry_run"
+   }
+  ]
+ },
+ {
+  "@timestamp": "2026-10-16T10:42:56.270376+00:00",
+  "technique": "T1543.002",
+  "template_id": "systemd_unit_write",
+  "template_name": "Unitate systemd scrisa (auditd)",
+  "window_hours": 168,
+  "status": "found",
+  "hits": 4,
+  "cases": 0,
+  "query_hash": "2090a62638fef675",
+  "plan_source": "model",
+  "hypothesis": "Atacantul ar putea fi creat sau modificat o unitate systemd în /etc/systemd/system pentru a instala o persistență pe server, ceea ce ar fi detectabil prin modificări neautorizate în fișierele de configurare.",
+  "started_at": "2026-10-16T10:42:56.254617+00:00",
+  "duration_ms": 15,
+  "error": null,
+  "matches": [
+   {
+    "key": "systemd_unit_write|387a429c1a397ebdc9c0",
+    "what": "/etc/systemd/system/paths.target.wants/soc-yara-scan.path",
+    "proc": "/usr/lib/systemd/systemd",
+    "who": "root",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T09:27:39.853Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "systemd_unit_write|f6d898cfebb3f4daeb69",
+    "what": "/etc/systemd/system/timers.target.wants/soc-yara-scan.timer",
+    "proc": "/usr/lib/systemd/systemd",
+    "who": "root",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T09:27:39.849Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "systemd_unit_write|25344d59018a6bd12931",
+    "what": "/etc/systemd/system/paths.target.wants",
+    "proc": "/usr/lib/systemd/systemd",
+    "who": "root",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T09:27:39.849Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "systemd_unit_write|9b1c7ab7521233c5d9f4",
+    "what": "/etc/systemd/system/multi-user.target.wants/suricata.service",
+    "proc": "/usr/bin/systemctl",
+    "who": "root",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T08:03:22.100Z",
+    "outcome": "dry_run"
+   }
+  ]
+ }
+]

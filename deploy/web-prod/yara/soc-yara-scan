@@ -1,0 +1,88 @@
+#!/usr/bin/python3
+"""
+Scanare YARA a webroot-ului (faza 12). Ruleaza din soc-yara-scan.service, pornit
+de timer (la 10 minute) si de soc-yara-scan.path (la orice creare in /var/www/html).
+
+- Lista de fisiere o face scriptul, nu yara -r: momeala .env.bak NU se citeste
+  (altfel auditd ar declansa honeytoken-ul de citire la fiecare scanare).
+- Doar potrivirile NOI (cale + sha256 + regula) se scriu, in jurnal, cu eticheta
+  soc-yara, ca un rand JSON; integrarea System le duce in logs-system.syslog-*.
+- Fara retea, fara scriere in afara directorului de stare.
+"""
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import syslog
+
+RULES = "/etc/soc-yara/webshells.yar"
+ROOTS = ["/var/www"]
+STATE = "/var/lib/soc-yara/seen.json"
+SKIP_NAMES = {".env.bak"}                  # momeli: vezi honeytokens.py
+MAX_SIZE = 5 * 1024 * 1024
+
+
+def files():
+    for root in ROOTS:
+        for d, dirs, names in os.walk(root, followlinks=False):
+            for n in names:
+                p = os.path.join(d, n)
+                if n in SKIP_NAMES or os.path.islink(p):
+                    continue
+                try:
+                    if os.path.isfile(p) and os.path.getsize(p) <= MAX_SIZE:
+                        yield p
+                except OSError:
+                    pass
+
+
+def sha256(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(65536), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def main():
+    paths = list(files())
+    if not paths:
+        return 0
+    lst = "/var/lib/soc-yara/scan-list"
+    with open(lst, "w") as f:
+        f.write("\n".join(paths) + "\n")
+    # yara afiseaza "regula cale" pe linie; caile nu contin newline (filtrate mai jos)
+    r = subprocess.run(["yara", "-w", "--scan-list", RULES, lst],
+                       capture_output=True, text=True, timeout=300)
+    if r.returncode != 0:                  # yara: 0 = succes (cu sau fara potriviri), altfel eroare
+        syslog.openlog("soc-yara")
+        syslog.syslog(syslog.LOG_ERR, json.dumps({"event": "yara_error", "stderr": r.stderr[:300]}))
+        return 1
+    try:
+        seen = set(json.load(open(STATE)))
+    except Exception:
+        seen = set()
+    syslog.openlog("soc-yara")
+    current = set()
+    for line in r.stdout.splitlines():
+        rule, _, path = line.partition(" ")
+        if not path or "\n" in path or not os.path.isfile(path):
+            continue
+        try:
+            h = sha256(path)
+        except OSError:
+            continue
+        key = f"{path}|{h}|{rule}"
+        current.add(key)
+        if key not in seen:
+            syslog.syslog(syslog.LOG_WARNING, json.dumps(
+                {"event": "yara_match", "rule": rule, "path": path, "sha256": h}))
+    with open(STATE + ".tmp", "w") as f:
+        json.dump(sorted(current), f)
+    os.replace(STATE + ".tmp", STATE)      # un fisier sters si replantat -> raportat din nou
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

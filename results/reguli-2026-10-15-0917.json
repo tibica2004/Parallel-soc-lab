@@ -1,0 +1,81 @@
+[
+ {
+  "rule_id": "t3-ad858a1ca85a29c7",
+  "created_at": "2026-10-15T13:16:00.790423Z",
+  "gap_source": "human",
+  "chain_id": "54049f6e-4336-4c8b-b361-0c69902d38ea",
+  "host": "web-prod",
+  "case_event_ids": [
+   "AaE_WDxmVxor0rU58rjX"
+  ],
+  "case_time": "2026-10-15T11:34:41.900000Z",
+  "draft": {
+   "template": "arg_prefix",
+   "parent": "bash",
+   "child": "dash",
+   "arg": null,
+   "dir": "/home/tiberiu/.cache/.kw/",
+   "technique": "T1059.003",
+   "rationale": "Executabilul este pornit dintr-un director temporar (.cache), ceea ce poate indica activitate suspecta sau evitarea detectiei."
+  },
+  "eql": "process where event.type == \"start\" and process.parent.name == \"bash\" and process.name == \"dash\" and startsWith(process.args, \"/home/tiberiu/.cache/.kw/\")",
+  "validation": {
+   "syntax_ok": true,
+   "catches": true,
+   "noise_hits": 0,
+   "noise_ok": true,
+   "error": null
+  },
+  "attempts": 1,
+  "errors": [],
+  "status": "proposed",
+  "model_id": "qwen3:14b",
+  "kibana_payload": {
+   "rule_id": "t3-ad858a1ca85a29c7",
+   "type": "eql",
+   "language": "eql",
+   "query": "process where event.type == \"start\" and process.parent.name == \"bash\" and process.name == \"dash\" and startsWith(process.args, \"/home/tiberiu/.cache/.kw/\")",
+   "index": [
+    "logs-endpoint.events.process-*"
+   ],
+   "name": "Tier3: arg_prefix (t3-ad858a1ca85a29c7)",
+   "description": "Regula propusa de Tier 3 din lantul 54049f6e-4336-4c8b-b361-0c69902d38ea (sursa human). Generata automat; fara exceptii.",
+   "severity": "low",
+   "risk_score": 21,
+   "tags": [
+    "tier3-generated",
+    "T1059.003",
+    "gap:human",
+    "tier3-shadow"
+   ],
+   "enabled": true,
+   "interval": "5m",
+   "from": "now-6m",
+   "max_signals": 100
+  },
+  "kibana": "creata in shadow"
+ },
+ {
+  "rule_id": null,
+  "created_at": "2026-10-15T13:16:00.790423Z",
+  "gap_source": "human",
+  "chain_id": "5d76d133-b9ac-48d3-83f0-636d76bf0e07",
+  "host": "web-prod",
+  "case_event_ids": [
+   "AaE_VjxmVxor0rXM8K6Q",
+   "AaE_VjxmVxor0rXM8K6R"
+  ],
+  "case_time": "2026-10-15T11:33:23.580000Z",
+  "draft": null,
+  "eql": null,
+  "validation": null,
+  "attempts": 3,
+  "errors": [
+   "raspuns invalid: ValidationError: 2 validation errors for RuleDraft\nparent\n  Value error, nume de proces respins: 'kworker/u10:3-events_unbound' [type=value_error, input_value='kworker/u10:3-events_unbound', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error\ndir\n  Value error, director p",
+   "raspuns invalid: ValidationError: 1 validation error for RuleDraft\ndir\n  Value error, director prea general: /usr/bin/ [type=value_error, input_value='/usr/bin/', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+   "raspuns invalid: ValidationError: 2 validation errors for RuleDraft\nparent\n  Value error, nume de proces respins: 'kworker/u10:3-events_unbound' [type=value_error, input_value='kworker/u10:3-events_unbound', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error\ndir\n  Value error, director p"
+  ],
+  "status": "rejected",
+  "model_id": "qwen3:14b"
+ }
+]

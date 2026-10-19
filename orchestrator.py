@@ -26,8 +26,11 @@ from datetime import datetime, timezone
 
 import case_adapter
 import degraded
+import honeytokens
+import sensor_rules
 import tracing
 from escalation import EscalationDecision, should_escalate
+from schemas import EscalationReason
 from policy import decide
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
 
@@ -64,8 +67,14 @@ def _g(d: dict, path: str):
     return cur
 
 
+# Regulile Tier 3 in shadow alerteaza, dar nu intra in coada Tier 1: o regula
+# proaspata si inca nemasurata nu are voie sa inunde triajul (rules.py).
+SHADOW_RULE_TAG = "tier3-shadow"
+
+
 def fetch_alerts_between(since, until, limit: int) -> list[dict]:
-    """Alertele deschise din intervalul (since, until], cele mai vechi intai."""
+    """Alertele deschise din intervalul (since, until], cele mai vechi intai.
+    Fara cele ale regulilor Tier 3 aflate in shadow."""
     r = ES.search(index=ALERTS_IDX, size=limit,
                   sort=[{"@timestamp": "asc"}],
                   query={"bool": {"filter": [
@@ -73,6 +82,7 @@ def fetch_alerts_between(since, until, limit: int) -> list[dict]:
                                                 "lte": until.isoformat()}}},
                   ], "must_not": [
                       {"term": {"kibana.alert.workflow_status": "closed"}},
+                      {"term": {"kibana.alert.rule.tags": SHADOW_RULE_TAG}},
                   ]}})
     # _soc_ref: referinta opaca la documentul alertei, pentru evidence_refs.
     # Nu intra in contextul modelului (fast_path alege campurile explicit).
@@ -89,17 +99,44 @@ def fetch_new_alerts(minutes: int, limit: int) -> list[dict]:
 
 def dedup_key_alert(a: dict) -> str:
     """Doua alerte de la aceeasi regula, pe aceeasi entitate de proces, sunt
-    acelasi caz — nu-l investigam de doua ori."""
+    acelasi caz — nu-l investigam de doua ori. Alertele fara proces si fara
+    fisier (cereri web, autentificari) se separa dupa IP-ul sursa: altfel un al
+    doilea atacator pe aceeasi regula ar fi sarit ca duplicat 24 de ore."""
     return "|".join(str(x) for x in [
         _g(a, "kibana.alert.rule.name"),
         _g(a, "host.name"),
-        _g(a, "process.entity_id") or _g(a, "file.path") or "",
+        _g(a, "process.entity_id") or _g(a, "file.path") or _g(a, "source.ip") or "",
     ])
+
+
+# Ce identifica un finding, pe tip (fara contoare, care cresc de la un sweep la altul).
+FINDING_KEY = {
+    "new_webroot_write": ("path", "written_by"),
+    "new_destination_asn": ("process", "destination_ip"),
+    "new_listening_port": ("process", "port"),
+    "new_url_path": ("url_path",),
+    "response_size_outlier": ("url_path",),
+    "beaconing": ("process", "destination_ip"),
+    "dns_anomaly": ("process", "domain"),
+    "new_ja4": ("ja4",),
+}
 
 
 def dedup_key_finding(f) -> str:
     d = f.detail or {}
-    return f"finding|{f.entity_id}|{d.get('parent')}|{d.get('child')}"
+    if f.kind == "new_parent_child":
+        # forma veche, ca cheile deja salvate in soc-state sa ramana valabile
+        return f"finding|{f.entity_id}|{d.get('parent')}|{d.get('child')}"
+    fields = FINDING_KEY.get(f.kind, tuple(sorted(k for k in d if k != "count")))
+    return "|".join(["finding", f.kind, f.entity_id, *(str(d.get(k)) for k in fields)])
+
+
+def describe_finding(f) -> str:
+    d = f.detail or {}
+    if f.kind == "new_parent_child":
+        return f"{f.entity_id} · {d.get('parent')} -> {d.get('child')}"
+    fields = FINDING_KEY.get(f.kind, ())
+    return f"{f.entity_id} · {f.kind} " + " ".join(str(d.get(k)) for k in fields)[:120]
 
 
 
@@ -173,8 +210,27 @@ def persist_trace(doc: dict) -> None:
             _trace_warned = True
 
 
+def make_plan(verdict, decision):
+    """Planul executorului (dry-run) pentru o actiune care nu e gratuita.
+    Intoarce (plan sau None, text pentru action_result). Nu executa nimic."""
+    import executor
+    now = datetime.now(timezone.utc)
+    if not decision.executable:
+        return None, None
+    try:
+        p = executor.plan(verdict, decision, now,
+                          stats=executor.fetch_stats(ES, decision.chosen, now),
+                          criticality=executor.fetch_criticality(ES, verdict.entity_id),
+                          agent_id=(executor.fetch_agent_id(ES, verdict.entity_id)
+                                    if decision.chosen.value == "isolate_host" else None))
+    except executor.PlanError as e:
+        return None, f"dry-run: fara plan ({e}); ramane la om"[:500]
+    return p, executor.summary(p)
+
+
 def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
-            escalation: EscalationDecision | None = None, failure=None, tier2=None) -> None:
+            escalation: EscalationDecision | None = None, failure=None, tier2=None,
+            plan=None, action_result: str | None = None) -> None:
     """Scrie verdictul in istoric si o inregistrare de audit. ground_truth ramane
     GOL — doar omul il completeaza. Fara cheie de writer (dry-run), nu scrie nimic.
     `escalation` = decizia Tier 1 -> Tier 2 (None pe calea lenta).
@@ -198,7 +254,8 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
         queries_run=(extra or {}).get("queries_run", []),
         policy_decision=f"{decision.chosen.value}: {decision.reason}",
         action_executed=decision.chosen,
-        action_result="shadow: nu s-a executat" if decision.shadow_mode else "executat",
+        action_result=action_result or ("shadow: nu s-a executat" if decision.shadow_mode else "executat"),
+        execution_plan=plan,
         started_at=started, finished_at=finished, shadow_mode=decision.shadow_mode,
     )
     adoc = audit.model_dump(mode="json")
@@ -292,9 +349,16 @@ def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalatio
     v = with_chain(v, chain_id)
     v = with_evidence(v, list(refs) + (trace.refs() if trace else []))
     d = decide(v)
+    try:
+        plan, result = make_plan(v, d)
+    except Exception as e:
+        # Executorul doar descrie; o eroare a lui nu are voie sa piarda auditul.
+        plan, result = None, f"dry-run: eroare la plan ({type(e).__name__}); ramane la om"
     show(kind, entity, v, narrative, d, escalation)
+    if plan is not None or (result or "").startswith("dry-run"):
+        print(f"    executor: {result}", flush=True)
     persist(v, narrative, d, t0, datetime.now(timezone.utc), extra,
-            escalation=escalation, failure=failure, tier2=tier2)
+            escalation=escalation, failure=failure, tier2=tier2, plan=plan, action_result=result)
     if trace is not None:
         persist_trace(trace.document(chain_id=v.chain_id, investigation_id=v.investigation_id,
                                      source_path=v.source_path, entity=entity,
@@ -347,6 +411,21 @@ class HuntRunner:
         return failure
 
 
+def finding_pair_refs(f) -> list:
+    """Referinte la evenimentele perechii parinte-copil a unui finding de sweep.
+    Merg doar in verdict (pentru Tier 3), nu in intrarea modelului. Un esec aici
+    nu opreste investigatia."""
+    d = f.detail or {}
+    if f.kind != "new_parent_child" or not (d.get("parent") and d.get("child")):
+        return []
+    try:
+        from elastic_tools import pair_event_refs
+        return pair_event_refs(f.entity_id, d["parent"], d["child"], window_hours=2)
+    except Exception as e:
+        print(f"  [dovezi sweep] {type(e).__name__}: {e}", flush=True)
+        return []
+
+
 def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
     """Findings de raritate -> calea lenta -> politica -> audit.
     Model cazut / timeout / eroare -> undetermined + escalate_human, scris de cod;
@@ -359,12 +438,13 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
         if done >= limit:
             break
         k = dedup_key_finding(f)
-        entity = f"{f.entity_id} · {(f.detail or {}).get('parent')} -> {(f.detail or {}).get('child')}"
+        entity = describe_finding(f)
         if k in seen:
             continue
         done += 1
         try:
-            failure = hunt.run({"finding": f}, "LENT", entity, f.entity_id, f.evidence_refs)
+            refs = list(f.evidence_refs) + finding_pair_refs(f)
+            failure = hunt.run({"finding": f}, "LENT", entity, f.entity_id, refs)
             # Marcat DOAR dupa succes: un esec nu are voie sa scoata cazul din lucru.
             if failure is None:
                 seen.add(k)
@@ -408,8 +488,8 @@ def run_positioned(args) -> int:
             run_sweep = (args.sweep if not args.loop
                          else args.sweep_every > 0 and (cycle - 1) % args.sweep_every == 0)
             if run_sweep:
-                from elastic_tools import sweep_new_parent_child
-                process_findings(sweep_new_parent_child(1), seen, args.hunt_limit,
+                from elastic_tools import run_full_sweep
+                process_findings(run_full_sweep(1), seen, args.hunt_limit,
                                  model_ok=degraded.llm_healthy("hunt"))
                 _save_seen(seen)
         except Exception as e:
@@ -485,7 +565,9 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                         # Tier 2 nu e apelat inca: decizia doar se inregistreaza in audit.
                         esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
                                               pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
-                                              native_detection=bool((out.get("context") or {}).get("native_detection")))
+                                              native_detection=bool((out.get("context") or {}).get("native_detection")),
+                                              honeytoken=honeytokens.is_honeytoken(a),
+                                              sensor_detection=sensor_rules.is_sensor_alert(a))
                     except degraded.CaseTimeout:
                         failure = degraded.FailureKind.CASE_TIMEOUT
                     except Exception as e:
@@ -498,6 +580,12 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                 if failure is not None:
                     v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
                                          degraded.NARRATIVE[failure], degraded.failure_escalation())
+                # Momeala atinsa / detectie de senzor: motivul ajunge in audit si la Tier 2
+                # si pe caile fara model (restanta, model cazut), unde should_escalate nu ruleaza.
+                for flag, reason in ((honeytokens.is_honeytoken(a), EscalationReason.HONEYTOKEN),
+                                     (sensor_rules.is_sensor_alert(a), EscalationReason.SENSOR_DETECTION)):
+                    if flag and reason not in esc.reasons:
+                        esc = EscalationDecision(escalate=True, reasons=[*esc.reasons, reason])
                 tier2 = None
                 if esc.escalate:
                     tier2 = "investigated" if t2_used < t2_limit else "skipped_budget"
@@ -573,8 +661,8 @@ def main() -> int:
               f"Tier 2: {stats.get('tier2', 0)} investigate, {stats.get('tier2_skipped', 0)} peste buget\n")
 
     if args.sweep:
-        from elastic_tools import sweep_new_parent_child
-        process_findings(sweep_new_parent_child(1), seen, args.limit,
+        from elastic_tools import run_full_sweep
+        process_findings(run_full_sweep(1), seen, args.limit,
                          model_ok=degraded.llm_healthy("hunt"))
 
     if WRITER is None:

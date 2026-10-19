@@ -107,7 +107,7 @@ def test_main_manual_foloseste_aceleasi_functii(monkeypatch):
     monkeypatch.setattr(orchestrator, "process_findings",
                         lambda findings, seen, limit, model_ok=True: calls.setdefault("findings", (findings, limit)))
     monkeypatch.setitem(sys.modules, "elastic_tools",
-                        types.SimpleNamespace(sweep_new_parent_child=lambda h: ["F"]))
+                        types.SimpleNamespace(run_full_sweep=lambda h: ["F"]))
     monkeypatch.setattr(sys, "argv", ["orchestrator.py", "--minutes", "60", "--sweep", "--limit", "7"])
     assert orchestrator.main() == 0
     assert calls["alerts"][0] == [_alert(1)] and calls["alerts"][2] == 3   # --t2-limit implicit

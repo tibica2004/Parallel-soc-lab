@@ -1,0 +1,12 @@
+[Unit]
+Description=Agentic SOC - Tier 3, o data pe ora
+
+[Timer]
+OnCalendar=hourly
+# GPU-ul e partajat: nu pornim exact la fix, odata cu toti ceilalti.
+RandomizedDelaySec=10min
+# Dupa o oprire a masinii, ruleaza o data la pornire in loc sa sara peste.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

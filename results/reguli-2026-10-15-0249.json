@@ -1,0 +1,39 @@
+[
+ {
+  "rule_id": "t3-7a12da8691451d49",
+  "created_at": "2026-10-15T06:48:58.411797Z",
+  "gap_source": "test",
+  "chain_id": "5c325998-87cc-40dd-921d-f814712104d6",
+  "host": "web-prod",
+  "case_event_ids": [
+   "AaE1jr6tMgceX05jL-d3",
+   "AaE1jr6tMgceX05jL-d4"
+  ],
+  "case_time": "2026-10-13T13:58:01.270000Z",
+  "draft": {
+   "template": "parent_child",
+   "parent": "apache2",
+   "child": "dash",
+   "arg": null,
+   "dir": null,
+   "technique": "T1059.003",
+   "rationale": "Procesul apache2 (serviciu web) lansează un shell (dash) - comportament neobișnuit în medii de producție."
+  },
+  "eql": "process where event.type == \"start\" and process.parent.name == \"apache2\" and process.name == \"dash\"",
+  "validation": {
+   "syntax_ok": true,
+   "catches": true,
+   "noise_hits": 6,
+   "noise_ok": false,
+   "error": "zgomotoasa: peste 5 potriviri in 7 zile in afara cazului"
+  },
+  "attempts": 3,
+  "errors": [
+   "raspuns invalid: ValidationError: 1 validation error for RuleDraft\narg\n  Value error, argument respins: 'sh -c -- id' [type=value_error, input_value='sh -c -- id', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error",
+   "process where event.type == \"start\" and process.parent.name == \"apache2\" and process.name == \"dash\" -> zgomotoasa: peste 5 potriviri in 7 zile in afara cazului",
+   "raspuns invalid: ValidationError: 1 validation error for RuleDraft\narg\n  Value error, argument respins: 'sh -c -- id' [type=value_error, input_value='sh -c -- id', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"
+  ],
+  "status": "rejected",
+  "model_id": "qwen3:14b"
+ }
+]

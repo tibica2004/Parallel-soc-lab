@@ -1,0 +1,34 @@
+=== Orchestrator 2026-10-15 11:36:41 | SCRIE audit+verdicte | shadow=True ===
+
+ALERTE: 0 in ultimele 1 min
+
+Model Tier 1: OK
+
+  FINDINGS: 5 (procesez cel mult 10, model OK)
+  [LENT] web-prod · dash -> wc
+    verdict: benign / 85 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    MITRE: T1059.003
+    The process represents a standard diagnostic command (word count on /etc/passwd) executed by a known administrator. No sensitive actions, file writes, or network egress were detect
+  [trasare] scrierea in soc-traces a esuat: AuthorizationException (urmele nu se salveaza pana se rezolva)
+  [LENT] web-prod · bash -> dash
+    verdict: benign / 75 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    MITRE: T1505.003
+    The anomaly involves a known administrator executing a script from their home directory, which aligns with normal administrative activities. There is no evidence of sensitive actio
+  [LENT] web-prod · bash -> chmod
+    verdict: benign / 75 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    MITRE: T1505.003
+    The chmod command was executed by a known administrator in their home directory, with no associated network egress or file writes. The lack of egress traffic and the presence of a 
+  [LENT] web-prod · bash -> mkdir
+    verdict: benign / 75 / none
+    politica: none  [SHADOW]  (actiune fara cost, permisa)
+    MITRE: T1505.003
+    The mkdir command was executed by a known administrator (tiberiu) during normal operations. No sensitive actions were taken, and the command aligns with typical maintenance activit
+  [LENT] web-prod · kworker/u10:3-events_unbound -> kmod
+    verdict: suspicious / 75 / enrich_only
+    politica: enrich_only  [SHADOW]  (actiune fara cost, permisa)
+    MITRE: T1505.003
+    The process chain shows kmod being executed by a kernel worker thread with root privileges, which is unusual for a web server. While legitimate kernel module operations can occur, 
+=== Sfarsit. Verdicte si audit scrise (ground_truth gol). ===

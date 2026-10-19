@@ -186,6 +186,10 @@ def sweep_new_parent_child(window_hours: int = 1) -> list[RarityFinding]:
         FROM {PROC_IDX}
         | WHERE @timestamp >= NOW() - {window_hours} hours
         | WHERE process.parent.name IS NOT NULL AND process.name IS NOT NULL
+        // Thread-urile kernelului (parinte kthreadd = PID 2, fara executabil) isi schimba
+        // numele cu coada de lucru (kworker/1:2-events) -> "noi" la nesfarsit. Nu dupa
+        // nume: un proces redenumit "kthreadd" are alt PID si un executabil, deci ramane.
+        | WHERE NOT (process.parent.pid == 2 AND process.executable IS NULL)
         | STATS cnt = COUNT(*) BY host.name, process.parent.name, process.name
         | LIMIT 5000
         """
@@ -225,39 +229,177 @@ def sweep_new_parent_child(window_hours: int = 1) -> list[RarityFinding]:
     return out
 
 
+# Baseline-ul sweep-urilor noi se calculeaza direct din ultimele 30 de zile (fara
+# transform): volumele din laborator sunt mici, iar o cheie e "noua" daca n-a mai
+# aparut in [acum - 30 zile, acum - fereastra). Valorile din telemetrie nu intra
+# niciodata in textul interogarii: comparatia se face in Python.
+SWEEP_BASELINE_DAYS = 30
+# Un raspuns e anormal de mare daca depaseste de RESP_FACTOR ori maximul vazut pe
+# aceeasi cale si macar RESP_MIN_BYTES; doar pe cai cu destula istorie.
+RESP_FACTOR = 3
+RESP_MIN_BYTES = 100_000
+RESP_MIN_HISTORY = 20
+
+
+def _windows(window_hours: int) -> tuple[str, str]:
+    """(conditia ferestrei recente, conditia baseline-ului) in ES|QL. Doar intregi."""
+    w, b = int(window_hours), int(SWEEP_BASELINE_DAYS)
+    return (f"@timestamp >= NOW() - {w} hours",
+            f"@timestamp >= NOW() - {b} days AND @timestamp < NOW() - {w} hours")
+
+
+def novel(recent: list[dict], known: list[dict], fields: tuple[str, ...]) -> list[dict]:
+    """Randurile din `recent` a caror cheie (`fields`) nu apare in `known`. Pur."""
+    seen = {tuple(r.get(f) for f in fields) for r in known}
+    return [r for r in recent if tuple(r.get(f) for f in fields) not in seen
+            and all(r.get(f) is not None for f in fields)]
+
+
+def _ip_score(ip: str | None) -> float:
+    """Destinatie externa = C2/exfiltrare posibila; interna sau loopback = mai putin grav."""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(ip)
+    except (TypeError, ValueError):
+        return 0.8
+    # Explicit RFC1918/ULA: is_private include si plajele de documentatie (203.0.113.0/24),
+    # pe care laboratorul le foloseste ca "internet".
+    internal = any(a in ipaddress.ip_network(n) for n in
+                   ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+                   if ipaddress.ip_network(n).version == a.version)
+    return 0.6 if (internal or a.is_loopback or a.is_link_local) else 1.0
+
+
 def sweep_new_destinations(window_hours: int = 1) -> list[RarityFinding]:
-    """ASN-uri de destinatie nevazute pentru procesul asta. Exfiltrare / C2."""
-    recent = _esql(
-        f"""
+    """Destinatii (IP) nevazute pentru procesul asta in 30 de zile. C2 / exfiltrare.
+    In productie cheia ar fi destination.as.number; in laborator ASN-ul e gol."""
+    rw, bw = _windows(window_hours)
+    q = f"""
         FROM {NET_IDX}
-        | WHERE @timestamp >= NOW() - {window_hours} hours
-          AND network.direction == "egress"
+        | WHERE {{w}} AND network.direction == "egress"
+          AND destination.ip IS NOT NULL AND process.name IS NOT NULL
         | STATS cnt = COUNT(*) BY host.name, process.name, destination.ip
         | LIMIT 5000
         """
-    )
-    # In productie cheia ar fi destination.as.number. In laborator ASN-ul e gol,
-    # asa ca transformul grupeaza pe dest_ip.
-    known = {
-        (r["host.name"], r["process.name"], r["dest_ip"])
-        for r in _esql(
-            "FROM baseline-entity-egress | KEEP host.name, process.name, dest_ip | LIMIT 10000"
-        )
-    }
+    keys = ("host.name", "process.name", "destination.ip")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
     return [
         RarityFinding(
-            kind="new_destination_asn",
-            entity_type=EntityType.HOST,
-            entity_id=r["host.name"],
-            detail={
-                "process": r["process.name"],
-                "destination_ip": r["destination.ip"],
-                "count": r["cnt"],
-            },
-            rarity_score=1.0,
-        )
-        for r in recent
-        if (r["host.name"], r["process.name"], r["destination.ip"]) not in known
+            kind="new_destination_asn", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"process": r["process.name"], "destination_ip": str(r["destination.ip"]),
+                    "count": r["cnt"]},
+            rarity_score=_ip_score(str(r["destination.ip"])))
+        for r in rows
+    ]
+
+
+def sweep_new_listening_ports(window_hours: int = 1) -> list[RarityFinding]:
+    """Port local care accepta conexiuni pentru prima data (sau alt proces pe el).
+    Backdoor / bind shell. Defend nu logheaza listen(), doar conexiunile acceptate:
+    un port deschis pe care nu se conecteaza nimeni nu apare aici."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {NET_IDX}
+        | WHERE {{w}} AND network.direction == "ingress"
+          AND destination.port IS NOT NULL AND process.name IS NOT NULL
+        | STATS cnt = COUNT(*) BY host.name, process.name, destination.port
+        | LIMIT 5000
+        """
+    keys = ("host.name", "process.name", "destination.port")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_listening_port", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"process": r["process.name"], "port": int(r["destination.port"]), "count": r["cnt"]},
+            rarity_score=1.0)
+        for r in rows
+    ]
+
+
+def _url_path(p) -> str:
+    # Calea o alege atacatorul: scurtata; ajunge la model doar ca DATE (vezi hunt_path).
+    return str(p)[:200]
+
+
+def sweep_new_url_paths(window_hours: int = 1) -> list[RarityFinding]:
+    """Cai web servite cu succes (< 400) pentru prima data in 30 de zile. Un webshell
+    nou raspunde 200 pe o cale noua; scanarea (404) ramane in seama honeytokens."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {{w}} AND http.response.status_code < 400 AND url.path IS NOT NULL
+        | STATS cnt = COUNT(*), ips = COUNT_DISTINCT(source.ip) BY host.name, url.path
+        | LIMIT 5000
+        """
+    keys = ("host.name", "url.path")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_url_path", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"url_path": _url_path(r["url.path"]), "count": r["cnt"], "source_ips": r["ips"]},
+            rarity_score=0.9 if str(r["url.path"]).endswith(tuple(f".{e}" for e in
+                                                              ("php", "phtml", "jsp", "cgi", "pl"))) else 0.7)
+        for r in rows
+    ]
+
+
+def sweep_new_ja4(window_hours: int = 1) -> list[RarityFinding]:
+    """Amprenta TLS de client (JA4, din Suricata) nevazuta pe host in 30 de zile.
+    Un tool nou sau un implant care vorbeste HTTPS are alta amprenta decat curl,
+    apt sau agentul. Suricata nu stie procesul: il cauta Tier 2 dupa destinatie."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {SURICATA_IDX}
+        | WHERE {{w}} AND suricata.eve.event_type == "tls" AND suricata.eve.tls.ja4 IS NOT NULL
+        | EVAL host = COALESCE(host.name, observer.hostname)
+        | STATS cnt = COUNT(*), dst = MAX(destination.ip), sni = MAX(tls.client.server_name)
+            BY host, suricata.eve.tls.ja4
+        | LIMIT 5000
+        """
+    # Integrarea Suricata nu pune host.name (e senzor de retea): hostul e observer.hostname.
+    keys = ("host", "suricata.eve.tls.ja4")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_ja4", entity_type=EntityType.HOST, entity_id=r["host"],
+            detail={"ja4": str(r["suricata.eve.tls.ja4"])[:64], "destination_ip": str(r["dst"]),
+                    "sni": _url_path(r["sni"]) if r.get("sni") else None, "count": r["cnt"]},
+            rarity_score=0.8)
+        for r in rows
+    ]
+
+
+def size_outliers(recent: list[dict], history: list[dict]) -> list[dict]:
+    """Pur: raspunsurile recente mult peste maximul istoric al aceleiasi cai."""
+    hist = {(h["host.name"], h["url.path"]): h for h in history}
+    out = []
+    for r in recent:
+        h = hist.get((r["host.name"], r["url.path"]))
+        if not h or (h.get("cnt") or 0) < RESP_MIN_HISTORY or r.get("mx") is None:
+            continue
+        limit = max(RESP_FACTOR * (h.get("mx") or 0), RESP_MIN_BYTES)
+        if r["mx"] > limit:
+            out.append({**r, "baseline_max": h.get("mx"), "baseline_count": h.get("cnt")})
+    return out
+
+
+def sweep_response_size_outliers(window_hours: int = 1) -> list[RarityFinding]:
+    """Raspuns web anormal de mare pe o cale cunoscuta. Exfiltrare prin aplicatie."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {{w}} AND url.path IS NOT NULL AND http.response.body.bytes IS NOT NULL
+        | STATS cnt = COUNT(*), mx = MAX(http.response.body.bytes) BY host.name, url.path
+        | LIMIT 5000
+        """
+    rows = size_outliers(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)))
+    return [
+        RarityFinding(
+            kind="response_size_outlier", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"url_path": _url_path(r["url.path"]), "max_bytes": r["mx"],
+                    "baseline_max_bytes": r["baseline_max"], "baseline_count": r["baseline_count"]},
+            rarity_score=0.9)
+        for r in rows
     ]
 
 
@@ -270,24 +412,46 @@ def sweep_webroot_writes(window_hours: int = 1) -> list[RarityFinding]:
           AND event.action == "creation"
           AND STARTS_WITH(file.path, "/var/www/")
           AND file.extension IN ("php", "phtml", "jsp", "aspx", "cgi", "pl")
-        | KEEP host.name, file.path, process.name, user.name, @timestamp
+        | STATS cnt = COUNT(*) BY host.name, file.path, process.name
+        | LIMIT 500
         """
     )
+    # Fara baseline: orice executabil web scris in webroot e drift (un deploy trece
+    # tot pe aici; il separa fereastra de mentenanta, la Tier 2). Un rand per fisier.
     return [
         RarityFinding(
             kind="new_webroot_write",
             entity_type=EntityType.HOST,
             entity_id=r["host.name"],
-            detail={"path": r["file.path"], "written_by": r["process.name"]},
+            detail={"path": r["file.path"], "written_by": r["process.name"], "count": r["cnt"]},
             rarity_score=1.0,
         )
         for r in rows
     ]
 
 
+def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, limit: int = 10) -> list[EvidenceRef]:
+    """Evenimentele de pornire ale perechii gasite de sweep, ca referinte (doar ID-uri).
+    Le ataseaza codul la verdict, ca Tier 3 sa stie ce proces a fost cazul.
+    Filtre term: valorile din telemetrie nu ajung in text de interogare."""
+    r = ES.search(index=PROC_IDX, size=limit, sort=[{"@timestamp": "asc"}], source=["@timestamp"],
+                  query={"bool": {"filter": [
+                      {"term": {"host.name": host}},
+                      {"term": {"process.parent.name": parent}},
+                      {"term": {"process.name": child}},
+                      {"term": {"event.type": "start"}},
+                      {"range": {"@timestamp": {"gte": f"now-{int(window_hours)}h"}}},
+                  ]}})
+    return _refs(r["hits"]["hits"])
+
+
 def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     findings: list[RarityFinding] = []
-    for fn in (sweep_new_parent_child, sweep_new_destinations, sweep_webroot_writes):
+    import anomalies
+    for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
+               sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
+               sweep_new_ja4,
+               anomalies.sweep_beaconing, anomalies.sweep_dns):
         try:
             findings.extend(fn(window_hours))
         except Exception as exc:  # un sweep cazut nu trebuie sa omoare restul

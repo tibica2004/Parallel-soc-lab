@@ -30,6 +30,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
 
 import defend_native
+import honeytokens
+import maintenance
+import sensor_rules
 from elastic_tools import ES, _esql
 from hunt_path import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
@@ -47,6 +50,8 @@ RULE_TO_GUIDE = {
     "executable written to webroot": "webshell-webroot.md",
     "reverse shell": "reverse-shell.md",
     "temp directory": "temp-exec.md",
+    "honeytoken": "honeytoken.md",
+    "yara": "yara-webshell.md",
 }
 
 # Calea rapida nu propune izolari: fie inchide, fie imbogateste, fie escaladeaza.
@@ -229,16 +234,16 @@ def pair_in_baseline(host: str, parent: str | None, child: str | None) -> bool |
         return None
 
 
-def in_maintenance_window(asset: dict, now=None) -> bool:
-    """Ferestrele din inventar, in UTC: [{"days": [6], "start": "02:00", "end": "04:00"}].
-    Zilele: 0 = luni ... 6 = duminica. Fara ferestre definite -> False."""
+def in_maintenance_window(asset: dict, at=None) -> bool:
+    """Momentul `at` (ora evenimentului) e intr-o fereastra din inventar? Formatul
+    si validarea sunt in maintenance.py. Fara moment -> acum (apeluri vechi)."""
     from datetime import datetime, timezone
-    now = now or datetime.now(timezone.utc)
-    hm = now.strftime("%H:%M")
-    for w in asset.get("maintenance_windows") or []:
-        if now.weekday() in w.get("days", []) and w.get("start", "") <= hm < w.get("end", ""):
-            return True
-    return False
+    return maintenance.active_window(asset, at or datetime.now(timezone.utc)) is not None
+
+
+def event_time(alert: dict):
+    """Ora evenimentului care a declansat alerta, nu ora la care e procesata."""
+    return (_g(alert, "kibana.alert.original_time") or _g(alert, "@timestamp"))
 
 
 def build_context(alert: dict, history: bool = True) -> dict:
@@ -261,7 +266,7 @@ def build_context(alert: dict, history: bool = True) -> dict:
     fext = (_g(alert, "file.extension") or fpath.rsplit(".", 1)[-1]).lower()
     webroot_write = fpath.startswith(WEBROOTS) and fext in WEB_EXEC_EXT
 
-    return {
+    ctx = {
         # 1. fapte calculate de cod — cele mai importante
         "execution": facts,
         "ran_by_web_service_account": facts["user"] in WEB_SVC_USERS,
@@ -273,7 +278,7 @@ def build_context(alert: dict, history: bool = True) -> dict:
                              or any(exe.startswith(d) for d in TEMP_DIRS)
                              or webroot_write),
         "webroot_executable_write": webroot_write,
-        "in_maintenance_window": in_maintenance_window(asset),
+        "in_maintenance_window": maintenance.active_window(asset, event_time(alert)) is not None,
         "pair_in_baseline": pair_in_baseline(host, facts["parent"], facts["process"]),
         "native_detection": native.model_dump(mode="json") if native else None,
         # 2. activul
@@ -288,6 +293,15 @@ def build_context(alert: dict, history: bool = True) -> dict:
         # 4. ghidul — ultimul
         "investigation_guide": lookup_guide(rule) or "indisponibil",
     }
+    # Doar cand e adevarat, ca prompturile celorlalte alerte sa ramana neschimbate.
+    if honeytokens.is_honeytoken(alert):
+        ctx = {"honeytoken": True, **ctx}
+    # Alerta YARA: procesul din alerta e scannerul (root), nu autorul fisierului.
+    # Faptele reale (regula, fisier, hash) vin din mesajul validat al scannerului.
+    if sensor_rules.is_sensor_alert(alert):
+        ctx = {"sensor_detection": sensor_rules.yara_facts(alert) or {"sensor": "yara", "parsed": False}, **ctx}
+        ctx["execution"] = {**ctx["execution"], "note": "procesul e scannerul YARA, nu autorul fisierului"}
+    return ctx
 
 
 # ==============================================================================
@@ -307,6 +321,11 @@ REGULI PE FAPTELE DETERMINISTE (calculate de cod, de incredere):
 - native_detection prezent -> Elastic Defend (EDR) a detectat el insusi comportamentul
   (tehnicile ATT&CK si descrierea sunt ale regulii Elastic). Nu inchide ca benign
   decat cu dovezi clare de activitate legitima; cazul merge oricum la un om.
+- honeytoken=true -> a fost atinsa o momeala pe care nimic legitim nu o atinge.
+  Nu e benign; cazul merge oricum la un om.
+- sensor_detection prezent -> scanarea YARA a gasit un fisier din webroot care
+  arata a webshell (regula si calea sunt in sensor_detection). Procesul din alerta
+  e scannerul, nu autorul fisierului. Cazul merge oricum la un om.
 """
 
 PATTERN_PROMPT = """Esti analist de patternuri intr-un SOC. Primesti date deja adunate.
@@ -521,6 +540,11 @@ def node_finalize(state: FastState) -> dict:
         cls = Classification("suspicious")
         action = "escalate_human"
         floor_applied = True
+    # Podea 0: momeala atinsa. Nicio explicatie a modelului nu o face benigna.
+    elif cls.value == "benign" and ctx.get("honeytoken"):
+        cls = Classification("suspicious")
+        action = "escalate_human"
+        floor_applied = True
     # Podea 2: actiune sensibila in afara ferestrei de mentenanta.
     elif (cls.value == "benign" and ctx.get("sensitive_action")
             and not (ctx.get("in_maintenance_window") and ctx.get("ran_by_known_admin"))):
@@ -531,7 +555,7 @@ def node_finalize(state: FastState) -> dict:
     # Podea 3: cand faptele spun "server web" sau "actiune sensibila in afara
     # ferestrei", un verdict suspicious/malicious NU poate ramane pe enrich_only
     # sau none — ar insemna un atac recunoscut pe care nu-l vede niciun om.
-    risky = (ctx.get("ran_by_web_service_account")
+    risky = (ctx.get("ran_by_web_service_account") or ctx.get("honeytoken")
              or (ctx.get("sensitive_action")
                  and not (ctx.get("in_maintenance_window") and ctx.get("ran_by_known_admin"))))
     if risky and cls.value in ("suspicious", "malicious") and action in ("none", "enrich_only"):

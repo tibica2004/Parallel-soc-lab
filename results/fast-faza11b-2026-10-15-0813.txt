@@ -1,0 +1,24 @@
+=== Harness: 4 scenarii ===
+
+[1/4] Alerta RCE — webshell ruleaza id  (adevar: attack)
+    generez telemetrie (astept 360s)...
+    EROARE: nicio alerta 'RCE: Web server spawns shell' dupa generarea scenariului (regula nu s-a declansat inca sau nu exista)
+[2/4] Alerta reverse shell — /dev/tcp  (adevar: attack)
+    generez telemetrie (astept 360s)...
+    EROARE: nicio alerta 'Reverse shell: Interactive shell or /dev/tcp connection' dupa generarea scenariului (regula nu s-a declansat inca sau nu exista)
+[3/4] Alerta webshell scris in webroot (de www-data)  (adevar: attack)
+    generez telemetrie (astept 360s)...
+    EROARE: nicio alerta 'Webshell: Executable written to webroot' dupa generarea scenariului (regula nu s-a declansat inca sau nu exista)
+[4/4] Alerta download — admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 360s)...
+    EROARE: nicio alerta 'Payload download: curl/wget spawned by web server or shell' dupa generarea scenariului (regula nu s-a declansat inca sau nu exista)
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):     0
+  FN (ATAC RATAT):        0   <- eroarea scumpa
+  TN (benign inchis):     0
+  FP (benign escaladat):  0
+
+CALIBRARE (precizie pe banda de incredere):
+  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%
