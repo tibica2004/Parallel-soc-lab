@@ -1,0 +1,60 @@
+[
+ {
+  "@timestamp": "2026-10-16T11:21:54.778269+00:00",
+  "technique": "T1003.008",
+  "template_id": "shadow_read",
+  "template_name": "/etc/shadow citit de o unealta obisnuita (Defend)",
+  "window_hours": 24,
+  "status": "found",
+  "hits": 4,
+  "cases": 0,
+  "query_hash": "3d3f33473ffb4a75",
+  "plan_source": "default",
+  "hypothesis": "Furtul de hash-uri: cat/cp/grep pe /etc/shadow, nu prin passwd/useradd.",
+  "started_at": "2026-10-16T11:21:54.766050+00:00",
+  "duration_ms": 12,
+  "error": null,
+  "matches": [
+   {
+    "key": "shadow_read|1c6a3aa40b6f136ff691",
+    "what": "sh -c unamestr=$(uname); if [ \"$unamestr\" = 'Linux' ]; then echo -e \"e /etc/passwd\\\\n,p\\\\ne /etc/shadow\\\\n,p\\\\n\" | ed > /tmp/T1003.008.txt; elif [ \"$unamestr\" = 'FreeBSD' ]; then echo -e \"e /etc/passwd\\\\n,p\\\\ne /etc/master.passwd\\\\n,p\\\\ne /etc/shadow\\\\n,p\\\\n\" | ed > /tmp/T1003.008.txt; fi; sh -c tes",
+    "proc": "/usr/bin/dash",
+    "who": "root",
+    "host": "web-prod",
+    "count": 6,
+    "last_seen": "2026-10-16T11:21:20.120Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "shadow_read|f25089a9412c146645eb",
+    "what": "sudo cat /etc/shadow",
+    "proc": "/usr/bin/sudo",
+    "who": "root",
+    "host": "web-prod",
+    "count": 8,
+    "last_seen": "2026-10-16T11:21:18.945Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "shadow_read|08b2236c6030a3cd88e2",
+    "what": "cat /etc/shadow",
+    "proc": "/usr/bin/cat",
+    "who": "root",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T11:21:18.930Z",
+    "outcome": "dry_run"
+   },
+   {
+    "key": "shadow_read|c5b4d2413fd9f4e035c5",
+    "what": "bash -c sudo cat /etc/shadow > /tmp/T1003.008.txt; cat /tmp/T1003.008.txt",
+    "proc": "/usr/bin/bash",
+    "who": "root",
+    "host": "web-prod",
+    "count": 1,
+    "last_seen": "2026-10-16T11:21:18.880Z",
+    "outcome": "dry_run"
+   }
+  ]
+ }
+]

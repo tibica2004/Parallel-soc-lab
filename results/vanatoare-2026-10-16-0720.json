@@ -1,0 +1,30 @@
+[
+ {
+  "@timestamp": "2026-10-16T11:20:05.503299+00:00",
+  "technique": "T1548.001",
+  "template_id": "setuid_chmod",
+  "template_name": "Bit setuid/setgid pus cu chmod (Defend)",
+  "window_hours": 24,
+  "status": "found",
+  "hits": 1,
+  "cases": 0,
+  "query_hash": "0c52313426abe381",
+  "plan_source": "default",
+  "hypothesis": "Escaladare prin setuid: chmod u+s / g+s / 4xxx pe un binar.",
+  "started_at": "2026-10-16T11:20:05.487796+00:00",
+  "duration_ms": 15,
+  "error": null,
+  "matches": [
+   {
+    "key": "setuid_chmod|b37c1b441051912b4c4e",
+    "what": "chmod u+xs /tmp/evilBinary; chmod g+xs /tmp/evilBinary",
+    "proc": "/usr/bin/chmod",
+    "who": "root",
+    "host": "web-prod",
+    "count": 2,
+    "last_seen": "2026-10-16T11:18:57.770Z",
+    "outcome": "dry_run"
+   }
+  ]
+ }
+]
