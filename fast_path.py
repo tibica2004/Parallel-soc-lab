@@ -31,6 +31,7 @@ from langgraph.graph import END, START, StateGraph
 
 import defend_native
 import honeytokens
+import maintenance
 import sensor_rules
 from elastic_tools import ES, _esql
 from hunt_path import (
@@ -233,16 +234,16 @@ def pair_in_baseline(host: str, parent: str | None, child: str | None) -> bool |
         return None
 
 
-def in_maintenance_window(asset: dict, now=None) -> bool:
-    """Ferestrele din inventar, in UTC: [{"days": [6], "start": "02:00", "end": "04:00"}].
-    Zilele: 0 = luni ... 6 = duminica. Fara ferestre definite -> False."""
+def in_maintenance_window(asset: dict, at=None) -> bool:
+    """Momentul `at` (ora evenimentului) e intr-o fereastra din inventar? Formatul
+    si validarea sunt in maintenance.py. Fara moment -> acum (apeluri vechi)."""
     from datetime import datetime, timezone
-    now = now or datetime.now(timezone.utc)
-    hm = now.strftime("%H:%M")
-    for w in asset.get("maintenance_windows") or []:
-        if now.weekday() in w.get("days", []) and w.get("start", "") <= hm < w.get("end", ""):
-            return True
-    return False
+    return maintenance.active_window(asset, at or datetime.now(timezone.utc)) is not None
+
+
+def event_time(alert: dict):
+    """Ora evenimentului care a declansat alerta, nu ora la care e procesata."""
+    return (_g(alert, "kibana.alert.original_time") or _g(alert, "@timestamp"))
 
 
 def build_context(alert: dict, history: bool = True) -> dict:
@@ -277,7 +278,7 @@ def build_context(alert: dict, history: bool = True) -> dict:
                              or any(exe.startswith(d) for d in TEMP_DIRS)
                              or webroot_write),
         "webroot_executable_write": webroot_write,
-        "in_maintenance_window": in_maintenance_window(asset),
+        "in_maintenance_window": maintenance.active_window(asset, event_time(alert)) is not None,
         "pair_in_baseline": pair_in_baseline(host, facts["parent"], facts["process"]),
         "native_detection": native.model_dump(mode="json") if native else None,
         # 2. activul

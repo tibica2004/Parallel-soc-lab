@@ -41,6 +41,7 @@ from langgraph.prebuilt import ToolNode
 
 import time
 
+import maintenance
 from elastic_tools import HUNT_TOOLS, ES, _esql
 from tracing import record_llm
 from llm import get_llm, parse_json_response, NO_THINK
@@ -172,7 +173,7 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
     # procesului il alege atacatorul), deci NU intra niciodata in textul interogarii.
     keep = """
             | SORT @timestamp DESC
-            | KEEP user.name, process.executable, process.command_line,
+            | KEEP @timestamp, user.name, process.executable, process.command_line,
                    process.parent.name, process.working_directory,
                    process.parent.entity_id, process.entity_id
             | LIMIT 3
@@ -263,6 +264,7 @@ def _facts_from_rows(facts: dict, rows: list[dict], matched_by: str) -> dict:
         "working_directory": top.get("process.working_directory"),
         "command_line": (top.get("process.command_line") or "")[:200],
         "samples": len(rows),
+        "event_time": top.get("@timestamp"),
     })
     return facts
 
@@ -312,6 +314,7 @@ def prefetch_context(finding: RarityFinding | Case) -> dict:
     calea rapida: fara asta modelul judeca orb si nu poate inchide benign."""
     host, _, child, _ = _subject(finding)
     ctx = {"host": host}
+    a: dict = {}
     try:
         a = ES.get(index="asset-inventory", id=host)["_source"]
         ctx["asset_criticality"] = a.get("criticality")
@@ -358,6 +361,16 @@ def prefetch_context(finding: RarityFinding | Case) -> dict:
         ctx["sensitive_action"] = (child in SENSITIVE_CHILD
                                    or any(k in cmd for k in SENSITIVE_CMD)
                                    or ctx["ran_from_temp_dir"])
+    # Potrivirea de vanatoare: utilizatorul vine din telemetrie (auditd/Defend),
+    # ca user.name de mai sus; procesul poate lipsi din indexul Defend.
+    hm = finding.hunt_match if isinstance(finding, Case) else None
+    if hm is not None and ADMIN_MARK not in ctx:
+        ctx[ADMIN_MARK] = bool(hm.who and hm.who in (ctx.get("normal_admins") or []))
+    # Fereastra de mentenanta la ora EVENIMENTULUI, calculata de cod (nu lasam
+    # modelul sa socoteasca zile si ore). Fara ora cunoscuta -> in afara ferestrei.
+    times = ([hm.first_seen, hm.last_seen] if hm is not None
+             else [facts.get("event_time")] if facts.get("resolved") else [])
+    ctx["in_maintenance_window"] = maintenance.covers(a, times)
     return ctx
 
 
