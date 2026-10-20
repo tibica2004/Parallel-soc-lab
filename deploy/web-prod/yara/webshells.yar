@@ -81,3 +81,75 @@ rule soc_known_webshell_markers
     condition:
         uint16(0) == 0x3f3c and any of them
 }
+
+/*
+  Reguli generice pentru payload-uri care NU evalueaza pe server, ci injecteaza
+  JavaScript ofuscat in pagina sau isi ascund prezenta. Prind forma, nu un
+  string anume (ex. wp-warden), deci prind si variante viitoare. Semnal pentru
+  triaj, nu sentinta: o biblioteca legitima poate coda resurse, un plugin poate
+  emite script. De aceea conditia cere mai multe indicii simultan.
+*/
+
+rule soc_php_injects_obfuscated_js
+{
+    meta:
+        description = "PHP care injecteaza in pagina un bloc JavaScript ofuscat (skimmer / redirect / C2 client-side)"
+        mitre = "T1059.007"
+        severity = "high"
+    strings:
+        $php = "<?" ascii
+        // emite un <script> in iesire, adesea rupt ca sa evite cautarea naiva
+        $s1 = /echo\s+['"]<scr['"]\s*\.\s*['"]ipt/ nocase
+        $s2 = "<script>" ascii nocase
+        $s3 = /header\s*\(\s*['"]\s*Content-Type:\s*(application|text)\/javascript/ nocase
+        // marcaje de deobfuscator JS in continutul emis
+        $d1 = "fromCharCode" ascii
+        $d2 = "charCodeAt" ascii
+        $d3 = /\[\s*['"]String['"]\s*\]\s*\[\s*['"]fromCharCode['"]\s*\]/ ascii
+        $d4 = "TextDecoder" ascii
+    condition:
+        $php and any of ($s*) and 2 of ($d*)
+}
+
+rule soc_php_self_hiding_plugin
+{
+    meta:
+        description = "Plugin WordPress care se ascunde singur din lista de plugin-uri (persistenta ascunsa)"
+        mitre = "T1562.001"
+        severity = "high"
+    strings:
+        $php = "<?" ascii
+        $f = /add_filter\s*\(\s*['"]all_plugins['"]/ nocase
+        $u = /unset\s*\(\s*\$\w+\s*\[\s*plugin_basename\s*\(\s*__FILE__/ nocase
+    condition:
+        $php and $f and $u
+}
+
+rule soc_php_encoded_payload_blob
+{
+    meta:
+        description = "PHP cu un bloc mare codat (base64/gz) decodat la runtime - payload incorporat, nu neaparat eval"
+        mitre = "T1027"
+        severity = "medium"
+    strings:
+        $php = "<?" ascii
+        $dec = /\b(base64_decode|gzinflate|gzuncompress|gzdecode|hex2bin|str_rot13)\s*\(/ nocase
+        $blob = /[A-Za-z0-9+\/]{1000,}/ ascii
+        $heredoc = /<<<['"]?_?[A-Za-z0-9]*B64/ ascii
+    condition:
+        $php and $dec and ($blob or $heredoc)
+}
+
+rule soc_php_nopriv_ajax_serves_js
+{
+    meta:
+        description = "Endpoint AJAX WordPress accesibil anonim care serveste JavaScript"
+        mitre = "T1105"
+        severity = "medium"
+    strings:
+        $php = "<?" ascii
+        $nopriv = "wp_ajax_nopriv_" ascii
+        $js = /Content-Type:\s*(application|text)\/javascript/ nocase
+    condition:
+        $php and $nopriv and $js
+}
