@@ -119,6 +119,7 @@ FINDING_KEY = {
     "beaconing": ("process", "destination_ip"),
     "dns_anomaly": ("process", "domain"),
     "new_ja4": ("ja4",),
+    "suspicious_exec_path": ("exec", "process"),
 }
 
 
