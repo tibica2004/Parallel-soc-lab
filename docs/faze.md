@@ -68,3 +68,30 @@ Raman la om (nu le face agentul, prin principiile de mai sus):
 - etichetarea in interfata (ground_truth, label_source=human) — deblocheaza absolvirea executorului si metricile pe etichete;
 - schimbarile pe web-prod (ex. actualizarea zilnica a regulilor Suricata) si in regulile Kibana;
 - alegerea si rularea testelor Atomic Red Team.
+
+## Faza 18 — constiinta de expunere / CVE pe versiuni vechi (WordPress)
+
+Ramura faza-18-expunere-cve (din main). Etapa "inainte" a lantului: sa stim ce
+componente vulnerabile sunt instalate, inainte sa le exploateze cineva. Platforma
+reala vine din corelatie: expunerea stie ca pluginul X e vulnerabil + recon/exploit
+(fazele 16-17) loveste fix X -> alerta de incredere mare, devreme (cod determinist).
+
+Bucata 1 — motorul offline determinist (FACUT, nu atinge nimic):
+- kb/wp_vulns.yml: lista de versiuni vulnerabile (component core sau slug plugin,
+  interval introduced..fixed, severitate, CVE). In git, revizuita de om. Exemple de
+  laborator; feed real (WPScan/wpvulndb, acelasi format) prin WP_VULNS_FEED.
+- exposure.py: comparator de versiuni pur (parse_version, in_range introduced<=v<fixed),
+  validarea feed-ului (parse_entries: slug/versiune/severitate/CVE in multimi/forme
+  inchise), normalize_installed (accepta forma `wp plugin list`), vulnerable_components
+  (potrivire pura, sortata dupa severitate). Fara model, fara retea, fara ES.
+- tests/test_exposure.py: comparator, limite introduced/fixed, validare, potrivire (20).
+
+Bucata 2 — colectorul + legarea in Tier 3 (DE APROBAT, atinge web-prod si drepturi ES):
+- Colector pe web-prod: `wp core version` + `wp plugin list --format=json` -> inventar
+  de versiuni in asta-inventory (cheia de writer are nevoie de drept pe asta-inventory).
+- Hunt Tier 3 / verificare periodica: citeste inventarul, ruleaza vulnerable_components,
+  emite finding-uri pentru componentele vulnerabile; corelatie cu source.ip-ul din
+  recon/exploit pe aceeasi componenta.
+Nimic din bucata 2 nu se face din agent fara comenzi propuse si aprobarea omului.
+
+Bucata 1 — porti: teste unitare verzi (652). Nu atinge verdictul: harness neimplicat.
