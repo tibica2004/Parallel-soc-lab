@@ -68,3 +68,39 @@ Raman la om (nu le face agentul, prin principiile de mai sus):
 - etichetarea in interfata (ground_truth, label_source=human) — deblocheaza absolvirea executorului si metricile pe etichete;
 - schimbarile pe web-prod (ex. actualizarea zilnica a regulilor Suricata) si in regulile Kibana;
 - alegerea si rularea testelor Atomic Red Team.
+
+## Program 0-day web: acoperirea lantului de atac WordPress (faze 15-18)
+
+Scopul: sa detectam exploatarea unui WordPress/plugin vulnerabil pe tot lantul —
+inainte (expunere + recon), in timp (tentativa de exploit) si dupa (consecinta).
+Nu e acoperire totala (0-day fara semnatura, payload criptat, persistenta doar in
+DB raman gauri reale), ci aparare in adancime, mai multe straturi imperfecte care
+prind consecinta, nu exploitul anume. Fiecare faza pe ramura ei, nemergeuita.
+
+Faza 15 — consecinta fileless (ramura faza-15-0day-fileless, nemergeuita): sweep
+suspicious_exec_path in timp real (/tmp, /var/tmp, /dev/shm, memfd, binare sterse),
+promovat din vanatoarea Tier 3. Porti: dev 14/14, fast 4/4; teste unitare verzi.
+(Plus 4 reguli YARA generice pentru injectoare JS / plugin-uri care se ascund,
+validate pe wp-warden: prins pe response_size_outlier + new_webroot_write + YARA.)
+
+Faza 16 — detectie de recon/enumerare (ramura faza-16-recon-wp): doua sweep-uri noi
+pe logurile Apache, faza "inainte". web_enumeration: un IP care aduna multe raspunsuri
+de eroare (>= ENUM_MIN_ERRORS) pe multe cai distincte (>= ENUM_MIN_PATHS) in fereastra
+— scanare cu wpscan/nuclei, fara baseline (largimea si ritmul tradeaza, nu noutatea);
+prag aplicat in Python (enumeration_hits, pur). wp_recon_path: acces la puncte de
+dezvaluire a versiunii si enumerare (readme.html/txt, license.txt, /wp-json/wp/v2/users,
+xmlrpc.php) — cai constante proprii, nu interpolate din telemetrie. Ambele: source.ip,
+url.path si user_agent sunt DATE (UNTRUSTED_DETAIL_KINDS), dedup pe IP respectiv pe cale.
+
+Faza 17 — detectie de tentativa de exploit (de facut): alertele Suricata web-attack
+(ET-WEB) ridicate ca detectie proprie cu podea, nu doar unealta de Tier (Suricata
+ruleaza semnaturile la senzor, noi doar citim alertele: principiul 3 respectat).
+Optional, un clasificator in Python pe formele generice (LFI ../, php://, markeri SQLi),
+pe randuri aduse cu interogare statica — tratate ca DATE, nu ca text de interogare.
+
+Faza 18 — constiinta de expunere / CVE pe versiuni vechi (de facut, atinge web-prod):
+colector pe web-prod care citeste "wp core version" + "wp plugin list" -> asset-inventory,
+incrucisat cu un feed local kb/wp_vulns.yml; hunt Tier 3 care marcheaza componentele
+vulnerabile instalate. Platforma reala: cand expunerea stie ca plugin X e vulnerabil SI
+recon/exploit-ul loveste endpoint-ul lui X, corelatia (cod determinist) = alerta de
+incredere mare, devreme. Colectorul = schimbare pe web-prod: comenzi propuse, aprobare.
