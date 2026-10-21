@@ -15,6 +15,7 @@ Faptele utile (regula, cale, sha256) se extrag din mesaj, validate.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 
@@ -23,6 +24,7 @@ import honeytokens
 TAG = "soc-sensor"
 YARA_TAG = "soc-yara"                 # identificatorul din jurnal (syslog) al scannerului
 YARA_PROC = "soc-yara-scan"           # numele procesului (scriptul din /usr/local/sbin)
+SURICATA_IDX = "logs-suricata.eve-*"  # indicele Suricata (local, ca sa nu importam elastic_tools)
 
 RULES: dict[str, dict] = {
     "soc-yara-webshell": {
@@ -38,7 +40,29 @@ RULES: dict[str, dict] = {
                  f'and message : "yara_match"',
         "threat_technique": ("T1505.003", "Web Shell"),
     },
+    "soc-suricata-webattack": {
+        "name": "Suricata: tentativa de atac web (IDS)",
+        "description": "Suricata (ET Open) a potrivit o semnatura de atac web asupra traficului "
+                       "catre serverul web. Semnatura si categoria sunt in alerta; source.ip e "
+                       "originea. Senzor de retea: nu exista proces. Poate fi fals pozitiv.",
+        "type": "query",
+        "language": "kuery",
+        "index": [SURICATA_IDX],
+        # Suricata (ECS): alerta e event.kind="alert", semnatura in rule.name, clasa in
+        # rule.category. Restrangem la categoriile de atac web (set ET), ca sa nu ridicam
+        # orice semnatura IDS. Categoriile sunt constante ale setului de reguli, nu telemetrie.
+        "query": 'event.kind : "alert" and rule.category : '
+                 '("Web Application Attack" or "Attempted Administrator Privilege Gain" '
+                 'or "Attempted User Privilege Gain")',
+        "threat_technique": ("T1190", "Exploit Public-Facing Application"),
+    },
 }
+
+SURICATA_RULE_ID = "soc-suricata-webattack"
+# Categoriile ET considerate atac web; si poarta de validare a faptelor (multime inchisa).
+WEB_ATTACK_CATEGORIES = ("Web Application Attack",
+                         "Attempted Administrator Privilege Gain",
+                         "Attempted User Privilege Gain")
 
 RULE_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -65,6 +89,47 @@ def yara_facts(alert: dict) -> dict | None:
             and path.startswith("/") and isinstance(h, str) and SHA_RE.match(h)):
         return None
     return {"sensor": "yara", "rule": rule, "path": path[:200], "sha256": h}
+
+
+def _field(alert: dict, key: str):
+    """Camp plat ('a.b') sau imbricat, ca la honeytokens.rule_id_of; None daca lipseste."""
+    if key in alert:
+        return alert[key]
+    cur = alert
+    for part in key.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def _is_ip(v) -> bool:
+    try:
+        ipaddress.ip_address(v)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def suricata_facts(alert: dict) -> dict | None:
+    """{sensor, signature, category, source_ip, destination_ip} dintr-o alerta IDS de
+    atac web, sau None daca nu se valideaza. Semnatura si categoria vin din setul ET
+    (nu din telemetrie), dar le tratam ca DATE in prompt. Categoria trebuie sa fie din
+    multimea de atac web (altfel regula a prins altceva); source.ip e validat ca IP."""
+    if honeytokens.rule_id_of(alert) != SURICATA_RULE_ID:
+        return None
+    sig, cat = _field(alert, "rule.name"), _field(alert, "rule.category")
+    sip, dip = _field(alert, "source.ip"), _field(alert, "destination.ip")
+    if not (isinstance(sig, str) and sig and cat in WEB_ATTACK_CATEGORIES and _is_ip(sip)):
+        return None
+    return {"sensor": "suricata", "signature": sig[:200], "category": cat,
+            "source_ip": sip, "destination_ip": dip if _is_ip(dip) else None}
+
+
+def sensor_facts(alert: dict) -> dict | None:
+    """Faptele senzorului care a produs alerta: YARA (fisier din webroot) sau Suricata
+    (semnatura de atac web pe retea). Fiecare se recunoaste dupa rule_id-ul propriu."""
+    return yara_facts(alert) or suricata_facts(alert)
 
 
 def kibana_payload(rule_id: str) -> dict:

@@ -28,9 +28,49 @@ def Y(msg=None, **kw):
                      "message": msg, **kw})
 
 
+def SU(category="Web Application Attack", sig="ET WEB_SPECIFIC_APPS WordPress plugin SQLi", **kw):
+    return _alert(**{"kibana.alert.rule.rule_id": S.SURICATA_RULE_ID,
+                     "kibana.alert.rule.name": S.RULES[S.SURICATA_RULE_ID]["name"],
+                     "rule.name": sig, "rule.category": category,
+                     "source.ip": "203.0.113.9", "destination.ip": "172.20.99.240", **kw})
+
+
 def test_recunoscut_doar_dupa_rule_id():
     assert S.is_sensor_alert(Y())
+    assert S.is_sensor_alert(SU())
     assert not S.is_sensor_alert(_alert(**{"kibana.alert.rule.name": "YARA: webshell gasit in webroot"}))
+
+
+def test_suricata_fapte_valide():
+    assert S.suricata_facts(SU()) == {
+        "sensor": "suricata", "signature": "ET WEB_SPECIFIC_APPS WordPress plugin SQLi",
+        "category": "Web Application Attack", "source_ip": "203.0.113.9",
+        "destination_ip": "172.20.99.240"}
+
+
+@pytest.mark.parametrize("kw", [
+    {"rule.category": "Not A Scan"},                 # categorie in afara setului de atac web
+    {"source.ip": "nu-e-ip"},                        # source.ip invalid
+    {"rule.name": ""},                               # semnatura goala
+])
+def test_suricata_fapte_invalide(kw):
+    assert S.suricata_facts(SU(**kw)) is None
+
+
+def test_suricata_semnatura_lunga_se_scurteaza():
+    assert len(S.suricata_facts(SU(sig="ET " + "A" * 500))["signature"]) == 200
+
+
+def test_suricata_destinatie_invalida_devine_none():
+    assert S.suricata_facts(SU(**{"destination.ip": "x"}))["destination_ip"] is None
+
+
+def test_sensor_facts_distinge_senzorii():
+    assert S.sensor_facts(Y())["sensor"] == "yara"
+    assert S.sensor_facts(SU())["sensor"] == "suricata"
+    assert S.sensor_facts(_alert()) is None
+    # un IP sursa invalid pe o alerta YARA valida nu confunda dispecerul
+    assert S.yara_facts(SU()) is None
 
 
 def test_faptele_din_mesaj():
@@ -71,6 +111,29 @@ def test_contextul_cu_fapte_yara(monkeypatch):
     assert "scannerul" in ctx["execution"]["note"]
     assert "YARA" in ctx["investigation_guide"]
     assert "sensor_detection" not in fast_path.build_context(_alert(), history=False)
+
+
+def test_contextul_cu_fapte_suricata(monkeypatch):
+    monkeypatch.setattr(fast_path, "lookup_asset", lambda h: {})
+    monkeypatch.setattr(fast_path, "pair_in_baseline", lambda *a: None)
+    # Alerta Suricata nu are proces: alert_facts intoarce campuri goale, nu None.
+    monkeypatch.setattr(fast_path, "alert_facts", lambda a: {
+        "executable": "", "command_line": "", "user": "",
+        "sudo_invoked_by": None, "process": "", "parent": ""})
+    ctx = fast_path.build_context(SU(), history=False)
+    assert ctx["sensor_detection"]["sensor"] == "suricata"
+    assert ctx["sensor_detection"]["source_ip"] == "203.0.113.9"
+    # Suricata e senzor de retea: NU exista nota despre scanner (aia e doar la YARA)
+    assert "note" not in ctx["execution"]
+
+
+def test_payload_suricata():
+    p = S.kibana_payload(S.SURICATA_RULE_ID)
+    assert p["severity"] == "high" and p["tags"] == [S.TAG]
+    assert p["index"] == [S.SURICATA_IDX]
+    assert 'event.kind : "alert"' in p["query"] and "Web Application Attack" in p["query"]
+    t = p["threat"][0]
+    assert t["tactic"]["id"] == "TA0001" and t["technique"][0]["id"] == "T1190"
 
 
 def test_orchestrator_model_cazut_pastreaza_motivul(rec):
