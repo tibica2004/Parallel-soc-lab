@@ -234,6 +234,7 @@ class RarityFinding(BaseModel):
         "new_url_path",
         "beaconing",
         "dns_anomaly",
+        "suspicious_exec_path",
     ]
     entity_type: EntityType
     entity_id: str

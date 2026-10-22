@@ -445,12 +445,55 @@ def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, l
     return _refs(r["hits"]["hits"])
 
 
+# Locuri tipice de payload fileless. Ridicam scorul pentru ce e mai rar/mai grav
+# (memorie, shm, binar sters) fata de /tmp, care are si uz legitim (installere, build).
+_HIGH_EXEC = ("/dev/shm/", "memfd:")
+
+
+def _exec_score(path: str) -> float:
+    p = path or ""
+    if p.endswith("(deleted)") or any(p.startswith(x) for x in _HIGH_EXEC):
+        return 1.0
+    return 0.8
+
+
+def sweep_suspicious_exec_path(window_hours: int = 1) -> list[RarityFinding]:
+    """Executie dintr-un loc tipic de payload fileless: /tmp, /var/tmp, /dev/shm,
+    memfd sau binar sters ((deleted)). Consecinta clasica de post-exploatare, fara
+    semnatura. Agnostic: statistica semnaleaza, modelul judeca."""
+    rows = _esql(
+        f"""
+        FROM {PROC_IDX}
+        | WHERE @timestamp >= NOW() - {window_hours} hours
+          AND process.executable IS NOT NULL
+          AND (STARTS_WITH(process.executable, "/tmp/")
+               OR STARTS_WITH(process.executable, "/var/tmp/")
+               OR STARTS_WITH(process.executable, "/dev/shm/")
+               OR STARTS_WITH(process.executable, "memfd:")
+               OR ENDS_WITH(process.executable, "(deleted)"))
+        | STATS cnt = COUNT(*) BY host.name, process.executable, process.name, user.name
+        | LIMIT 500
+        """
+    )
+    return [
+        RarityFinding(
+            kind="suspicious_exec_path",
+            entity_type=EntityType.HOST,
+            entity_id=r["host.name"],
+            detail={"exec": r["process.executable"], "process": r.get("process.name"),
+                    "user": r.get("user.name"), "count": r["cnt"]},
+            rarity_score=_exec_score(r["process.executable"]),
+        )
+        for r in rows
+    ]
+
+
 def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     findings: list[RarityFinding] = []
     import anomalies
     for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
                sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
-               sweep_new_ja4,
+               sweep_new_ja4, sweep_suspicious_exec_path,
                anomalies.sweep_beaconing, anomalies.sweep_dns):
         try:
             findings.extend(fn(window_hours))
