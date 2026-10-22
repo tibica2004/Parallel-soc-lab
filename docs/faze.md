@@ -86,12 +86,32 @@ Bucata 1 — motorul offline determinist (FACUT, nu atinge nimic):
   (potrivire pura, sortata dupa severitate). Fara model, fara retea, fara ES.
 - tests/test_exposure.py: comparator, limite introduced/fixed, validare, potrivire (20).
 
-Bucata 2 — colectorul + legarea in Tier 3 (DE APROBAT, atinge web-prod si drepturi ES):
-- Colector pe web-prod: `wp core version` + `wp plugin list --format=json` -> inventar
-  de versiuni in asta-inventory (cheia de writer are nevoie de drept pe asta-inventory).
-- Hunt Tier 3 / verificare periodica: citeste inventarul, ruleaza vulnerable_components,
-  emite finding-uri pentru componentele vulnerabile; corelatie cu source.ip-ul din
-  recon/exploit pe aceeasi componenta.
-Nimic din bucata 2 nu se face din agent fara comenzi propuse si aprobarea omului.
+Bucata 2 — colectorul + legarea in Tier 3 (FACUT in cod; deploy-ul de APROBAT):
+- wp_inventory.py: colector care ruleaza pe elastic-lab (cheia de writer NU se copiaza
+  pe web-prod), intreaba web-prod prin ssh cu WP-CLI fara sudo (`wp core version`,
+  `wp plugin list --fields=name,version,status --format=json`) si scrie un document
+  curent in soc-wp-inventory (indice dedicat, ales de om). `arata` = dry-run, `scrie`
+  = scrie; `--fisier` citeste dintr-un JSON local (test). build_doc/parse_plugin_json pure.
+- exposure.py: corelatie pura adaugata. component_from_path (slug din
+  /wp-content/plugins|themes/<slug>), correlate (componenta vulnerabila INSTALATA +
+  lovita de recon = corelatie per source_ip/componenta; 'core' prinde orice atingere
+  de atac pe host), installed_from_doc, correlation_key, make_exposure_case
+  (Case origin=tier3_hunt, HUNT_MATCH, T1190/wp_exposure — fara schema noua).
+- tier3.py: `--expunere` (run_exposure). Citeste inventarul (soc-wp-inventory), afla
+  vulnerabilele (vulnerable_components), aduce atingerile Apache pe suprafata WordPress
+  (ES|QL cu prefixe constante, host prin params — nicio valoare din telemetrie in text),
+  coreleaza, trimite primele TIER2_BUDGET corelatii noi la Tier 2 (shadow) cu --scrie,
+  restul in soc-hunts pentru om. Esecul oricarui pas -> status error, nu opreste.
+- Teste: tests/test_exposure.py (+15: potrivire cale, corelatie, caz), test_wp_inventory.py
+  (4: parsare, build_doc), test_tier3_exposure.py (4: dry-run, fara vulnerabilitati,
+  inventar lipsa, buget Tier 2) — fara ES, fara model, fara ssh.
+
+Ramane la om (comenzi propuse, neexecutate din agent):
+- creeaza indicele soc-wp-inventory;
+- adauga create_index + write pe soc-wp-inventory la ES_WRITER_API_KEY;
+- (optional) timer systemd pentru wp_inventory.py pe elastic-lab.
 
 Bucata 1 — porti: teste unitare verzi (652). Nu atinge verdictul: harness neimplicat.
+Bucata 2 — porti: teste unitare verzi (677, +25). Corelatie determinista (cod decide),
+granita Pydantic reutilizata (HUNT_MATCH), interogari parametrizate. Nu atinge calea de
+verdict Tier 1/2, deci harness-ul nu e implicat; dry-run live posibil dupa deploy (`--expunere`).

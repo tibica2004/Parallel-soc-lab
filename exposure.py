@@ -133,3 +133,98 @@ def vulnerable_components(installed: dict[str, str], entries: tuple[dict, ...] |
     # cele mai grave intai (critical > high > medium > low)
     out.sort(key=lambda m: SEVERITIES.index(m["severity"]), reverse=True)
     return out[:MAX_MATCHES]
+
+
+def installed_from_doc(doc) -> dict[str, str]:
+    """{component: versiune} dintr-un document de inventar (soc-wp-inventory). Pur.
+    Documentul are 'components': [{component, version}, ...] (vezi wp_inventory.py)."""
+    return normalize_installed((doc or {}).get("components") or [])
+
+
+# ------------------------------------------------------------------------------
+# Corelatie cu recon-ul (faza 16) si tentativa de exploit (faza 17)
+# ------------------------------------------------------------------------------
+# Doua fapte determinite devin impreuna un semnal de incredere mare, devreme:
+#   (a) o componenta vulnerabila cunoscuta e chiar INSTALATA pe host (din inventar);
+#   (b) o sursa face recon / exploit FIX pe acea componenta (din Apache/Suricata).
+# Aici doar potrivim siruri deja aduse de cod; nicio valoare din telemetrie nu intra
+# intr-o interogare (principiul 3) — asta e treaba apelantului, cu prefixe constante.
+
+# Slug-ul componentei dintr-o cale ceruta: /wp-content/plugins/<slug>/... sau themes/.
+PLUGIN_PATH_RE = re.compile(r"^/wp-content/(?:plugins|themes)/([a-z0-9][a-z0-9\-]{0,62})(?:/|$)")
+
+
+def component_from_path(url_path) -> str | None:
+    """Slug-ul componentei WordPress tintit de o cale ceruta, sau None. Pur.
+    Doar prefixe constante; calea vine din telemetrie, deci o tratam ca DATE."""
+    if not isinstance(url_path, str):
+        return None
+    m = PLUGIN_PATH_RE.match(url_path.strip().lower())
+    return m.group(1) if m else None
+
+
+def correlate(vulnerable: list[dict], touches) -> list[dict]:
+    """Corelatie determinista intre componentele vulnerabile instalate si atingerile
+    de recon/exploit. Pur. Intoarce cate o corelatie per (source_ip, component).
+      vulnerable: iesirea lui `vulnerable_components`.
+      touches: [{source_ip, url_path, kind, count}] — randuri deja aduse de cod
+               (Apache enumerare / cai WP, alerte Suricata), FILTRATE la suspiciune.
+    O atingere conteaza pentru un plugin daca ii tinteste slug-ul in cale; pentru
+    'core' (nucleul n-are cale proprie) conteaza orice atingere de atac pe host.
+    Cele mai grave intai, apoi dupa numarul de atingeri."""
+    vuln = {e["component"]: e for e in (vulnerable or [])}
+    if not vuln:
+        return []
+    acc: dict[tuple, dict] = {}
+
+    def bump(comp: str, src_ip: str, path, kind, cnt) -> None:
+        e = vuln[comp]
+        a = acc.get((src_ip, comp))
+        if a is None:
+            a = acc[(src_ip, comp)] = {
+                "component": comp, "cve": e["cve"], "severity": e["severity"],
+                "installed_version": e["installed_version"], "source_ip": src_ip,
+                "hits": 0, "kinds": set(), "sample_path": (str(path)[:200] if path else None)}
+        a["hits"] += int(cnt or 0) or 1
+        if kind:
+            a["kinds"].add(str(kind)[:40])
+
+    for t in (touches or []):
+        if not isinstance(t, dict):
+            continue
+        src = t.get("source_ip")
+        if not isinstance(src, str) or not src.strip():
+            continue
+        src = src.strip()
+        path, kind, cnt = t.get("url_path"), t.get("kind"), t.get("count")
+        hit = component_from_path(path)
+        if hit and hit in vuln and hit != "core":
+            bump(hit, src, path, kind, cnt)
+        if "core" in vuln:
+            bump("core", src, path, kind, cnt)
+
+    out = []
+    for a in acc.values():
+        a["kinds"] = sorted(a["kinds"])
+        out.append(a)
+    out.sort(key=lambda m: (SEVERITIES.index(m["severity"]), m["hits"]), reverse=True)
+    return out[:MAX_MATCHES]
+
+
+def correlation_key(host: str, c: dict) -> str:
+    """Aceeasi corelatie (host, sursa, componenta) nu se reinvestigheaza iar. Pur."""
+    return f"wp_exposure|{host}|{c.get('source_ip')}|{c.get('component')}"
+
+
+def make_exposure_case(c: dict, host: str, chain_id: str):
+    """O corelatie -> Case origin=tier3_hunt (acelasi drum ca hunt.make_case).
+    Reutilizeaza HUNT_MATCH + T1190; fara schema noua. ValueError daca nu valideaza."""
+    from schemas import Case, EscalationReason, HuntMatch
+    cve = f" {c['cve']}" if c.get("cve") else ""
+    what = f"{c['component']} {c['installed_version']}{cve} lovit pe {c.get('sample_path') or '(host)'}"
+    return Case(chain_id=chain_id, origin="tier3_hunt", host=host,
+                rule_name=f"Expunere WordPress: {c['component']} vulnerabil ({c['severity']}) lovit de recon"[:256],
+                escalation_reasons=[EscalationReason.HUNT_MATCH],
+                hunt_match=HuntMatch(technique="T1190", template_id="wp_exposure",
+                                     what=what[:300], who=str(c.get("source_ip") or "")[:100] or None,
+                                     count=int(c.get("hits") or 0)))
