@@ -299,8 +299,11 @@ def build_context(alert: dict, history: bool = True) -> dict:
     # Alerta YARA: procesul din alerta e scannerul (root), nu autorul fisierului.
     # Faptele reale (regula, fisier, hash) vin din mesajul validat al scannerului.
     if sensor_rules.is_sensor_alert(alert):
-        ctx = {"sensor_detection": sensor_rules.yara_facts(alert) or {"sensor": "yara", "parsed": False}, **ctx}
-        ctx["execution"] = {**ctx["execution"], "note": "procesul e scannerul YARA, nu autorul fisierului"}
+        facts = sensor_rules.sensor_facts(alert)
+        ctx = {"sensor_detection": facts or {"sensor": "unknown", "parsed": False}, **ctx}
+        # Doar YARA aduce un proces inselator (scannerul); Suricata e senzor de retea.
+        if (facts or {}).get("sensor") == "yara":
+            ctx["execution"] = {**ctx["execution"], "note": "procesul e scannerul YARA, nu autorul fisierului"}
     return ctx
 
 
@@ -323,9 +326,13 @@ REGULI PE FAPTELE DETERMINISTE (calculate de cod, de incredere):
   decat cu dovezi clare de activitate legitima; cazul merge oricum la un om.
 - honeytoken=true -> a fost atinsa o momeala pe care nimic legitim nu o atinge.
   Nu e benign; cazul merge oricum la un om.
-- sensor_detection prezent -> scanarea YARA a gasit un fisier din webroot care
-  arata a webshell (regula si calea sunt in sensor_detection). Procesul din alerta
-  e scannerul, nu autorul fisierului. Cazul merge oricum la un om.
+- sensor_detection prezent -> un senzor propriu a potrivit o semnatura. Daca
+  sensor_detection.sensor="yara", scanarea webroot a gasit un fisier care arata a
+  webshell (regula si calea sunt in sensor_detection; procesul din alerta e scannerul,
+  nu autorul fisierului). Daca sensor_detection.sensor="suricata", Suricata (IDS de
+  retea) a prins o tentativa de atac web de la source_ip (semnatura si categoria sunt
+  in sensor_detection; nu exista proces, e detectie de retea). Poate fi fals pozitiv,
+  dar cazul merge oricum la un om.
 """
 
 PATTERN_PROMPT = """Esti analist de patternuri intr-un SOC. Primesti date deja adunate.

@@ -87,8 +87,8 @@ class EscalationReason(str, Enum):
     # Regula de honeytoken (honeytokens.RULES): nimic legitim nu atinge momeala,
     # deci escaladeaza mereu, oricat de sigur ar fi modelul (faza 12).
     HONEYTOKEN = "honeytoken"
-    # Detectie a unui senzor propriu (sensor_rules.RULES, ex. YARA pe webroot): poate
-    # fi fals pozitiva, dar nu o inchide Tier 1 singur (ca native_detection).
+    # Detectie a unui senzor propriu (sensor_rules.RULES: YARA pe webroot sau Suricata
+    # IDS pe atac web): poate fi fals pozitiva, dar nu o inchide Tier 1 singur.
     SENSOR_DETECTION = "sensor_detection"
     # Un sablon de vanatoare Tier 3 (hunt.py) a gasit urma tehnicii cautate.
     HUNT_MATCH = "hunt_match"

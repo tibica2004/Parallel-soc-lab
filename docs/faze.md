@@ -92,7 +92,7 @@ dezvaluire a versiunii si enumerare (readme.html/txt, license.txt, /wp-json/wp/v
 xmlrpc.php) — cai constante proprii, nu interpolate din telemetrie. Ambele: source.ip,
 url.path si user_agent sunt DATE (UNTRUSTED_DETAIL_KINDS), dedup pe IP respectiv pe cale.
 
-Faza 17 — detectie de tentativa de exploit (de facut): alertele Suricata web-attack
+Faza 17 — detectie de tentativa de exploit (facuta, detaliu mai jos): alertele Suricata web-attack
 (ET-WEB) ridicate ca detectie proprie cu podea, nu doar unealta de Tier (Suricata
 ruleaza semnaturile la senzor, noi doar citim alertele: principiul 3 respectat).
 Optional, un clasificator in Python pe formele generice (LFI ../, php://, markeri SQLi),
@@ -104,3 +104,30 @@ incrucisat cu un feed local kb/wp_vulns.yml; hunt Tier 3 care marcheaza componen
 vulnerabile instalate. Platforma reala: cand expunerea stie ca plugin X e vulnerabil SI
 recon/exploit-ul loveste endpoint-ul lui X, corelatia (cod determinist) = alerta de
 incredere mare, devreme. Colectorul = schimbare pe web-prod: comenzi propuse, aprobare.
+## Faza 17 — detectie de tentativa de exploit (Suricata web-attack)
+
+Ramura faza-17-exploit-suricata (din main). Etapa "in timp" a lantului: alertele
+Suricata de atac web, ridicate ca detectie proprie de senzor, nu doar unealta de Tier.
+Pana acum alertele Suricata se vedeau doar reactiv (tool_suricata_alerts, in
+investigatia Tier 2); acum o regula Kibana proprie le transforma in alerte care intra
+pe calea rapida (Tier 1), exact ca YARA (faza 12).
+
+Mecanism (oglindeste YARA, principiile intacte):
+- sensor_rules.RULES primeste soc-suricata-webattack: regula Kibana (query kuery pe
+  logs-suricata.eve-*, event.kind="alert" si rule.category in setul de atac web ET),
+  T1190. Categoriile sunt constante ale setului de reguli, nu telemetrie (principiul 3).
+- suricata_facts(alert): {sensor, signature, category, source_ip, destination_ip}
+  validate — categoria din multimea inchisa WEB_ATTACK_CATEGORIES, source.ip validat
+  ca IP, semnatura scurtata la 200; altfel None. sensor_facts() dispeceza YARA vs Suricata
+  dupa rule_id. Semnatura/categoria sunt DATE in prompt.
+- Escaladare: is_sensor_alert acopera deja SENSOR_DETECTION in orchestrator -> alerta
+  escaladeaza mereu, FARA podea de verdict (Suricata/ET poate fi FP, ca YARA).
+- fast_path: contextul senzorului generalizat (YARA aduce nota despre scanner; Suricata
+  e senzor de retea, fara proces); regula pe fapte (FACT_RULES) acopera ambii senzori.
+- honeytokens.TACTIC primeste T1190 (Initial Access).
+
+Regula Kibana o creeaza OMUL cu scriptul existent (ia automat tot sensor_rules.RULES):
+  python3 deploy/kibana/honeytoken_rules.py aplica   (contul elastic, parola la tastatura)
+Nimic nu se creeaza/modifica in Kibana din agent.
+
+Porti: teste unitare verzi (641); harness dev + fast de rulat la final (atinge Tier 1).

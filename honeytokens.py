@@ -89,7 +89,8 @@ RULES: dict[str, dict] = {
 
 PARENT_NAME = {"T1552": "Unsecured Credentials", "T1505": "Server Software Component"}
 TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Discovery"),
-          "T1078": ("TA0001", "Initial Access"), "T1505.003": ("TA0003", "Persistence")}
+          "T1078": ("TA0001", "Initial Access"), "T1505.003": ("TA0003", "Persistence"),
+          "T1190": ("TA0001", "Initial Access")}
 
 
 def rule_id_of(alert: dict) -> str | None:
