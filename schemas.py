@@ -232,6 +232,8 @@ class RarityFinding(BaseModel):
         "response_size_outlier",
         "new_listening_port",
         "new_url_path",
+        "web_enumeration",
+        "wp_recon_path",
         "beaconing",
         "dns_anomaly",
         "suspicious_exec_path",

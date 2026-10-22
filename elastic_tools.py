@@ -239,6 +239,11 @@ SWEEP_BASELINE_DAYS = 30
 RESP_FACTOR = 3
 RESP_MIN_BYTES = 100_000
 RESP_MIN_HISTORY = 20
+# Un IP scaneaza daca aduna multe raspunsuri de eroare (4xx/5xx) pe multe cai
+# distincte in fereastra: recon/enumerare inaintea exploatarii. Praguri (nu din
+# telemetrie), aplicate in Python pe agregatele per IP.
+ENUM_MIN_ERRORS = 20
+ENUM_MIN_PATHS = 15
 
 
 def _windows(window_hours: int) -> tuple[str, str]:
@@ -430,6 +435,71 @@ def sweep_webroot_writes(window_hours: int = 1) -> list[RarityFinding]:
     ]
 
 
+def enumeration_hits(rows: list[dict]) -> list[dict]:
+    """Pur: IP-urile care scaneaza — macar ENUM_MIN_ERRORS raspunsuri de eroare pe
+    macar ENUM_MIN_PATHS cai distincte in fereastra. Pragul pe amandoua odata: un
+    404 izolat sau un singur path lovit des nu e scanare."""
+    return [r for r in rows
+            if (r.get("errors") or 0) >= ENUM_MIN_ERRORS
+            and (r.get("paths") or 0) >= ENUM_MIN_PATHS]
+
+
+def sweep_web_enumeration(window_hours: int = 1) -> list[RarityFinding]:
+    """Scanare/enumerare web: un IP care loveste multe cai distincte si aduna multe
+    raspunsuri de eroare. Faza de recon dinaintea exploatarii (cautare de plugin-uri
+    si versiuni vulnerabile cu wpscan/nuclei). Fara baseline: largimea si ritmul
+    tradeaza scanarea, nu noutatea. user_agent e ales de atacator: DATE, doar indiciu."""
+    rw, _ = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {rw} AND source.ip IS NOT NULL AND url.path IS NOT NULL
+        | EVAL err = CASE(http.response.status_code >= 400, 1, 0)
+        | STATS total = COUNT(*), errors = SUM(err),
+                paths = COUNT_DISTINCT(url.path), ua = MAX(user_agent.original)
+            BY host.name, source.ip
+        | LIMIT 5000
+        """
+    rows = enumeration_hits(_esql(q))
+    return [
+        RarityFinding(
+            kind="web_enumeration", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"source_ip": str(r["source.ip"]), "error_responses": r["errors"],
+                    "distinct_paths": r["paths"], "total": r["total"],
+                    "user_agent": _url_path(r.get("ua")) if r.get("ua") else None},
+            rarity_score=0.8 if r["errors"] >= 2 * ENUM_MIN_ERRORS else 0.6)
+        for r in rows
+    ]
+
+
+def sweep_wp_recon_path(window_hours: int = 1) -> list[RarityFinding]:
+    """Acces la puncte tipice de recon WordPress: dezvaluirea versiunii (readme,
+    license), enumerarea utilizatorilor (wp-json) si xmlrpc. Nu e exploatare, e
+    pregatirea ei; scor mic, dar coreleaza cu expunerea (versiuni vechi) in faza
+    urmatoare. Caile sunt constante proprii, nu din telemetrie (== / ENDS_WITH)."""
+    rw, _ = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {rw} AND url.path IS NOT NULL
+          AND (url.path == "/xmlrpc.php"
+               OR STARTS_WITH(url.path, "/wp-json/wp/v2/users")
+               OR ENDS_WITH(url.path, "/readme.html")
+               OR ENDS_WITH(url.path, "/readme.txt")
+               OR ENDS_WITH(url.path, "/license.txt"))
+        | STATS cnt = COUNT(*), ips = COUNT_DISTINCT(source.ip),
+                ua = MAX(user_agent.original) BY host.name, url.path
+        | LIMIT 500
+        """
+    return [
+        RarityFinding(
+            kind="wp_recon_path", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"url_path": _url_path(r["url.path"]), "count": r["cnt"],
+                    "source_ips": r["ips"],
+                    "user_agent": _url_path(r.get("ua")) if r.get("ua") else None},
+            rarity_score=0.6)
+        for r in _esql(q)
+    ]
+
+
 def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, limit: int = 10) -> list[EvidenceRef]:
     """Evenimentele de pornire ale perechii gasite de sweep, ca referinte (doar ID-uri).
     Le ataseaza codul la verdict, ca Tier 3 sa stie ce proces a fost cazul.
@@ -493,7 +563,7 @@ def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     import anomalies
     for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
                sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
-               sweep_new_ja4, sweep_suspicious_exec_path,
+               sweep_new_ja4, sweep_suspicious_exec_path, sweep_web_enumeration, sweep_wp_recon_path,
                anomalies.sweep_beaconing, anomalies.sweep_dns):
         try:
             findings.extend(fn(window_hours))

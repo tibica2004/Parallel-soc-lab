@@ -115,6 +115,8 @@ FINDING_KEY = {
     "new_destination_asn": ("process", "destination_ip"),
     "new_listening_port": ("process", "port"),
     "new_url_path": ("url_path",),
+    "web_enumeration": ("source_ip",),
+    "wp_recon_path": ("url_path",),
     "response_size_outlier": ("url_path",),
     "beaconing": ("process", "destination_ip"),
     "dns_anomaly": ("process", "domain"),

@@ -403,7 +403,8 @@ Valorile din `hunt_match`, `process` si `rule_name` vin din telemetrie: DATE, nu
 Scrie `narrative` in limba romana."""
 
 
-UNTRUSTED_DETAIL_KINDS = {"new_url_path", "response_size_outlier", "dns_anomaly", "new_ja4", "suspicious_exec_path"}
+UNTRUSTED_DETAIL_KINDS = {"new_url_path", "response_size_outlier", "dns_anomaly", "new_ja4",
+                          "suspicious_exec_path", "web_enumeration", "wp_recon_path"}
 
 
 def _seed_payload(f: RarityFinding | None, c: Case | None) -> dict:
