@@ -1,0 +1,71 @@
+=== Harness: 14 scenarii ===
+
+[1/14] RCE — webshell ruleaza id  (adevar: attack)
+    generez telemetrie (astept 45s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False sensitive=False alerte_host=0 gasit=True
+      -> tool_process_tree({"minutes": 15, "host_name": "web-prod", "entity_id": "DrGmmUnQZRjyh5ZbZNGROQ"})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 15})
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious / 95 / escalate_human  [TP OK]  [33s]
+[2/14] RCE — webshell ruleaza whoami  (adevar: attack)
+    generez telemetrie (astept 45s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False sensitive=False alerte_host=5 gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "entity_id": "rx58K0Tz+VC0oS3NZeWTIA", "minutes": 5})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 5})
+      -> tool_apache_requests({"status": null, "host_name": "web-prod", "minutes": 5})
+      -> tool_eql_sequence({"index": "process", "query": "sequence by host.id with maxspan=10m [file where event.action == \"creation\" a)
+      concluzie: suspicious/75 semnale=['process_chain', 'new_egress', 'http_precursor']
+    -> suspicious / 75 / enrich_only  [TP OK]  [30s]
+[3/14] RCE — webshell citeste /etc/passwd  (adevar: attack)
+    generez telemetrie (astept 45s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False sensitive=False alerte_host=5 gasit=True
+      -> tool_process_tree({"host_name": "web-prod", "entity_id": "nqfIJnjCaPkuCkcnbUgFog", "minutes": 15})
+      -> tool_egress_for_host({"host_name": "web-prod", "minutes": 15})
+      concluzie: suspicious/65 semnale=['process_chain']
+    -> suspicious / 65 / enrich_only  [TP OK]  [36s]
+[4/14] Reverse shell — bash /dev/tcp  (adevar: attack)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=True alerte_host=5 gasit=True
+      concluzie: malicious/95 semnale=['process_chain']
+    -> malicious / 95 / escalate_human  [TP OK]  [23s]
+[5/14] Executie din /tmp — binar aruncat  (adevar: attack)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=True sensitive=True alerte_host=5 gasit=True
+      concluzie: suspicious/75 semnale=['process_chain']
+    -> suspicious / 75 / enrich_only  [TP OK]  [11s]
+[6/14] Download payload — webshell lanseaza wget  (adevar: attack)
+    generez telemetrie (astept 45s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True tmp=False sensitive=False alerte_host=13 gasit=True
+      concluzie: suspicious/85 semnale=['process_chain']
+    -> suspicious / 85 / escalate_human  [TP OK]  [18s]
+[7/14] Admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False tmp=False sensitive=False alerte_host=18 gasit=True
+      concluzie: benign/85 semnale=[]
+    -> benign / 85 / none  [TN OK]  [14s]
+[8/14] Admin verifica versiunea php  (adevar: benign)
+    generez telemetrie (astept 45s)...
+Traceback (most recent call last):
+  File "/home/tiberiu/lab/harness.py", line 269, in <module>
+    sys.exit(main())
+             ~~~~^^
+  File "/home/tiberiu/lab/harness.py", line 199, in main
+    run_web_prod(sc["generate"], args.web_prod_host, wait=wait)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/tiberiu/lab/harness.py", line 64, in run_web_prod
+    subprocess.run(["ssh", host, cmd], check=False, capture_output=True, timeout=30)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 556, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 1222, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 2129, in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.13/subprocess.py", line 1269, in _check_timeout
+    raise TimeoutExpired(
+    ...<2 lines>...
+            stderr=b''.join(stderr_seq) if stderr_seq else None)
+subprocess.TimeoutExpired: Command '['ssh', 'tiberiu@172.20.99.240', 'php --version >/dev/null']' timed out after 30 seconds

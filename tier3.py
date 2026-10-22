@@ -23,6 +23,8 @@ Tier 3 deschide si uneste incidente; nu le inchide (principiul 6).
     python3 tier3.py --once --opreste-reguli --scrie-kibana    # oprire globala
     python3 tier3.py --once --vanatoare                # 2 tehnici, dry-run (fara Tier 2, fara scriere)
     python3 tier3.py --once --vanatoare --tehnica T1053.003 --scrie   # Tier 2 + soc-hunts
+    python3 tier3.py --once --expunere                 # expunere WordPress, dry-run (faza 18)
+    python3 tier3.py --once --expunere --ore 72 --scrie   # Tier 2 + soc-hunts
 """
 
 from __future__ import annotations
@@ -393,6 +395,133 @@ def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = Non
     return results
 
 
+# ------------------------------------------------------------------------------
+# Faza 18: expunere WordPress. CODUL citeste inventarul (soc-wp-inventory), afla
+# componentele vulnerabile (exposure.py, pur) si le coreleaza cu recon-ul de pe
+# suprafata WordPress (Apache, faza 16). O componenta vulnerabila INSTALATA si
+# lovita de o sursa = semnal de incredere mare, devreme. Nicio valoare din
+# telemetrie in interogare: host prin params, prefixe constante.
+# ------------------------------------------------------------------------------
+
+WP_INVENTORY_IDX = "soc-wp-inventory"
+EXPOSURE_WINDOW_H = 72
+# IP-uri "self/trusted" excluse din atingeri: un host nu se recunoaste pe el insusi
+# (trafic propriu: wp-cron, health check, loopback). Lista din env, constante, NU
+# din telemetrie. Implicit: IP-ul web-prod + loopback. In laborator atacurile vin de
+# pe alt IP (ex. 172.20.99.220), deci NU se exclud.
+WP_SELF_IPS = tuple(x.strip() for x in os.environ.get(
+    "WP_SELF_IPS", "172.20.99.240,127.0.0.1,::1").split(",") if x.strip())
+
+# Atingeri de recon/atac pe suprafata WordPress, din Apache. url.path (telemetrie)
+# e doar ADUS, nu interpolat; filtrul foloseste prefixe/constante, host si IP-urile
+# self prin ? (params). {self} se umple cu o clauza NOT IN parametrizata.
+TOUCHES_ESQL = """
+FROM logs-apache.access-*
+| WHERE @timestamp >= NOW() - {w} hours AND host.name == ?{self}
+| WHERE STARTS_WITH(url.path, "/wp-content/plugins/") OR STARTS_WITH(url.path, "/wp-content/themes/")
+    OR url.path IN ("/xmlrpc.php", "/wp-login.php", "/wp-json/wp/v2/users", "/readme.html")
+    OR http.response.status_code >= 400
+| STATS count = COUNT(*), status = MAX(http.response.status_code)
+        BY source_ip = source.ip, url_path = url.path
+| LIMIT 500"""
+
+
+def run_exposure(hours: int, write: bool, state_path: Path, host: str | None = None,
+                 tier2_budget: int = HU.TIER2_BUDGET, runner=None) -> dict:
+    """O rulare de expunere. Fara --scrie: inventar, vulnerabile, corelatii (dry-run).
+    Cu --scrie: primele `tier2_budget` corelatii noi trec prin Tier 2 (shadow); restul
+    raman in soc-hunts pentru om. Esecul oricarui pas escaladeaza prin status, nu opreste."""
+    import uuid
+
+    import exposure as EXP
+    from elastic_tools import ES, _esql
+    host = host or os.environ.get("WP_HOST", "web-prod")
+    if hours not in HU.WINDOWS:
+        hours = EXPOSURE_WINDOW_H
+    started = HU.now()
+    state = HU.load_state(state_path)
+    seen = HU.prune_seen(state.get("seen", {}), HU.now())
+
+    err = None
+    try:
+        doc = ES.get(index=WP_INVENTORY_IDX, id=host)["_source"]
+    except Exception as e:
+        doc, err = {}, f"inventar: {type(e).__name__}: {str(e)[:150]}"
+    vuln = EXP.vulnerable_components(EXP.installed_from_doc(doc))
+    print(f"\n[EXPUNERE] {host} · {len(vuln)} componente vulnerabile instalate"
+          + (f" — {err}" if err else ""), flush=True)
+
+    correlations: list[dict] = []
+    if vuln and not err:
+        self_ips = list(WP_SELF_IPS)
+        self_clause = (" AND NOT TO_STRING(source.ip) IN (" + ", ".join(["?"] * len(self_ips)) + ")"
+                       if self_ips else "")
+        q = TOUCHES_ESQL.replace("{w}", str(int(hours))).replace("{self}", self_clause)
+        try:
+            touches = _esql(q, params=[host, *self_ips])
+        except Exception as e:
+            touches, err = [], f"atingeri: {type(e).__name__}: {str(e)[:150]}"
+        for t in touches:
+            t["kind"] = "apache"
+        correlations = EXP.correlate(vuln, touches)
+
+    matches: list[dict] = []
+    budget = tier2_budget
+    if write and correlations and runner is None:
+        import orchestrator
+        runner = orchestrator.HuntRunner()
+    for c in correlations:
+        key = EXP.correlation_key(host, c)
+        m = {"key": key, "component": c["component"], "installed_version": c["installed_version"],
+             "cve": c["cve"], "severity": c["severity"], "source_ip": c["source_ip"], "hits": c["hits"]}
+        if key in seen:
+            m["outcome"] = "deja_trimis"
+        else:
+            chain_id = str(uuid.uuid4())
+            try:
+                case = EXP.make_exposure_case(c, host, chain_id)
+            except ValueError as e:
+                m["outcome"] = f"respins_la_validare: {str(e)[:120]}"
+                matches.append(m)
+                continue
+            if write and budget > 0:
+                entity = f"{host} · expunere {c['component']}"
+                runner.run({"case": case}, "EXPUNERE", entity, host, case.evidence_refs, chain_id=chain_id)
+                budget -= 1
+                seen[key] = HU.now().timestamp()
+                m.update(outcome="tier2", chain_id=chain_id)
+            else:
+                m["outcome"] = "la_om" if write else "dry_run"
+                if write:
+                    seen[key] = HU.now().timestamp()
+        print(f"  corelatie: {c['component']} {c['installed_version']} {c['severity']}"
+              f" <- {c['source_ip']} ({c['hits']} atingeri) -> {m['outcome']}", flush=True)
+        matches.append(m)
+
+    finished = HU.now()
+    status = "error" if err else ("found" if correlations else "not_found")
+    rec = {"@timestamp": finished.isoformat(), "hunt": "wp_exposure", "technique": "T1190",
+           "host": host, "window_hours": hours, "status": status,
+           "vulnerable": [{"component": v["component"], "installed_version": v["installed_version"],
+                           "cve": v["cve"], "severity": v["severity"]} for v in vuln],
+           "correlations": len(correlations),
+           "cases": sum(x.get("outcome") == "tier2" for x in matches),
+           "started_at": started.isoformat(),
+           "duration_ms": int((finished - started).total_seconds() * 1000),
+           "error": err, "matches": matches}
+    print(f"  rezultat: {status} ({len(correlations)} corelatii)", flush=True)
+    if write:
+        try:
+            import orchestrator
+            if orchestrator.WRITER is not None:
+                orchestrator.WRITER.index(index=HUNT_INDEX, document=rec)
+        except Exception as e:
+            print(f"  [soc-hunts] nescris: {type(e).__name__}: {str(e)[:150]}", flush=True)
+        state["seen"] = seen
+        HU.save_state(state_path, state)
+    return rec
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--once", action="store_true", help="o singura rulare (singurul mod deocamdata)")
@@ -411,6 +540,8 @@ def main() -> int:
     ap.add_argument("--vanatoare", action="store_true", help="vanatoare pe ipoteze ATT&CK (hunt.py)")
     ap.add_argument("--tehnica", help="cu --vanatoare: doar aceasta tehnica (ex. T1053.003)")
     ap.add_argument("--fara-model", action="store_true", help="cu --vanatoare: planul implicit, fara model")
+    ap.add_argument("--expunere", action="store_true",
+                    help="expunere WordPress: inventar vs vulnerabilitati, corelat cu recon-ul (faza 18)")
     args = ap.parse_args()
     if not args.once:
         print("Deocamdata doar --once; timerul systemd vine dupa aprobare.")
@@ -439,6 +570,9 @@ def main() -> int:
             return 1
         save("vanatoare", run_hunts(HU.PER_RUN, args.scrie, out_dir / "vanatoare-stare.json",
                                     technique=args.tehnica, use_model=not args.fara_model))
+        return 0
+    if args.expunere:
+        save("expunere", run_exposure(args.ore, args.scrie, out_dir / "expunere-stare.json"))
         return 0
     if args.ciclu_reguli or args.opreste_reguli:
         save("ciclu-reguli", run_lifecycle(kb, kill_switch=args.opreste_reguli))

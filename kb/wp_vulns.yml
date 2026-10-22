@@ -1,0 +1,42 @@
+# VERSIUNI WORDPRESS VULNERABILE CUNOSCUTE — in git, revizuita de om.
+#
+# Folosita DOAR pentru potriviri deterministe (cod, fara model, fara retea):
+# versiunile instalate pe host (core + plugin-uri, din asset-inventory) se compara
+# cu intervalele de aici; componentele vulnerabile intra in context ca FAPTE si
+# ridica increderea cand recon-ul/exploitul (fazele 16-17) loveste fix componenta.
+#
+# O intrare e vulnerabila daca:  introduced <= versiune_instalata < fixed
+#   - component: "core" sau slug-ul pluginului (ca in `wp plugin list`)
+#   - introduced: de la ce versiune e afectata (inclusiv); "0" = dintotdeauna
+#   - fixed: versiunea care repara (exclusiv, limita de sus); gol/null = nereparat inca
+#   - severity: low | medium | high | critical
+#   - cve: identificator CVE (optional)
+#
+# Codul NU descarca nimic. Un feed real (WPScan / wpvulndb, acelasi format) se aduce
+# separat, controlat de om, prin variabila WP_VULNS_FEED = calea unui fisier.
+# Intrarile de mai jos sunt EXEMPLE de laborator (marcate source: lab), ca sa existe
+# ceva de potrivit in scenarii; se inlocuiesc cu feed-ul real.
+components:
+  - component: core
+    cve: CVE-2026-0001
+    severity: critical
+    introduced: "0"
+    fixed: "7.1.4"
+    source: lab
+    note: "Exemplu de laborator: nucleu WordPress sub 7.1.4"
+
+  - component: akismet
+    cve: CVE-2026-0002
+    severity: high
+    introduced: "4.0"
+    fixed: "5.3.1"
+    source: lab
+    note: "Exemplu de laborator: XSS stocat in akismet sub 5.3.1"
+
+  - component: hello
+    cve: CVE-2026-0003
+    severity: medium
+    introduced: "0"
+    fixed: ~
+    source: lab
+    note: "Exemplu de laborator: plugin demonstrativ, nereparat (fixed gol)"

@@ -98,7 +98,7 @@ ruleaza semnaturile la senzor, noi doar citim alertele: principiul 3 respectat).
 Optional, un clasificator in Python pe formele generice (LFI ../, php://, markeri SQLi),
 pe randuri aduse cu interogare statica — tratate ca DATE, nu ca text de interogare.
 
-Faza 18 — constiinta de expunere / CVE pe versiuni vechi (de facut, atinge web-prod):
+Faza 18 — constiinta de expunere / CVE pe versiuni vechi (facuta, detaliu mai jos):
 colector pe web-prod care citeste "wp core version" + "wp plugin list" -> asset-inventory,
 incrucisat cu un feed local kb/wp_vulns.yml; hunt Tier 3 care marcheaza componentele
 vulnerabile instalate. Platforma reala: cand expunerea stie ca plugin X e vulnerabil SI
@@ -131,3 +131,52 @@ Regula Kibana o creeaza OMUL cu scriptul existent (ia automat tot sensor_rules.R
 Nimic nu se creeaza/modifica in Kibana din agent.
 
 Porti: teste unitare verzi (641); harness dev + fast de rulat la final (atinge Tier 1).
+
+## Faza 18 — constiinta de expunere / CVE pe versiuni vechi (WordPress)
+
+Ramura faza-18-expunere-cve (din main). Etapa "inainte" a lantului: sa stim ce
+componente vulnerabile sunt instalate, inainte sa le exploateze cineva. Platforma
+reala vine din corelatie: expunerea stie ca pluginul X e vulnerabil + recon/exploit
+(fazele 16-17) loveste fix X -> alerta de incredere mare, devreme (cod determinist).
+
+Bucata 1 — motorul offline determinist (FACUT, nu atinge nimic):
+- kb/wp_vulns.yml: lista de versiuni vulnerabile (component core sau slug plugin,
+  interval introduced..fixed, severitate, CVE). In git, revizuita de om. Exemple de
+  laborator; feed real (WPScan/wpvulndb, acelasi format) prin WP_VULNS_FEED.
+- exposure.py: comparator de versiuni pur (parse_version, in_range introduced<=v<fixed),
+  validarea feed-ului (parse_entries: slug/versiune/severitate/CVE in multimi/forme
+  inchise), normalize_installed (accepta forma `wp plugin list`), vulnerable_components
+  (potrivire pura, sortata dupa severitate). Fara model, fara retea, fara ES.
+- tests/test_exposure.py: comparator, limite introduced/fixed, validare, potrivire (20).
+
+Bucata 2 — colectorul + legarea in Tier 3 (FACUT in cod; deploy-ul de APROBAT):
+- wp_inventory.py: colector care ruleaza pe elastic-lab (cheia de writer NU se copiaza
+  pe web-prod), intreaba web-prod prin ssh cu WP-CLI fara sudo (`wp core version`,
+  `wp plugin list --fields=name,version,status --format=json`) si scrie un document
+  curent in soc-wp-inventory (indice dedicat, ales de om). `arata` = dry-run, `scrie`
+  = scrie; `--fisier` citeste dintr-un JSON local (test). build_doc/parse_plugin_json pure.
+- exposure.py: corelatie pura adaugata. component_from_path (slug din
+  /wp-content/plugins|themes/<slug>), correlate (componenta vulnerabila INSTALATA +
+  lovita de recon = corelatie per source_ip/componenta; 'core' prinde orice atingere
+  de atac pe host), installed_from_doc, correlation_key, make_exposure_case
+  (Case origin=tier3_hunt, HUNT_MATCH, T1190/wp_exposure — fara schema noua).
+- tier3.py: `--expunere` (run_exposure). Citeste inventarul (soc-wp-inventory), afla
+  vulnerabilele (vulnerable_components), aduce atingerile Apache pe suprafata WordPress
+  (ES|QL cu prefixe constante, host prin params — nicio valoare din telemetrie in text),
+  coreleaza, trimite primele TIER2_BUDGET corelatii noi la Tier 2 (shadow) cu --scrie,
+  restul in soc-hunts pentru om. Esecul oricarui pas -> status error, nu opreste.
+- Teste: tests/test_exposure.py (+15: potrivire cale, corelatie, caz), test_wp_inventory.py
+  (4: parsare, build_doc), test_tier3_exposure.py (4: dry-run, fara vulnerabilitati,
+  inventar lipsa, buget Tier 2) — fara ES, fara model, fara ssh.
+
+Deploy FACUT si validat live (2026-10-22): indicele soc-wp-inventory creat; ES_WRITER_API_KEY
+primeste write+create_index, ES_API_KEY (read-only) primeste read pe soc-wp-inventory; colectorul
+a scris inventarul real (core 7.1.3, akismet 5.7.2, hello 1.7.2) si --expunere a corelat cap-coada
+un recon extern (172.20.99.220) cu core + hello vulnerabile (akismet nevulnerabil: zero FP),
+self-IP exclus, Tier 2 shadow -> suspicious/escalate_human, acoperire in soc-hunts.
+Optional ramas: timer systemd pentru wp_inventory.py pe elastic-lab.
+
+Bucata 1 — porti: teste unitare verzi (652). Nu atinge verdictul: harness neimplicat.
+Bucata 2 — porti: teste unitare verzi (677, +25). Corelatie determinista (cod decide),
+granita Pydantic reutilizata (HUNT_MATCH), interogari parametrizate. Nu atinge calea de
+verdict Tier 1/2, deci harness-ul nu e implicat; dry-run live posibil dupa deploy (`--expunere`).
