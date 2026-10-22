@@ -13,10 +13,16 @@ class _FakeES:
         return {"_source": self._doc}
 
 
-def _patch(monkeypatch, doc, touches):
+def _patch(monkeypatch, doc, touches, captured=None):
     import elastic_tools
+
+    def fake_esql(q, params=None):
+        if captured is not None:
+            captured.append({"q": q, "params": list(params or [])})
+        return list(touches)
+
     monkeypatch.setattr(elastic_tools, "ES", _FakeES(doc))
-    monkeypatch.setattr(elastic_tools, "_esql", lambda q, params=None: list(touches))
+    monkeypatch.setattr(elastic_tools, "_esql", fake_esql)
 
 
 DOC = {"host": "web-prod", "components": [
@@ -40,6 +46,26 @@ def test_dry_run_coreleaza_fara_sa_scrie(monkeypatch, tmp_path):
     assert outs[("core", "203.0.113.9")] == "dry_run"
     assert rec["cases"] == 0
     assert not (tmp_path / "s.json").exists()        # dry-run nu salveaza starea
+
+
+def test_filtru_self_ip_ajunge_in_interogare(monkeypatch, tmp_path):
+    cap = []
+    monkeypatch.setattr(tier3, "WP_SELF_IPS", ("172.20.99.240", "127.0.0.1"))
+    _patch(monkeypatch, DOC, [], captured=cap)
+    tier3.run_exposure(24, write=False, state_path=tmp_path / "s.json", host="web-prod")
+    assert len(cap) == 1
+    assert "NOT TO_STRING(source.ip) IN (?, ?)" in cap[0]["q"]
+    # params: host intai, apoi IP-urile self (ordinea ? din interogare)
+    assert cap[0]["params"] == ["web-prod", "172.20.99.240", "127.0.0.1"]
+
+
+def test_fara_self_ip_nu_adauga_clauza(monkeypatch, tmp_path):
+    cap = []
+    monkeypatch.setattr(tier3, "WP_SELF_IPS", ())
+    _patch(monkeypatch, DOC, [], captured=cap)
+    tier3.run_exposure(24, write=False, state_path=tmp_path / "s.json", host="web-prod")
+    assert "NOT TO_STRING(source.ip) IN" not in cap[0]["q"]
+    assert cap[0]["params"] == ["web-prod"]
 
 
 def test_fara_vulnerabilitati_nu_coreleaza(monkeypatch, tmp_path):

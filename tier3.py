@@ -405,11 +405,19 @@ def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = Non
 
 WP_INVENTORY_IDX = "soc-wp-inventory"
 EXPOSURE_WINDOW_H = 72
+# IP-uri "self/trusted" excluse din atingeri: un host nu se recunoaste pe el insusi
+# (trafic propriu: wp-cron, health check, loopback). Lista din env, constante, NU
+# din telemetrie. Implicit: IP-ul web-prod + loopback. In laborator atacurile vin de
+# pe alt IP (ex. 172.20.99.220), deci NU se exclud.
+WP_SELF_IPS = tuple(x.strip() for x in os.environ.get(
+    "WP_SELF_IPS", "172.20.99.240,127.0.0.1,::1").split(",") if x.strip())
+
 # Atingeri de recon/atac pe suprafata WordPress, din Apache. url.path (telemetrie)
-# e doar ADUS, nu interpolat; filtrul foloseste prefixe/constante si host prin ?.
+# e doar ADUS, nu interpolat; filtrul foloseste prefixe/constante, host si IP-urile
+# self prin ? (params). {self} se umple cu o clauza NOT IN parametrizata.
 TOUCHES_ESQL = """
 FROM logs-apache.access-*
-| WHERE @timestamp >= NOW() - {w} hours AND host.name == ?
+| WHERE @timestamp >= NOW() - {w} hours AND host.name == ?{self}
 | WHERE STARTS_WITH(url.path, "/wp-content/plugins/") OR STARTS_WITH(url.path, "/wp-content/themes/")
     OR url.path IN ("/xmlrpc.php", "/wp-login.php", "/wp-json/wp/v2/users", "/readme.html")
     OR http.response.status_code >= 400
@@ -445,8 +453,12 @@ def run_exposure(hours: int, write: bool, state_path: Path, host: str | None = N
 
     correlations: list[dict] = []
     if vuln and not err:
+        self_ips = list(WP_SELF_IPS)
+        self_clause = (" AND NOT TO_STRING(source.ip) IN (" + ", ".join(["?"] * len(self_ips)) + ")"
+                       if self_ips else "")
+        q = TOUCHES_ESQL.replace("{w}", str(int(hours))).replace("{self}", self_clause)
         try:
-            touches = _esql(TOUCHES_ESQL.replace("{w}", str(int(hours))), params=[host])
+            touches = _esql(q, params=[host, *self_ips])
         except Exception as e:
             touches, err = [], f"atingeri: {type(e).__name__}: {str(e)[:150]}"
         for t in touches:
