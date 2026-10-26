@@ -77,7 +77,8 @@ Fara volum se pierd, si cu ele absolvirea executorului si metricile pe etichete.
 
 ## Pasul 3 — noul elastic-lab
 
-10. Pachete: `docker.io docker-compose-plugin git python3-venv autossh curl`; utilizatorul `tiberiu`
+10. Pachete: Docker din depozitul oficial (docker-ce + docker-compose-plugin, ca acum), `git python3-venv autossh curl`;
+    `vm.max_map_count=262144` in /etc/sysctl.d/ (cerut de ES); utilizatorul `tiberiu`
     (serviciile folosesc /home/tiberiu/lab).
 11. `git clone git@github.com:tibica2004/Parallel-soc-lab.git ~/lab`, apoi
     `tar xzf ~/lab-local.tgz -C ~/lab && chmod 600 ~/lab/{env.sh,soc.env,.env}`.
