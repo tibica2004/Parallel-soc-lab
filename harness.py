@@ -164,7 +164,7 @@ def main() -> int:
     ap.add_argument("--only", choices=["fast", "hunt"], help="doar o cale")
     ap.add_argument("--exclude-validation", action="store_true",
                     help="sari peste scenariile din setul de validare")
-    ap.add_argument("--web-prod-host", default="tiberiu@172.20.99.240")
+    ap.add_argument("--web-prod-host", default=os.environ.get("WEB_PROD_HOST", "tiberiu@172.20.99.240"))
     ap.add_argument("--chain", action="store_true",
                     help="scenariile fast trec prin lantul complet Tier 1 -> Tier 2")
     args = ap.parse_args()

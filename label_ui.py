@@ -253,7 +253,7 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default="172.20.99.220")
+    ap.add_argument("--host", default=os.environ.get("LABEL_UI_HOST", "172.20.99.220"))
     ap.add_argument("--port", type=int, default=8088)
     args = ap.parse_args()
     import uvicorn
