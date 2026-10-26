@@ -318,3 +318,53 @@ pot aparea findings rare noi. O regresie se raporteaza; nu se ajusteaza scenarii
   le inlocuiesti cu IP-ul tau (comenzile se pregatesc atunci).
 - Stergi arhivele (esdata.tgz, lab-local.tgz cu secretele, ~/web) de pe elastic-lab vechi.
 - Actualizezi CLAUDE.md (Infrastructura) cu adresele noi.
+
+---
+
+## Ce s-a intamplat de fapt (migrarea din 2026-10-26)
+
+Migrarea a reusit cap-coada. Mai jos, abaterile fata de ghidul teoretic de mai sus,
+ca sa le ai la o reinstalare. Infrastructura reala a fost deja construita in OpenStack
+(es-node-1, web-prod, atacator), nu creata de la zero.
+
+Porti finale (qwen3:14b, baseline inca de pe Debian):
+- fast 4/4, recall 100%, FP 0/1;
+- dev 14/14, recall 100% (0 atacuri ratate), FP 1/6;
+- val 8/8, recall 100%, FP 0/4.
+- Abatere cunoscuta: FP pe scenariul dev `php --version` (benign -> suspicious/70/enrich_only).
+  Cauze probabile: variatia qwen3:14b intre rulari (la 22.10 acelasi cod a dat 2 FP apoi 0)
+  si baseline invatat pe Debian (PHP 8.4) fata de web-prod pe Ubuntu (PHP 8.3). Nu rateaza
+  niciun atac. NU s-au ajustat praguri sau scenarii.
+
+Probleme intalnite si solutii:
+1. **Stack Elastic nativ 9.5.5** era deja pornit pe es-node-1 (apt, nu Docker). Oprit si
+   dezactivat (`systemctl disable --now kibana elasticsearch`), nu dezinstalat. Altfel ocupa 9200/5601.
+2. **Flavor**: es-node-1 pornise pe m1.large (8 GB); dus pe m1.xlarge (16 GB) cu `server resize`.
+3. **Git pe es-node-1**: repo privat -> deploy key read-only in GitHub (cheia masinii noi).
+4. **ES_API_KEY (read-only) n-are `monitor`**: `_cat/indices` da 403. Reperul de documente
+   s-a luat cu `_count` per indice. `soc-audit`/`soc-hunts` ies 0 cu read-only (fara drept pe ei);
+   verificate cu contul elastic.
+5. **Fleet Outputs** a ramas din volum cu IP-ul vechi (172.20.99.220); XPACK_FLEET_OUTPUTS din
+   compose se aplica doar la crearea initiala. Corectat la 192.168.10.121 (PUT /api/fleet/outputs).
+   Fleet Server hosts se reaplica la fiecare pornire din compose, deci era deja corect.
+6. **Agentii nativi erau 9.5.5**, Fleet-ul nostru e 9.5.1: agent mai nou nu se inroleaza in Fleet
+   mai vechi. Dezinstalati si reinstalati 9.5.1 (Fleet Server pe es-node-1, Defend pe web-prod).
+7. **Fleet Server pe HTTP**: compose cere `http://...:8220`. Instalat cu `--fleet-server-insecure-http`
+   SI `--fleet-server-host=0.0.0.0` (fara host, asculta doar pe 127.0.0.1 si web-prod nu-l vede).
+8. **Arhitectura agentului**: es-node-1 e x86_64; prima descarcare a fost arm64 (ELF error). Corect: linux-x86_64.
+9. **Suricata**: Ubuntu 24.04 are 7.0.3, FARA JA4. Instalat 7.0.17 din PPA `oisf/suricata-7.0`
+   plus `libhtp2` 0.5.53 din acelasi PPA (altfel `undefined symbol htp_config_set_number_headers_limit`).
+   Interfata noua `ens3` (nu enp0s3); bpf-filter si threshold.config trecute pe 192.168.10.121.
+10. **Zgomot Suricata**: `SURICATA IPv4 truncated packet` (sig 2200003) ~19k intr-o rafala, probabil
+    la descarcarea agentului (MTU 1442 pe es-net). GRO/LRO deja off. Daca reapare continuu:
+    `suppress gen_id 1, sig_id 2200003` in threshold.config.
+11. **Suricata nu pune host.name** (senzor de retea): hostul e in observer.hostname. Verificarile pe
+    host.name dau 0 fals; codul stie deja (elastic_tools.py).
+12. **OpenClaw pe atacator**: Node 22 (NodeSource), `npm i -g openclaw`, onboard Ollama ->
+    http://127.0.0.1:11434, model qwen3:14b, fara canale/web. Model prin tunel autossh spre GPU.
+
+De automatizat / ramas:
+- timer systemd pentru wp_inventory.py pe es-node-1 (optional, era deja optional inainte);
+- security groups: es-sg/victim-sg/attacker-sg inca permit 172.20.99.220 (elastic-lab vechi);
+  de inlocuit cu IP-ul administratorului dupa oprirea VM-urilor vechi;
+- interfata de etichetare: cazurile din migrare (plantare momeala, test Apache) se marcheaza benign.
