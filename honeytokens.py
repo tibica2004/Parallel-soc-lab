@@ -90,7 +90,8 @@ RULES: dict[str, dict] = {
 PARENT_NAME = {"T1552": "Unsecured Credentials", "T1505": "Server Software Component"}
 TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Discovery"),
           "T1078": ("TA0001", "Initial Access"), "T1505.003": ("TA0003", "Persistence"),
-          "T1190": ("TA0001", "Initial Access")}
+          "T1190": ("TA0001", "Initial Access"), "T1595": ("TA0043", "Reconnaissance"),
+          "T1110": ("TA0006", "Credential Access")}
 
 
 def rule_id_of(alert: dict) -> str | None:
@@ -119,13 +120,20 @@ def kibana_payload(rule_id: str, rules: dict | None = None, severity: str = SEVE
         technique = {"id": base, "name": PARENT_NAME[base], "reference": technique["reference"],
                      "subtechnique": [{"id": tech, "name": tech_name,
                                        "reference": f"https://attack.mitre.org/techniques/{tech.replace('.', '/')}/"}]}
-    return {
+    payload = {
         "rule_id": rule_id, "name": r["name"], "description": r["description"],
         "type": r["type"], "language": r["language"], "index": r["index"], "query": r["query"],
         "severity": severity, "risk_score": risk, "tags": [tag],
-        "interval": "1m", "from": "now-2m", "max_signals": 100, "enabled": True,
+        "interval": r.get("interval", "1m"), "from": r.get("from", "now-2m"),
+        "max_signals": 100, "enabled": True,
         "threat": [{"framework": "MITRE ATT&CK",
                     "tactic": {"id": tac, "name": tac_name,
                                "reference": f"https://attack.mitre.org/tactics/{tac}/"},
                     "technique": [technique]}],
     }
+    # Regulile de tip threshold (brute-force, enumerare) numara evenimente pe un camp
+    # (de obicei source.ip): corpul lor cere cheia "threshold". O lasam pass-through din
+    # definitie; regulile query (honeytoken, YARA, suricata) nu o au, deci nu sunt atinse.
+    if r.get("type") == "threshold":
+        payload["threshold"] = r["threshold"]
+    return payload
