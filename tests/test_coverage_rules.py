@@ -7,7 +7,10 @@ import sensor_rules as S
 from escalation import should_escalate
 from schemas import EscalationReason as R, Verdict
 
-NEW = ("soc-web-content-enum", "soc-http-auth-bruteforce")
+THRESHOLD = ("soc-web-content-enum", "soc-http-auth-bruteforce", "soc-ssh-bruteforce")
+QUERY_NEW = ("soc-web-sqli-attempt",)
+NEW = THRESHOLD + QUERY_NEW
+INDICI = {"logs-apache.*", "logs-system.auth-*"}
 
 
 def test_reguli_noi_in_rules():
@@ -17,14 +20,22 @@ def test_reguli_noi_in_rules():
 
 def test_payload_threshold_bine_format():
     # Regulile de prag au tip "threshold" si cheia "threshold" in payload-ul Kibana.
-    for rid in NEW:
+    for rid in THRESHOLD:
         p = S.kibana_payload(rid)
         assert p["type"] == "threshold"
         assert p["threshold"]["field"] == ["source.ip"]
         assert isinstance(p["threshold"]["value"], int) and p["threshold"]["value"] > 0
-        assert p["index"] == ["logs-apache.*"]
+        assert p["index"][0] in INDICI
         # maparea MITRE trebuie sa existe (altfel kibana_payload ar da KeyError)
         assert p["threat"][0]["technique"][0]["id"] in ("T1595", "T1110")
+
+
+def test_sqli_e_query_fara_threshold():
+    p = S.kibana_payload("soc-web-sqli-attempt")
+    assert p["type"] == "query"
+    assert "threshold" not in p
+    assert p["index"] == ["logs-apache.*"]
+    assert p["threat"][0]["technique"][0]["id"] == "T1190"
 
 
 def test_regulile_query_nu_capata_threshold():
@@ -40,7 +51,7 @@ def test_recunoscute_ca_sensor_alert():
 
 
 def test_fara_facts_dar_nu_crapa():
-    # Regulile de prag nu au extractor de fapte (yara/suricata): sensor_facts e None,
+    # Regulile noi nu au extractor de fapte (yara/suricata): sensor_facts e None,
     # dar is_sensor_alert ramane True, deci alerta e tot recunoscuta si escaladata.
     for rid in NEW:
         a = {"kibana.alert.rule.rule_id": rid}

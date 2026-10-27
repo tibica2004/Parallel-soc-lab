@@ -1,0 +1,14 @@
+[Unit]
+Description=Agentic SOC - corelatie de expunere la 15 min (SLA detectie 20 min)
+
+[Timer]
+# La fiecare 15 min. Cu jitter-ul de mai jos, cel mai tarziu ~18 min intre rulari,
+# deci recon-ul pe o componenta WordPress vulnerabila e prins sub SLA-ul de 20 min.
+OnCalendar=*:0/15
+# GPU-ul e partajat (expunerea poate trimite cateva cazuri la Tier 2): jitter mic.
+RandomizedDelaySec=3min
+# Dupa o oprire a masinii, ruleaza o data la pornire in loc sa sara peste.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

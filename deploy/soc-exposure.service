@@ -1,0 +1,20 @@
+[Unit]
+Description=Agentic SOC - corelatie de expunere WordPress (recon pe componente vulnerabile)
+After=network-online.target docker.service soc-llm-tunnel.service
+Wants=network-online.target soc-llm-tunnel.service
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# Expunerea e un hunt usor (corelatie ES, fara vanatoare ATT&CK): coreleaza
+# componentele WordPress vulnerabile instalate (soc-wp-inventory) cu atingerile de
+# recon pe suprafata WordPress (Apache) si trimite primele TIER2_BUDGET corelatii noi
+# la Tier 2 (shadow). Rulat des (vezi timer), ca sa prinda enumerarea sub SLA-ul de
+# 20 min - calea tier3 orara e prea lenta pentru asta. SHADOW_MODE fortat; nimic pe hosturi.
+# Doar corelatiile NOI pleaca la Tier 2 (dedup pe soc-hunts), deci rularea deasa e ieftina.
+ExecStart=-/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python tier3.py --once --expunere --scrie --iesire data/tier3
+TimeoutStartSec=15min
+Nice=5
