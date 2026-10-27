@@ -25,6 +25,7 @@ TAG = "soc-sensor"
 YARA_TAG = "soc-yara"                 # identificatorul din jurnal (syslog) al scannerului
 YARA_PROC = "soc-yara-scan"           # numele procesului (scriptul din /usr/local/sbin)
 SURICATA_IDX = "logs-suricata.eve-*"  # indicele Suricata (local, ca sa nu importam elastic_tools)
+APACHE_IDX = "logs-apache.*"          # logurile de acces Apache ale serverului web
 
 RULES: dict[str, dict] = {
     "soc-yara-webshell": {
@@ -55,6 +56,41 @@ RULES: dict[str, dict] = {
                  '("Web Application Attack" or "Attempted Administrator Privilege Gain" '
                  'or "Attempted User Privilege Gain")',
         "threat_technique": ("T1190", "Exploit Public-Facing Application"),
+    },
+    # Enumerare de continut (brute-force de directoare/fisiere: ffuf, feroxbuster, dirb,
+    # wpscan). Semnatura Suricata nu prinde cererile GET "benigne"; semnalul e VOLUMUL de
+    # raspunsuri 4xx de la un singur source.ip. Regula de prag numara pe source.ip intr-o
+    # fereastra scurta. Caile cerute sunt alese de atacator = DATE; nu intra in interogare.
+    "soc-web-content-enum": {
+        "name": "Enumerare continut web (scanare directoare/fisiere)",
+        "description": "Un singur source.ip a generat multe raspunsuri 4xx pe serverul web intr-o "
+                       "fereastra scurta - tipic brute-force de continut (ffuf, feroxbuster, dirb, "
+                       "wpscan). Pragul e pe source.ip; caile cerute sunt date, nu in interogare.",
+        "type": "threshold",
+        "language": "kuery",
+        "index": [APACHE_IDX],
+        "query": "http.response.status_code >= 400",
+        "threshold": {"field": ["source.ip"], "value": 40},
+        "interval": "1m",
+        "from": "now-6m",
+        "threat_technique": ("T1595", "Active Scanning"),
+    },
+    # Brute-force pe autentificarea web (hydra, wpscan --password-attack, patator). Semnalul
+    # e volumul de cereri POST catre pagina de login de la un singur source.ip. Suricata vede
+    # doar "cleartext login" (ET INFO, nepromovat); aici prindem volumul direct din Apache.
+    "soc-http-auth-bruteforce": {
+        "name": "Brute-force autentificare web (login WordPress)",
+        "description": "Un singur source.ip a trimis multe cereri POST catre pagina de "
+                       "autentificare (/wp-login.php) intr-o fereastra scurta - tipic brute-force "
+                       "de parole (hydra, wpscan, patator). Pragul e pe source.ip.",
+        "type": "threshold",
+        "language": "kuery",
+        "index": [APACHE_IDX],
+        "query": 'http.request.method : "POST" and url.path : "/wp-login.php"',
+        "threshold": {"field": ["source.ip"], "value": 10},
+        "interval": "1m",
+        "from": "now-6m",
+        "threat_technique": ("T1110", "Brute Force"),
     },
 }
 
