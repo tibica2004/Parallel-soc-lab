@@ -1,0 +1,19 @@
+[Unit]
+Description=SOC vulnwatch - N-day watch (SBOM -> OSV/NVD/KEV -> asset-vulns)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/etc/soc/env
+ExecStart=/home/tiberiu/lab/venv/bin/python /home/tiberiu/lab/soc/vulnwatch/vulnwatch.py
+# citeste/scrie doar asset-vulns (cheie dedicata) + citeste asset-inventory
+ProtectSystem=strict
+ReadWritePaths=/var/lib/soc
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

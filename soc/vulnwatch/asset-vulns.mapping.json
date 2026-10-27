@@ -1,0 +1,27 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0,
+    "index.lifecycle.name": "asset-vulns-ilm"
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "cve_id": { "type": "keyword" },
+      "component": { "type": "keyword" },
+      "component_type": { "type": "keyword" },
+      "host": { "type": "keyword" },
+      "installed_version": { "type": "keyword" },
+      "affected_range": { "type": "keyword" },
+      "fixed_version": { "type": "keyword" },
+      "cvss_score": { "type": "float" },
+      "cvss_vector": { "type": "keyword" },
+      "exploited_in_wild": { "type": "boolean" },
+      "source": { "type": "keyword" },
+      "summary": { "type": "text", "index": false },
+      "first_seen": { "type": "date" },
+      "last_seen": { "type": "date" },
+      "status": { "type": "keyword" }
+    }
+  }
+}
