@@ -125,6 +125,8 @@ Rezultat 0.1 (2026-10-28): backup OK (4 fisiere), cheia soc-backup refuza `ls /`
 (rrsync rc=1), pull OK cu sha256, restore OK (12 tabele in wp). De confirmat de om:
 nicio alerta de momeala dupa backup.
 
+Confirmat ulterior: pull-ul corectat scrie fisierele ca tiberiu:tiberiu; restore OK.
+
 ## 0.2 Patch-uri (apt + WordPress controlat)
 
 Inspectie (2026-10-28): unattended-upgrades activ (doar security + ESM), 124 pachete
@@ -200,6 +202,8 @@ mai actualizeaza singur (versiunea se schimba doar cu APPLY=1).
 
 ### E. Rollback
 ```
-ssh -t tiberiu@172.30.6.249 'set -e; f=$(sudo ls -1 /var/backups/soc-pre-pas0/wp-config.php.* | tail -1); sudo cp -p "$f" /var/www/html/wp-config.php; sudo systemctl disable --now soc-wp-update.timer; sudo rm -f /etc/systemd/system/soc-wp-update.service /etc/systemd/system/soc-wp-update.timer /usr/local/bin/soc-wp-update.py /usr/local/etc/soc-wp-update.conf /etc/apt/apt.conf.d/52soc-unattended /etc/logrotate.d/soc; sudo systemctl daemon-reload; stat -c "%U:%G %a %n" /var/www/html/wp-config.php; curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost/'
+ssh -t tiberiu@172.30.6.249 'set -e; f=$(sudo sh -c "ls -1 /var/backups/soc-pre-pas0/wp-config.php.* | tail -1"); test -n "$f"; sudo cp -p "$f" /var/www/html/wp-config.php; sudo systemctl disable --now soc-wp-update.timer; sudo rm -f /etc/systemd/system/soc-wp-update.service /etc/systemd/system/soc-wp-update.timer /usr/local/bin/soc-wp-update.py /usr/local/etc/soc-wp-update.conf /etc/apt/apt.conf.d/52soc-unattended /etc/logrotate.d/soc; sudo systemctl daemon-reload; stat -c "%U:%G %a %n" /var/www/html/wp-config.php; curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost/'
 ```
-(`cp -p` readuce si proprietarul/drepturile vechi. /var/log/soc ramane: il folosesc pasii urmatori.)
+(`cp -p` readuce si proprietarul/drepturile vechi. /var/log/soc ramane: il folosesc pasii urmatori.
+Globul se expandeaza sub sudo: directorul e root 700, iar ca tiberiu ramanea literal —
+prima rulare din 2026-10-28 s-a oprit la cp fara sa schimbe nimic.)
