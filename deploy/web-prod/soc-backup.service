@@ -6,7 +6,8 @@ After=mariadb.service
 Type=oneshot
 User=root
 ExecStart=/usr/local/bin/soc-backup.sh
-# Citeste tot, scrie doar in directorul de backup.
+# Citeste tot, scrie doar in directorul de backup. ReadWritePaths cere ca directorul
+# sa existe deja (altfel 226/NAMESPACE, scriptul nici nu porneste): se creeaza la instalare.
 ProtectSystem=strict
 ReadWritePaths=/var/backups/soc
 ProtectHome=yes

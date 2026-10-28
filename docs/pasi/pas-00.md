@@ -49,7 +49,7 @@ scp deploy/web-prod/soc-backup.sh deploy/web-prod/soc-backup.exclude deploy/web-
 ```
 2. web-prod — instalare (se opreste daca rrsync lipseste, inainte de orice schimbare):
 ```
-ssh -t tiberiu@172.30.6.249 'set -e; command -v rrsync; sudo groupadd --system soc-backup; sudo useradd --system --gid soc-backup --shell /bin/sh --home-dir /var/lib/soc-backup --create-home soc-backup; sudo install -o root -g root -m 755 /tmp/soc-backup.sh /usr/local/bin/soc-backup.sh; sudo install -d -m 755 /usr/local/etc; sudo install -o root -g root -m 644 /tmp/soc-backup.exclude /usr/local/etc/soc-backup.exclude; sudo install -o root -g root -m 644 /tmp/soc-backup.service /tmp/soc-backup.timer /etc/systemd/system/; rm /tmp/soc-backup.sh /tmp/soc-backup.exclude /tmp/soc-backup.service /tmp/soc-backup.timer; sudo systemctl daemon-reload'
+ssh -t tiberiu@172.30.6.249 'set -e; command -v rrsync; sudo groupadd --system soc-backup; sudo useradd --system --gid soc-backup --shell /bin/sh --home-dir /var/lib/soc-backup --create-home soc-backup; sudo install -d -o root -g soc-backup -m 750 /var/backups/soc; sudo install -o root -g root -m 755 /tmp/soc-backup.sh /usr/local/bin/soc-backup.sh; sudo install -d -m 755 /usr/local/etc; sudo install -o root -g root -m 644 /tmp/soc-backup.exclude /usr/local/etc/soc-backup.exclude; sudo install -o root -g root -m 644 /tmp/soc-backup.service /tmp/soc-backup.timer /etc/systemd/system/; rm /tmp/soc-backup.sh /tmp/soc-backup.exclude /tmp/soc-backup.service /tmp/soc-backup.timer; sudo systemctl daemon-reload'
 ```
    Asteptat: o cale (`/usr/bin/rrsync`), apoi nimic. Daca rrsync lipseste: stop, imi spui.
 3. web-prod — prima rulare:
@@ -82,6 +82,8 @@ ssh -t tiberiu@172.30.6.106 'sudo install -o root -g root -m 755 /tmp/soc-backup
 ssh -t tiberiu@172.30.6.106 'ssh -i ~/.ssh/soc-backup_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new soc-backup@192.168.10.138 "ls /"; echo "rc=$?"; sudo systemctl start soc-backup-pull.service; sudo journalctl -t soc-backup-pull -n 3 --no-pager; ls -l /var/backups/web-prod'
 ```
    Asteptat: refuz de la rrsync si rc != 0; apoi `OK <azi>` si cele 3 fisiere.
+   Atentie: "Restricted directory does not exist" NU e dovada restrictiei, ci semn ca
+   /var/backups/soc lipseste pe web-prod (prima rulare din 2026-10-28, corectata la pasul 2).
 9. es-node-1 — testul de restore (prima data descarca mariadb:10.11, ~400 MB):
 ```
 ssh -t tiberiu@172.30.6.106 'soc-backup-restore-test.sh'
