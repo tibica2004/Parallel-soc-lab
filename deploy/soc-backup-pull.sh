@@ -15,7 +15,7 @@ DAY=$(date +%F)
 log() { logger -t soc-backup-pull "$*"; }
 trap 'log "EROARE la linia $LINENO"' ERR
 
-rsync -a --chmod=D700,F600 -e "ssh -i $KEY -o BatchMode=yes -o IdentitiesOnly=yes" "$SRC:" "$DEST/"
+rsync -a --no-owner --no-group --chmod=D700,F600 -e "ssh -i $KEY -o BatchMode=yes -o IdentitiesOnly=yes" "$SRC:" "$DEST/"
 
 sums="SHA256SUMS-$DAY"
 if [ ! -f "$DEST/$sums" ]; then
