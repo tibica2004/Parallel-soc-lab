@@ -255,3 +255,7 @@ web-prod), harness-ul ajunge pe web-prod prin SSH.
 ssh -t tiberiu@<host> 'sudo systemctl disable --now soc-fw.service; sudo nft delete table inet soc_fw 2>/dev/null; sudo rm -f /etc/systemd/system/soc-fw.service /etc/soc/soc-fw.nft /usr/local/sbin/soc-fw-apply.sh; sudo systemctl daemon-reload; sudo nft list tables'
 ```
 Tabelele Docker (ip/ip6 nat, filter) raman neatinse.
+
+Rezultat 0.3 web-prod (2026-10-28): incarcat cu plasa de 10 min; SSH nou de la admin OK,
+HTTP local 200, SSH de pe es-node-1 OK, 22 inchis pentru atacator; soc-fw.service
+enabled + active, revert anulat.
