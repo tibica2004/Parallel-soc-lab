@@ -1,0 +1,7 @@
+// /etc/apt/apt.conf.d/52soc-unattended (pasul 0.2). Peste 50unattended-upgrades:
+// originile raman cele implicite (doar security + ESM security). Fara repornire automata:
+// un kernel nou se activeaza doar la repornirea facuta de om. Fiecare rulare in syslog,
+// ca sa ajunga in ES (logs-system.syslog-*) si sa poata fi numarata.
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::SyslogEnable "true";
+Unattended-Upgrade::SyslogFacility "daemon";

@@ -120,3 +120,86 @@ ssh -t tiberiu@172.30.6.106 'sudo systemctl disable --now soc-backup-pull.timer;
 ```
 Backup-urile deja facute (/var/backups/soc pe web-prod, /var/backups/web-prod pe
 es-node-1) NU se sterg in rollback; le stergi tu, daca vrei, cu `sudo rm -r`.
+
+Rezultat 0.1 (2026-10-28): backup OK (4 fisiere), cheia soc-backup refuza `ls /`
+(rrsync rc=1), pull OK cu sha256, restore OK (12 tabele in wp). De confirmat de om:
+nicio alerta de momeala dupa backup.
+
+## 0.2 Patch-uri (apt + WordPress controlat)
+
+Inspectie (2026-10-28): unattended-upgrades activ (doar security + ESM), 124 pachete
+de actualizat; wp-config.php `www-data:www-data 664` (citibil de oricine, modificabil
+de www-data); nicio constanta de update in wp-config -> WordPress se actualizeaza
+singur, necontrolat; webroot detinut de www-data.
+
+Decizii (implicite, schimbabile): proprietarul webroot-ului ramane www-data — un
+webroot nescriibil pentru www-data face scenariul fast `drop.php` (scenarios_fast.yml:25)
+sa nu mai reuseasca, deci poarta fast 4/4 ar pica; timer-ul de update porneste in
+APPLY=0 (doar raport), ca versiunile marcate vulnerabile in kb/wp_vulns.yml (faza 18)
+sa nu se schimbe fara decizia omului.
+
+### A. Fisiere (noi)
+- deploy/web-prod/52soc-unattended -> /etc/apt/apt.conf.d/: fara repornire automata,
+  rulari in syslog (originile raman cele implicite).
+- deploy/web-prod/soc-wp-update.py (+ .service/.timer, 02:00, User=www-data,
+  ProtectSystem=strict): APPLY=0 raporteaza update-urile disponibile; APPLY=1 aplica
+  core minor + slug-urile aprobate; fiecare schimbare = o linie in
+  /var/log/soc/benign-actions.ndjson. wp-cli apelat cu argv, slug-uri validate
+  (fara `--all` sau alte flaguri strecurate in lista).
+- deploy/web-prod/soc-wp-update.conf -> /usr/local/etc/ (APPLY=0, liste goale).
+- deploy/web-prod/soc-logrotate -> /etc/logrotate.d/soc (weekly, 8, copytruncate).
+- tests/test_soc_wp_update.py: 10 teste (config fara shell, slug-uri, inregistrari).
+- wp-config.php (modificat pe host, nu in repo): AUTOMATIC_UPDATER_DISABLED,
+  WP_AUTO_UPDATE_CORE=false, DISALLOW_FILE_EDIT; proprietar root:www-data 640.
+  Copie inainte in /var/backups/soc-pre-pas0/ (root 700, nu se trage pe es-node-1).
+
+### B. Comenzi (de pe elastic-lab)
+1. Copiere:
+```
+scp deploy/web-prod/soc-wp-update.py deploy/web-prod/soc-wp-update.service deploy/web-prod/soc-wp-update.timer deploy/web-prod/soc-wp-update.conf deploy/web-prod/soc-logrotate deploy/web-prod/52soc-unattended tiberiu@172.30.6.249:/tmp/
+```
+2. Instalare (copie wp-config inainte de orice schimbare):
+```
+ssh -t tiberiu@172.30.6.249 'set -e; sudo install -d -o root -g root -m 700 /var/backups/soc-pre-pas0; sudo cp -p /var/www/html/wp-config.php /var/backups/soc-pre-pas0/wp-config.php.$(date +%s); sudo install -d -o root -g root -m 755 /var/log/soc; sudo install -o www-data -g adm -m 640 /dev/null /var/log/soc/benign-actions.ndjson; sudo install -o www-data -g adm -m 640 /dev/null /var/log/soc/soc-wp-update.log; sudo install -o root -g root -m 755 /tmp/soc-wp-update.py /usr/local/bin/soc-wp-update.py; sudo install -o root -g root -m 644 /tmp/soc-wp-update.conf /usr/local/etc/soc-wp-update.conf; sudo install -o root -g root -m 644 /tmp/soc-logrotate /etc/logrotate.d/soc; sudo install -o root -g root -m 644 /tmp/52soc-unattended /etc/apt/apt.conf.d/52soc-unattended; sudo install -o root -g root -m 644 /tmp/soc-wp-update.service /tmp/soc-wp-update.timer /etc/systemd/system/; rm /tmp/soc-wp-update.py /tmp/soc-wp-update.service /tmp/soc-wp-update.timer /tmp/soc-wp-update.conf /tmp/soc-logrotate /tmp/52soc-unattended; sudo systemctl daemon-reload; sudo ls -l /var/backups/soc-pre-pas0'
+```
+3. wp-config.php (wp-cli `config set` nu incarca WordPress) + verificare ca site-ul merge:
+```
+ssh -t tiberiu@172.30.6.249 'set -e; W="sudo /usr/local/bin/wp --allow-root --path=/var/www/html"; $W config set AUTOMATIC_UPDATER_DISABLED true --raw --type=constant; $W config set WP_AUTO_UPDATE_CORE false --raw --type=constant; $W config set DISALLOW_FILE_EDIT true --raw --type=constant; sudo chown root:www-data /var/www/html/wp-config.php; sudo chmod 640 /var/www/html/wp-config.php; sudo php -l /var/www/html/wp-config.php; stat -c "%U:%G %a %n" /var/www/html/wp-config.php; curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost/'
+```
+   Asteptat: 3 x `Success: ...`, `No syntax errors detected`, `root:www-data 640`, `HTTP 200`.
+   Daca HTTP nu e 200: rollback-ul wp-config de mai jos, imediat.
+4. Prima rulare a update-ului (doar raport) + timer:
+```
+ssh -t tiberiu@172.30.6.249 'sudo systemctl start soc-wp-update.service; systemctl is-failed soc-wp-update.service; sudo tail -3 /var/log/soc/soc-wp-update.log; sudo cat /var/log/soc/benign-actions.ndjson; sudo systemctl enable --now soc-wp-update.timer'
+```
+   Asteptat: `inactive` (nu `failed`), linia `apply=False core=7.1.3 inregistrari=N` si N
+   linii `wp_update_available` (0 daca totul e la zi).
+5. unattended-upgrades:
+```
+ssh -t tiberiu@172.30.6.249 'apt-config dump | grep -E "Automatic-Reboot |SyslogEnable"; sudo unattended-upgrade --dry-run 2>&1 | tail -3'
+```
+6. es-node-1 — scriptul de pull corectat (fara proprietar/grup de pe web-prod):
+```
+scp deploy/soc-backup-pull.sh tiberiu@172.30.6.106:/tmp/
+ssh -t tiberiu@172.30.6.106 'sudo install -o root -g root -m 755 /tmp/soc-backup-pull.sh /usr/local/bin/ && rm /tmp/soc-backup-pull.sh && sudo systemctl start soc-backup-pull.service && ls -l /var/backups/web-prod'
+```
+
+### C. Verificare
+- Pasul 3: wp-config `root:www-data 640`, constantele prezente, site HTTP 200.
+- Pasul 4: serviciul nu e `failed`; benign-actions.ndjson are randurile asteptate.
+- Pasul 5: `Automatic-Reboot "false"`, `SyslogEnable "true"`; dry-run fara erori.
+- Modificarea wp-config.php (root, proces wp/php) poate aparea ca scriere in webroot in
+  sweep: se eticheteaza benign in interfata.
+- Fisierul benign-actions.ndjson ajunge in ES abia cand se adauga integrarea Custom Logs
+  (pasul 1, impreuna cu SBOM-ul).
+
+### D. Metrica
+patches_pending = randuri `wp_update_available` din ultima rulare + pachete de securitate
+in asteptare; calculata in 0.4. Acceptare: timer 3 nopti fara `failed`; WordPress nu se
+mai actualizeaza singur (versiunea se schimba doar cu APPLY=1).
+
+### E. Rollback
+```
+ssh -t tiberiu@172.30.6.249 'set -e; f=$(sudo ls -1 /var/backups/soc-pre-pas0/wp-config.php.* | tail -1); sudo cp -p "$f" /var/www/html/wp-config.php; sudo systemctl disable --now soc-wp-update.timer; sudo rm -f /etc/systemd/system/soc-wp-update.service /etc/systemd/system/soc-wp-update.timer /usr/local/bin/soc-wp-update.py /usr/local/etc/soc-wp-update.conf /etc/apt/apt.conf.d/52soc-unattended /etc/logrotate.d/soc; sudo systemctl daemon-reload; stat -c "%U:%G %a %n" /var/www/html/wp-config.php; curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost/'
+```
+(`cp -p` readuce si proprietarul/drepturile vechi. /var/log/soc ramane: il folosesc pasii urmatori.)

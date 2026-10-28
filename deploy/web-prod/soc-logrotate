@@ -1,0 +1,11 @@
+# /etc/logrotate.d/soc — jurnalele SOC de pe web-prod. copytruncate: scriitorii (www-data,
+# soc-sbom) nu pot crea fisiere noi in /var/log/soc, iar Elastic Agent urmareste acelasi fisier.
+/var/log/soc/*.log /var/log/soc/*.ndjson {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

@@ -1,0 +1,19 @@
+[Unit]
+Description=SOC - update-uri WordPress controlate (raport sau aplicare, vezi soc-wp-update.conf)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Proprietarul webroot-ului; fara root. wp-cli are nevoie de un cache scriibil.
+User=www-data
+Group=www-data
+Environment=WP_CLI_CACHE_DIR=/var/cache/soc-wp-update
+CacheDirectory=soc-wp-update
+ExecStart=/usr/bin/python3 /usr/local/bin/soc-wp-update.py
+ProtectSystem=strict
+ReadWritePaths=/var/www/html /var/log/soc
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+TimeoutStartSec=20min
