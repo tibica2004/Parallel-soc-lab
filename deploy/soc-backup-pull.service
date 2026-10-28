@@ -1,0 +1,15 @@
+[Unit]
+Description=Agentic SOC - copia offsite a backup-ului web-prod (pull, verificata sha256)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tiberiu
+ExecStart=/usr/local/bin/soc-backup-pull.sh
+ProtectSystem=strict
+ReadWritePaths=/var/backups/web-prod
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+Nice=10

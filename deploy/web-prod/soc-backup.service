@@ -1,0 +1,16 @@
+[Unit]
+Description=SOC - backup zilnic web-prod (baza wp, webroot, /etc/apache2, /etc/php)
+After=mariadb.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/soc-backup.sh
+# Citeste tot, scrie doar in directorul de backup.
+ProtectSystem=strict
+ReadWritePaths=/var/backups/soc
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+Nice=10
+IOSchedulingClass=idle
