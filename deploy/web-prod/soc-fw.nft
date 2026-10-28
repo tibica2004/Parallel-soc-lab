@@ -1,0 +1,31 @@
+#!/usr/sbin/nft -f
+# Firewall web-prod (pasul 0.3). Tabel propriu (inet soc_fw); tabelul pentru
+# block_ip_ttl (pasul 9, inet soc) va fi separat. Rollback = `nft delete table inet soc_fw`.
+# Suricata (af-packet) vede pachetele inainte de netfilter: scanarile blocate aici
+# raman vizibile senzorului.
+
+table inet soc_fw
+delete table inet soc_fw
+
+table inet soc_fw {
+    set admin_v4 {
+        type ipv4_addr
+        elements = { 172.20.99.220 }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+        meta l4proto icmp accept
+        icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert, packet-too-big, echo-request } accept
+        udp sport 67 udp dport 68 accept
+        tcp dport { 80, 443 } accept
+        # SSH: es-node-1 (harness, enrich, pull backup) si administrarea. Atacatorul NU
+        # (10.10.0.0/24): regula de brute-force SSH din faza 20 nu se mai poate testa de acolo.
+        ip saddr 192.168.10.121 tcp dport 22 accept
+        ip saddr @admin_v4 tcp dport 22 accept
+        limit rate 10/minute log prefix "soc-fw-drop " level info
+    }
+}

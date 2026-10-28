@@ -207,3 +207,51 @@ ssh -t tiberiu@172.30.6.249 'set -e; f=$(sudo sh -c "ls -1 /var/backups/soc-pre-
 (`cp -p` readuce si proprietarul/drepturile vechi. /var/log/soc ramane: il folosesc pasii urmatori.
 Globul se expandeaza sub sudo: directorul e root 700, iar ca tiberiu ramanea literal —
 prima rulare din 2026-10-28 s-a oprit la cp fara sa schimbe nimic.)
+
+Rezultat 0.2 (2026-10-28): wp-config `root:www-data 640` cu cele 3 constante, HTTP 200,
+timerele soc-wp-update si soc-backup enabled, primul raport: 0 update-uri disponibile.
+
+## 0.3 Firewall (web-prod si es-node-1)
+
+Decizii (implicite): administrare doar de la 172.20.99.220 (singura adresa vazuta pe
+ambele hosturi; daca elastic-lab vechi se opreste, recuperarea e prin consola OpenStack
+si se adauga noul IP in setul admin_v4). Portul 22 de pe web-prod NU e deschis
+atacatorului (B4); regula de brute-force SSH din faza 20 nu se mai poate testa de acolo.
+
+### A. Fisiere (noi)
+- deploy/web-prod/soc-fw.nft: input drop; permis lo, established, ICMP, DHCP, 80/443
+  de oriunde, 22 doar de la 192.168.10.121 si admin; drop-urile logate (soc-fw-drop).
+- deploy/es-node-1/soc-fw.nft: input drop; 22 si 8088 (etichetare) doar admin, 8220 din
+  192.168.10.0/24, retelele Docker catre host; lantul forward_guard (prioritate -10)
+  filtreaza porturile publicate de Docker: 9200 doar de la web-prod (.138) si benign-gen
+  (.150), 5601 doar admin, IPv6 spre 9200/5601 drop. Corectii fata de task: 9200 e
+  deschis pentru web-prod (agentul trimite direct in ES); filtrarea Docker nu poate sta
+  in INPUT; fara `flush ruleset` / nftables.service.
+- deploy/soc-fw-apply.sh: `nft -c`, programeaza stergerea tabelului peste 10 minute,
+  incarca; omul anuleaza stergerea doar dupa ce o sesiune SSH NOUA merge.
+- deploy/soc-fw.service: incarca tabelul la boot (inainte de retea), ExecStop il sterge.
+Ambele fisiere: validate cu `nft -c` si incarcate de doua ori intr-un namespace izolat
+(idempotente).
+
+### B. Comenzi — web-prod intai, apoi es-node-1. Testele din fiecare bloc in 10 minute.
+Vezi mesajul din conversatie pentru ordinea exacta; pe scurt, per host:
+copiere -> instalare + soc-fw-apply.sh -> teste dintr-o sesiune noua ->
+`systemctl stop soc-fw-revert.timer && systemctl enable --now soc-fw.service`.
+Daca un test pica: nu faci nimic, tabelul dispare singur in 10 minute.
+
+### C. Verificare
+web-prod: SSH nou de la admin; SSH de pe es-node-1 (harness, backup); HTTP 200 local;
+22 inchis pentru atacator. es-node-1: SSH nou; Kibana de la admin; de pe web-prod ES
+raspunde 401 si Fleet 200; de pe atacator ES nu raspunde; orchestratorul, tunelul LLM
+si containerele active; dupa 10 minute agentul web-prod Healthy in Fleet.
+
+### D. Metrica
+fw_dropped_24h = linii `soc-fw-drop` in logs-system.syslog-* per host (in 0.4).
+Acceptare: zero pierderi de telemetrie (agent Healthy, documente noi in logs-* de la
+web-prod), harness-ul ajunge pe web-prod prin SSH.
+
+### E. Rollback (per host)
+```
+ssh -t tiberiu@<host> 'sudo systemctl disable --now soc-fw.service; sudo nft delete table inet soc_fw 2>/dev/null; sudo rm -f /etc/systemd/system/soc-fw.service /etc/soc/soc-fw.nft /usr/local/sbin/soc-fw-apply.sh; sudo systemctl daemon-reload; sudo nft list tables'
+```
+Tabelele Docker (ip/ip6 nat, filter) raman neatinse.

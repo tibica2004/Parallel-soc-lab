@@ -1,0 +1,16 @@
+[Unit]
+Description=SOC - firewall propriu (tabel nft inet soc_fw, separat de Docker)
+# Ca nftables.service, dar fara `flush ruleset`: incarca doar tabelul propriu.
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/soc/soc-fw.nft
+ExecStop=/usr/sbin/nft delete table inet soc_fw
+
+[Install]
+WantedBy=sysinit.target
