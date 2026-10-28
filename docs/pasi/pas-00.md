@@ -56,7 +56,7 @@ ssh -t tiberiu@172.30.6.249 'set -e; command -v rrsync; sudo groupadd --system s
 ```
 ssh -t tiberiu@172.30.6.249 'sudo systemctl start soc-backup.service; sudo ls -l /var/backups/soc; sudo journalctl -t soc-backup -n 3 --no-pager'
 ```
-   Asteptat: db-<azi>.sql.gz, webroot-<azi>.tar.gz, SHA256SUMS-<azi> (root:soc-backup,
+   Asteptat: db-<azi>.sql.gz, grants-<azi>.sql.gz, webroot-<azi>.tar.gz, SHA256SUMS-<azi> (root:soc-backup,
    640) si linia `OK db=... web=...`.
 4. web-prod — timer:
 ```

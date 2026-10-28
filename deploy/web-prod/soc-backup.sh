@@ -20,20 +20,28 @@ trap 'log "EROARE la linia $LINENO"' ERR
 
 install -d -o root -g soc-backup -m 750 "$DEST"
 db="$DEST/db-$DAY.sql.gz"
+grants="$DEST/grants-$DAY.sql.gz"
 web="$DEST/webroot-$DAY.tar.gz"
 
-mysqldump --single-transaction --routines --events --all-databases | gzip > "$db.tmp"
+# Doar bazele aplicatiei: schema de sistem `mysql` nu se restaureaza sigur peste un
+# server pornit (testul din 2026-10-28 a cazut pe ea). Conturile si drepturile merg
+# separat, ca CREATE USER/GRANT (--system=users).
+mapfile -t dbs < <(mysql -N -e "SHOW DATABASES" | grep -Ev '^(information_schema|performance_schema|mysql|sys)$')
+mysqldump --single-transaction --routines --events --databases "${dbs[@]}" | gzip > "$db.tmp"
 mv "$db.tmp" "$db"
+mysqldump --system=users | gzip > "$grants.tmp"
+mv "$grants.tmp" "$grants"
 
 tar -czf "$web.tmp" --exclude-from="$EXCLUDE" -C / var/www/html etc/apache2 etc/php
 mv "$web.tmp" "$web"
 
 # Integritate inainte de a declara OK: arhivele se pot citi cap-coada.
 gzip -t "$db"
+gzip -t "$grants"
 tar -tzf "$web" >/dev/null
-(cd "$DEST" && sha256sum "$(basename "$db")" "$(basename "$web")" > "SHA256SUMS-$DAY")
-chgrp soc-backup "$db" "$web" "$DEST/SHA256SUMS-$DAY"
-chmod 640 "$db" "$web" "$DEST/SHA256SUMS-$DAY"
+(cd "$DEST" && sha256sum "$(basename "$db")" "$(basename "$grants")" "$(basename "$web")" > "SHA256SUMS-$DAY")
+chgrp soc-backup "$db" "$grants" "$web" "$DEST/SHA256SUMS-$DAY"
+chmod 640 "$db" "$grants" "$web" "$DEST/SHA256SUMS-$DAY"
 
 find "$DEST" -maxdepth 1 -type f -name '*-20*' -mtime +"$KEEP_DAYS" -delete
 log "OK db=$(stat -c%s "$db") web=$(stat -c%s "$web")"
