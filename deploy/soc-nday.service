@@ -1,0 +1,19 @@
+[Unit]
+Description=Agentic SOC - N-day watch (corelatie SBOM web-prod vs. OSV/NVD/WPScan)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# Citeste ultimul SBOM din logs-soc.sbom-* (colectat de soc-sbom pe web-prod, 1.A),
+# interogheaza OSV/NVD pentru Apache/PHP/WP-core si WPScan pentru plugin-uri/teme,
+# si scrie asta: asset-vulns (idempotent, _id fix) + hunt_request/patch_request in
+# soc-incidents. Niciun model implicat, nimic executat pe hosturi. Retea DOAR catre
+# baze publice de vulnerabilitati (es-node-1 are iesire; web-prod nu — R16/G4).
+ExecStart=/home/tiberiu/lab/venv/bin/python nday_watch.py
+TimeoutStartSec=20min
+Nice=10

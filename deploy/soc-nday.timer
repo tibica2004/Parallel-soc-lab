@@ -1,0 +1,13 @@
+[Unit]
+Description=Agentic SOC - N-day watch zilnic (04:00)
+
+[Timer]
+# Zilnic la 04:00, dupa ce soc-sbom (web-prod, 03:00) a produs inventarul si Fleet
+# l-a dus in logs-soc.sbom-*. O ora de margine e suficienta pentru preluare.
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=5min
+# Dupa o oprire a masinii, ruleaza o data la pornire in loc sa sara peste.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
