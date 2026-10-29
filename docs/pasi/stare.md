@@ -51,9 +51,27 @@ confirmat ca sink, agregabil pe type.keyword, cheile ES_METRICS_WRITER + ES_READ
 nday aliniat la @timestamp (ca orchestratorul). Gol pentru pasul 7: docurile orchestrator
 nu au `type` (666/672) — de adaugat type="cycle" la write_cycle_metrics. Detalii: pas-01c.md.
 
-Urmatorul in ordinea D3 (... -> 1c[FACUT] -> 3 -> 2 -> ...): PASUL 3 = detectie
-comportamentala fara semnatura (reguli EQL), honeytokens, monitor de integritate, sweep de
-raritate. Nucleul defensiv, cel mai mare pas. Draft A-E in pas-03.md.
+PASUL 3.A IN CURS (2026-10-29): reguli comportamentale fara semnatura. COD GATA + testat
+(124 teste) + commitat (a73f95d, 9f634f0, 9af9647): behavioral_rules.py (6 reguli EQL:
+web->shell, PHP in webroot, www-data exec nevazut, outbound nou, scriere in afara webroot,
+citire /etc/shadow via auditd), build_whitelists.py (liste albe din baseline 7z, cu
+NEVER_WHITELIST care exclude recon - baseline contaminat de atac), escalation.BEHAVIORAL,
+importer extins. DEPLOYAT pe es-node-1 (scp, sha256 verificat; divergenta investigata =
+doar modificarile mele 3.A, es-node-1 era baza curata). Liste albe generate+curatate pe
+es-node-1: wwwdata_exec=[dash, php8.3] (id/env excluse ca recon), 8 egress externe.
+soc-orchestrator = Type=simple (cod vechi pana la restart).
+
+RAMAS de facut de om pentru 3.A (nu pot: parola elastic / Fleet / sudo):
+- Step 2: import reguli in Kibana: `ssh tiberiu@172.30.6.106 'cd ~/lab && source env.sh &&
+  python3 deploy/kibana/honeytoken_rules.py verifica'` apoi `... aplica` (contul elastic).
+- Step 3: regula auditd pe web-prod (ca regula f sa alerteze): in policy auditd_manager (Fleet)
+  `-a always,exit -F arch=b64 -S openat,open -F path=/etc/shadow -F perm=r -F uid=<www-data> -k soc_shadow_read`.
+- Step 4: `ssh -t tiberiu@172.30.6.106 'sudo systemctl restart soc-orchestrator'` (activeaza
+  escaladarea BEHAVIORAL; pana atunci podelele fast_path escaladeaza oricum alertele web).
+Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
+
+Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
+3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
 ## Sesiune 2026-10-29 (continuare): acces de pe boxa veche + constatari retea
 
