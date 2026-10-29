@@ -33,11 +33,14 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import behavioral_rules as B  # noqa: E402
 import honeytokens as H  # noqa: E402
 import sensor_rules as S  # noqa: E402
 
 # rule_id -> functia care ii construieste corpul
-ALL = {**{rid: H.kibana_payload for rid in H.RULES}, **{rid: S.kibana_payload for rid in S.RULES}}
+ALL = {**{rid: H.kibana_payload for rid in H.RULES},
+       **{rid: S.kibana_payload for rid in S.RULES},
+       **{rid: B.kibana_payload for rid in B.RULES}}
 
 KIBANA_URL = os.environ.get("KIBANA_URL", "http://localhost:5601")
 RULES_API = "/api/detection_engine/rules"
