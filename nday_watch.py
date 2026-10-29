@@ -524,7 +524,9 @@ def write_metrics(es: Elasticsearch | None, metrics: dict) -> None:
         log.warning("fara ES_METRICS_WRITER_API_KEY; sar peste metrici: %s",
                     json.dumps(metrics))
         return
-    doc = {"type": "nday", "ts": now_iso(), **metrics}
+    # @timestamp (nu ts): campul standard Kibana, acelasi pe care il scrie orchestratorul,
+    # ca metricile nday sa apara pe aceeasi axa de timp in dashboard (pasul 7).
+    doc = {"type": "nday", "@timestamp": now_iso(), **metrics}
     try:
         es.index(index=METRICS_INDEX, document=doc)
     except Exception as e:  # noqa: BLE001 — metricile nu trebuie sa opreasca rularea

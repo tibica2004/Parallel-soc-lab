@@ -26,7 +26,7 @@ Constatari pe parcurs:
 - web-prod fara IPv6 global; licenta ES = basic (fara conectori email/webhook in Kibana).
 - es-node-1 are un singur disc: copia de backup sta langa ES (exceptie temporara).
 
-## PASUL 0 COMPLET + PASUL 1 COMPLET (SBOM + N-day watch). Urmatorul: PASUL 1c -> 3
+## PASUL 0 + 1 + 1c COMPLET (SBOM, N-day watch, soc-metrics). Urmatorul: PASUL 3
 
 Pasul 0 (protectie imediata) e inchis si verificat pe hosturi. Rezumat raport PASUL 0:
 - 0.1 backup zilnic web-prod + copie trasa pe es-node-1 (cheie doar rrsync -ro) + restore test.
@@ -46,9 +46,14 @@ pentru Apache/PHP/WP core, WPScan pentru plugin-uri) -> asset-vulns (224 vulns, 
 + hunt/patch_request plafonat in soc-incidents (10+10). soc-nday.timer 04:00. Detalii si
 acceptare in docs/pasi/pas-01.md.
 
-Urmatorul in ordinea D3 (1 -> 1b[FACUT: soc-reader] -> 1c -> 3 -> 2 -> ...): PASUL 1c =
-index soc-metrics formalizat + cheie ES_METRICS_WRITER (deja exista si scrie); apoi PASUL 3
-(detectie comportamentala, honeytokens, integritate). Detalii A-E: de scris in pas-03.md.
+PASUL 1c FACUT (2026-10-29): soc-metrics exista deja si e scris de orchestrator (672 docs);
+confirmat ca sink, agregabil pe type.keyword, cheile ES_METRICS_WRITER + ES_READER OK.
+nday aliniat la @timestamp (ca orchestratorul). Gol pentru pasul 7: docurile orchestrator
+nu au `type` (666/672) — de adaugat type="cycle" la write_cycle_metrics. Detalii: pas-01c.md.
+
+Urmatorul in ordinea D3 (... -> 1c[FACUT] -> 3 -> 2 -> ...): PASUL 3 = detectie
+comportamentala fara semnatura (reguli EQL), honeytokens, monitor de integritate, sweep de
+raritate. Nucleul defensiv, cel mai mare pas. Draft A-E in pas-03.md.
 
 ## Sesiune 2026-10-29 (continuare): acces de pe boxa veche + constatari retea
 
