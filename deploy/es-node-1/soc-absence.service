@@ -1,0 +1,15 @@
+[Unit]
+Description=Agentic SOC - alerte de absenta (backup vechi, orchestrator/tunel cazut, canar lipsa)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# Nu atinge niciun host; doar citeste ES (read-only), citeste starea serviciilor locale
+# si trimite un pointer pe Discord. Iesirea != 0 doar cand ES e de neatins.
+ExecStart=/home/tiberiu/lab/venv/bin/python absence_check.py
+Nice=10

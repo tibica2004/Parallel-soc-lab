@@ -273,3 +273,77 @@ TCP din web-prod + Healthy in Fleet UI, nu /api/status:
   web-prod: `timeout 5 bash -c "echo > /dev/tcp/192.168.10.121/8220" && echo open` -> open.
 `.fleet-agents` e index restrictionat: ES_API_KEY (read-only) ia 403 pe el; starea
 Healthy a agentului se confirma vizual in Kibana -> Fleet, nu din cod cu cheia curenta.
+
+## 0.4 Notificare umana (Discord)
+
+Licenta ES = basic, deci fara conectori email/webhook in Kibana. Notificarea trece
+printr-un webhook Discord apelat din Python pe es-node-1. Secretul (URL-ul webhook) sta
+DOAR in soc.env pe es-node-1 (R16): nu in repo, nu pe web-prod. Egress HTTPS catre
+discord.com e liber (soc_fw are doar chain-uri input/forward, output e accept).
+
+Abatere motivata fata de B3: notify_human() e in notify.py, NU in policy.py. policy.py
+e cod pur (nu atinge reteaua, e testabil); un POST HTTP acolo i-ar strica contractul.
+
+### A. Fisiere
+Noi:
+- notify.py: notify_human(title, detail, severity, dedup_key, dedup_minutes, host) ->
+  POST pe Discord, pointer scurt (severitate, regula, host, case_id, "vezi Kibana"),
+  NU telemetrie bruta (R7). Fara webhook -> no-op (log + False), nu crapa. Dedup per
+  cheie (implicit 15 min) in data/notify-dedup.json (ignorat de git), fail-open. Orice
+  eroare de retea e prinsa: notify_human nu ridica exceptie. `python notify.py` = test.
+  maybe_notify_escalation(): pagineaza DOAR escaladarile critice (honeytoken,
+  sensor_detection, native_detection), dedup per chain_id.
+- absence_check.py: ruleaza pe es-node-1 (timer la 10 min). Trei verificari independente:
+  backup `soc-backup OK` > 26 h; `systemctl is-active` soc-orchestrator/soc-llm-tunnel
+  != active; canar soc-canary > 12 min. Iesire 1 doar cand ES e de neatins.
+- deploy/es-node-1/soc-absence.service (oneshot, User=tiberiu, EnvironmentFile=soc.env).
+- deploy/es-node-1/soc-absence.timer (OnCalendar=*:0/10, Persistent).
+
+Diff:
+- orchestrator.py: `import notify`; in persist(), dupa scrierea in soc-audit, apel
+  notify.maybe_notify_escalation(...) sub try/except (o notificare esuata nu stirbeste
+  auditul). Merge si in shadow. Nu ruleaza in dry-run (persist iese devreme fara WRITER).
+- soc.env.example / env.sh.example: SOC_DISCORD_WEBHOOK documentat (fara valoare reala).
+
+### B. Comenzi (pe es-node-1; de facut de om intai: webhook Discord in soc.env)
+Prerequisit (om): Server Discord -> Settings -> Integrations -> Webhooks -> New Webhook
+-> Copy URL. Apoi pe es-node-1, adauga in /home/tiberiu/lab/soc.env:
+  SOC_DISCORD_WEBHOOK=https://discord.com/api/webhooks/XXXX/YYYY
+Deploy (din copia de dezvoltare, dupa `git pull` pe es-node-1 SAU scp fisierele):
+  scp notify.py absence_check.py tiberiu@172.30.6.106:/home/tiberiu/lab/
+  scp deploy/es-node-1/soc-absence.{service,timer} tiberiu@172.30.6.106:/tmp/
+  scp orchestrator.py tiberiu@172.30.6.106:/home/tiberiu/lab/
+Instalare pe es-node-1:
+  sudo install -m 644 /tmp/soc-absence.service /etc/systemd/system/soc-absence.service
+  sudo install -m 644 /tmp/soc-absence.timer   /etc/systemd/system/soc-absence.timer
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now soc-absence.timer
+  sudo systemctl restart soc-orchestrator   # preia import notify + apelul din persist
+Test manual (trimite o notificare reala):
+  cd ~/lab && source env.sh && python notify.py "test 0.4 din es-node-1"
+
+### C. Verificare
+- python notify.py "..." -> primesti mesajul pe Discord in < 1 min (exit 0).
+- fara webhook in mediu: python notify.py -> "SOC_DISCORD_WEBHOOK nesetat ... sarita",
+  exit 1, fara exceptie.
+- absence: oprire scurta aprobata a unui serviciu de test NU pe productie; in schimb,
+  ruleaza o data manual si verifica journalul:
+  sudo systemctl start soc-absence.service; journalctl -u soc-absence -n 20 --no-pager
+  -> linii "backup OK/vechi", "serviciu ... active", "canar OK/vechi".
+- test absenta backup (optional, aprobat): seteaza ABSENCE_BACKUP_MAX_AGE_H=0 intr-o
+  rulare manuala -> pagina "Backup vechi" pe Discord (prag artificial, nu schimba timer-ul).
+- escaladare critica: la urmatoarea atingere de momeala (0.4 din pasul 3, honeytoken) /
+  detectie de senzor, orchestratorul trimite si el o notificare (dedup per case_id).
+  Pana la pasul 3, se poate exercita cu un verdict sintetic (vezi testul din conversatie).
+
+### D. Metrica
+notifications_sent_24h (linii "notificare trimisa" in journalctl -u soc-absence +
+-u soc-orchestrator). Acceptare: notificarea de test ajunge in < 3 min; absence_check
+ruleaza la 10 min fara exceptii (exit 0) cand ES e sus; dedup tine (acelasi kind nu se
+repeta sub fereastra lui).
+
+### E. Rollback
+  ssh -t tiberiu@172.30.6.106 'sudo systemctl disable --now soc-absence.timer; sudo rm -f /etc/systemd/system/soc-absence.service /etc/systemd/system/soc-absence.timer; sudo systemctl daemon-reload'
+Scoate SOC_DISCORD_WEBHOOK din soc.env; revert diff orchestrator.py (import notify +
+apelul din persist); rm notify.py absence_check.py. Orchestratorul merge si fara webhook
+(notify_human devine no-op), deci revert-ul import-ului nu e urgent.

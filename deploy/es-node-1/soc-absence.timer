@@ -1,0 +1,12 @@
+[Unit]
+Description=Agentic SOC - verificarea alertelor de absenta la 10 min
+
+[Timer]
+OnCalendar=*:0/10
+# Jitter mic: nu pornim exact la fix odata cu toate celelalte timere.
+RandomizedDelaySec=1min
+# Dupa o oprire a masinii, ruleaza o data la pornire in loc sa sara peste.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

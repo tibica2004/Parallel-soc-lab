@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 import case_adapter
 import degraded
 import honeytokens
+import notify
 import sensor_rules
 import tracing
 from escalation import EscalationDecision, should_escalate
@@ -264,6 +265,16 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     adoc = audit.model_dump(mode="json")
     adoc["@timestamp"] = finished.isoformat()
     WRITER.index(index=AUDIT_IDX, document=adoc)
+
+    # 0.4: pagineaza omul DOAR pentru escaladarile critice (momeala/senzor/detectie
+    # nativa). Merge si in shadow (vrei sa stii ca s-a atins momeala, chiar fara actiune).
+    # Garda: o eroare de notificare nu are voie sa strice calea de audit.
+    try:
+        notify.maybe_notify_escalation(verdict, narrative, escalation, failure,
+                                       rule_name=(extra or {}).get("rule_name"),
+                                       shadow=decision.shadow_mode)
+    except Exception as e:
+        print(f"    [notificare esuata, audit scris] {e}", flush=True)
 
 
 def show(kind: str, entity: str, verdict, narrative: str, decision=None,

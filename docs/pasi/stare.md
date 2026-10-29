@@ -22,20 +22,27 @@ Constatari pe parcurs:
 - web-prod fara IPv6 global; licenta ES = basic (fara conectori email/webhook in Kibana).
 - es-node-1 are un singur disc: copia de backup sta langa ES (exceptie temporara).
 
-## Urmatorul pas: 0.4 notificari umane (NERULAT)
+## 0.4 notificari umane (COD SCRIS, deploy in asteptarea webhook-ului)
 
-0.3 e inchis pe ambele hosturi (vezi tabelul de mai sus si pas-00.md).
+Canal ales: Discord (webhook de canal, nu Telegram — un singur secret, fara bot).
+Cod scris si testat local (py_compile + import + logica maybe_notify_escalation):
+- notify.py (notify_human + maybe_notify_escalation), absence_check.py (backup>26h,
+  servicii locale, canar), deploy/es-node-1/soc-absence.{service,timer}.
+- diff orchestrator.py: import notify + apel in persist() sub try/except (merge si shadow).
+- soc.env.example/env.sh.example: SOC_DISCORD_WEBHOOK documentat. Detalii A-E in pas-00.md.
 
-0.4: licenta ES e basic -> fara conectori email/webhook in Kibana, deci notificarea
-trece printr-un bot Telegram apelat din Python pe es-node-1. De pregatit:
-- Bot @BotFather: token + chat_id, pusi DOAR in env.sh pe es-node-1 (nu in repo, nu pe
-  web-prod — R16).
-- functie notify_human() apelabila din orchestrator (escalate_human severity critical,
-  dedup 15 min per case_id) si dintr-un script de "alerte de absenta".
-- alerte de absenta (fara conector Kibana): script/timer pe es-node-1 care verifica si
-  trimite pe Telegram: backup > 26 h (ultimul `soc-backup OK` in logs-system.syslog-*),
-  orchestrator fara scriere recenta (soc-audit/heartbeat), canar lipsa.
-Detalii si format A-E: de scris in pas-00.md la 0.4 inainte de rulare.
+RAMAS de facut de om inainte de deploy (drum critic 0.4):
+1. Creeaza webhook Discord (Server Settings -> Integrations -> Webhooks -> Copy URL).
+2. Pe es-node-1, adauga in /home/tiberiu/lab/soc.env:
+     SOC_DISCORD_WEBHOOK=https://discord.com/api/webhooks/XXXX/YYYY
+3. Deploy + instalare timer + restart orchestrator (comenzile B din pas-00.md 0.4).
+4. Test: `cd ~/lab && source env.sh && python notify.py "test 0.4"` -> mesaj pe Discord.
+
+## Urmatorul pas dupa 0.4: 0.5 hardening Apache (NERULAT)
+
+0.5 (fara dependenta externa): ServerTokens Prod, ServerSignature Off, TraceEnable Off,
+corectare ServerName la 192.168.10.138, xmlrpc.php blocat la nivel Apache daca nu e
+folosit. Fiecare schimbare cu backup .pre-pas0 inainte. Apoi: raport PASUL 0.
 
 ## De facut de om (oricand)
 
