@@ -259,3 +259,17 @@ Tabelele Docker (ip/ip6 nat, filter) raman neatinse.
 Rezultat 0.3 web-prod (2026-10-28): incarcat cu plasa de 10 min; SSH nou de la admin OK,
 HTTP local 200, SSH de pe es-node-1 OK, 22 inchis pentru atacator; soc-fw.service
 enabled + active, revert anulat.
+
+Rezultat 0.3 es-node-1 (2026-10-29): incarcat cu plasa de 10 min, apoi permanentizat
+(soc-fw.service enabled + active). SSH nou de la admin OK; ES de pe web-prod 401 cu
+telemetrie vie (logs-* _count=453 in ultimele 5 min); ES de pe atacator BLOCKED; stiva
+(es01, kibana, soc-orchestrator, soc-llm-tunnel) activa.
+
+Atentie la verificare: proba `curl https://.:8220/api/status` da 000 CHIAR si de pe
+es-node-1 (localhost si .121), pentru ca Fleet Server reseteaza handshake-ul TLS pentru
+un client fara certificat — e artefact de proba, NU blocaj de firewall. 8220 asculta pe
+*:8220 si INPUT permite 192.168.10.0/24. Verificarea corecta pentru 8220 e reachability
+TCP din web-prod + Healthy in Fleet UI, nu /api/status:
+  web-prod: `timeout 5 bash -c "echo > /dev/tcp/192.168.10.121/8220" && echo open` -> open.
+`.fleet-agents` e index restrictionat: ES_API_KEY (read-only) ia 403 pe el; starea
+Healthy a agentului se confirma vizual in Kibana -> Fleet, nu din cod cu cheia curenta.

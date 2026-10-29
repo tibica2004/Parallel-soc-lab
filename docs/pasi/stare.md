@@ -1,4 +1,4 @@
-# Stare: extinderea defensiva (plan-0day) — oprit la 2026-10-28
+# Stare: extinderea defensiva (plan-0day) — oprit la 2026-10-29
 
 Ramura: faza-21-protectie (nepublicata, fara push). Planul complet: docs/plan-0day.md.
 Detaliile pasului 0 (fisiere, comenzi, verificare, metrica, rollback): docs/pasi/pas-00.md.
@@ -13,6 +13,7 @@ prin IP-urile flotante: es-node-1 172.30.6.106, web-prod 172.30.6.249, atacator 
 | 0.1 Backup | web-prod: soc-backup.timer 01:30 (baza wp + grants + webroot, sha256, 14 zile); es-node-1: soc-backup-pull.timer 02:15 (cheie soc-backup doar `rrsync -ro`, 30 zile); soc-backup-restore-test.sh | backup OK, cheia refuza `ls /`, pull OK, restore 12 tabele |
 | 0.2 Patch-uri | unattended-upgrades fara reboot + syslog; WordPress fara auto-update (AUTOMATIC_UPDATER_DISABLED, WP_AUTO_UPDATE_CORE=false, DISALLOW_FILE_EDIT); wp-config root:www-data 640; soc-wp-update.timer 02:00 in mod raport (APPLY=0) | HTTP 200, 0 update-uri disponibile |
 | 0.3 web-prod | firewall nft `inet soc_fw` (soc-fw.service): 80/443 oricine, 22 doar es-node-1 + 172.20.99.220 | SSH admin OK, SSH de pe es-node-1 OK, 22 inchis pentru atacator |
+| 0.3 es-node-1 | firewall nft `inet soc_fw` (soc-fw.service): 22/5601/8088 doar admin, 8220 din es-net, forward_guard filtreaza Docker (9200 doar web-prod+benign-gen, 5601 doar admin, IPv6 9200/5601 drop) | SSH admin OK, ES de pe web-prod 401 + telemetrie vie (_count=453/5min), ES de pe atacator BLOCKED, 8220 TCP open din web-prod, stiva activa; agent Healthy = de confirmat in Fleet UI |
 
 Constatari pe parcurs:
 - Ollama pe GPU asculta pe 0.0.0.0:11434 (setat explicit; modelele sunt in /home/laura).
@@ -21,12 +22,20 @@ Constatari pe parcurs:
 - web-prod fara IPv6 global; licenta ES = basic (fara conectori email/webhook in Kibana).
 - es-node-1 are un singur disc: copia de backup sta langa ES (exceptie temporara).
 
-## Urmatorul pas: 0.3 pe es-node-1 (NERULAT)
+## Urmatorul pas: 0.4 notificari umane (NERULAT)
 
-Comenzile E1-E4 (copiere, incarcare cu stergere automata la 10 min, teste, permanentizare)
-sunt in conversatie si rezumate in pas-00.md la 0.3. Testele critice: "ES de pe web-prod"
-= 401 si `_count` pe logs-* de la web-prod > 0 (altfel firewall-ul ar taia telemetria).
-Daca un test pica: NU rulezi E4; tabelul dispare singur in 10 minute.
+0.3 e inchis pe ambele hosturi (vezi tabelul de mai sus si pas-00.md).
+
+0.4: licenta ES e basic -> fara conectori email/webhook in Kibana, deci notificarea
+trece printr-un bot Telegram apelat din Python pe es-node-1. De pregatit:
+- Bot @BotFather: token + chat_id, pusi DOAR in env.sh pe es-node-1 (nu in repo, nu pe
+  web-prod — R16).
+- functie notify_human() apelabila din orchestrator (escalate_human severity critical,
+  dedup 15 min per case_id) si dintr-un script de "alerte de absenta".
+- alerte de absenta (fara conector Kibana): script/timer pe es-node-1 care verifica si
+  trimite pe Telegram: backup > 26 h (ultimul `soc-backup OK` in logs-system.syslog-*),
+  orchestrator fara scriere recenta (soc-audit/heartbeat), canar lipsa.
+Detalii si format A-E: de scris in pas-00.md la 0.4 inainte de rulare.
 
 ## De facut de om (oricand)
 
