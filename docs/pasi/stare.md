@@ -60,6 +60,10 @@ importer extins. DEPLOYAT pe es-node-1 (scp, sha256 verificat; divergenta invest
 doar modificarile mele 3.A, es-node-1 era baza curata). Liste albe generate+curatate pe
 es-node-1: wwwdata_exec=[dash, php8.3] (id/env excluse ca recon), 8 egress externe.
 soc-orchestrator = Type=simple (cod vechi pana la restart).
+VERIFICAT pe host 2026-10-29: cele 6 reguli `pornita` in Kibana (verifica); test live
+`sudo -u www-data /usr/bin/uptime` pe web-prod -> soc-wwwdata-unexpected-exec a declansat
+in ~1 min (sev high, tags soc-behavioral+shadow-review). Detectia fara semnatura merge
+end-to-end; curatarea listei albe confirmata (uptime neinclus -> alerta; dash/php8.3 nu).
 
 RAMAS de facut de om pentru 3.A (nu pot: parola elastic / Fleet / sudo):
 - Step 2: import reguli in Kibana: `ssh tiberiu@172.30.6.106 'cd ~/lab && source env.sh &&
