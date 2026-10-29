@@ -1,0 +1,10 @@
+# /etc/logrotate.d/soc-sbom — SBOM NDJSON preluat de Fleet Custom Logs.
+/var/log/soc/sbom.ndjson {
+    daily
+    rotate 14
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 soc-sbom adm
+}

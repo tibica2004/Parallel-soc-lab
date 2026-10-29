@@ -1,0 +1,16 @@
+[Unit]
+Description=SOC - colector SBOM (inventar componente web-prod, pas 1)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=soc-sbom
+ExecStart=/usr/local/bin/soc-sbom.sh
+# Scrie doar in /var/log/soc; restul sistemului e read-only. Fara retea, fara privilegii.
+ProtectSystem=strict
+ReadWritePaths=/var/log/soc
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+Nice=15
