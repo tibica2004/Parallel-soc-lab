@@ -347,3 +347,53 @@ repeta sub fereastra lui).
 Scoate SOC_DISCORD_WEBHOOK din soc.env; revert diff orchestrator.py (import notify +
 apelul din persist); rm notify.py absence_check.py. Orchestratorul merge si fara webhook
 (notify_human devine no-op), deci revert-ul import-ului nu e urgent.
+
+## 0.5 Hardening Apache (web-prod)
+
+Inspectie (2026-10-29): Apache 2.4.58 (Ubuntu); un singur vhost *:80 -> 192.168.10.138
+(000-default.conf, fara ServerName -> AH00558). security.conf: ServerTokens OS,
+ServerSignature On, TraceEnable Off. Antet: `Server: Apache/2.4.58 (Ubuntu)`. Nicio
+scurgere de Location (migrarea a reparat deja vhost-ul; 172.20.99.240 nu mai apare).
+xmlrpc.php: 0 hituri in access.log -> fara clienti legitimi. Nu atingem disable_functions
+(decizie anterioara: ar pica portile harness) si nici proprietarul webroot.
+
+### A. Fisiere (noi)
+- deploy/web-prod/soc-hardening.conf: drop-in incarcat dupa security.conf. ServerTokens
+  Prod, ServerSignature Off, TraceEnable Off, ServerName 192.168.10.138 (UseCanonicalName
+  ramane Off, ca redirectarile prin IP flotant sa nu se rupa), bloc `<Files xmlrpc.php>`
+  Require all denied. Niciun fisier al distributiei nu e modificat.
+
+### B. Comenzi (web-prod; reload, nu restart)
+  scp deploy/web-prod/soc-hardening.conf tiberiu@172.30.6.249:/tmp/
+  ssh -t tiberiu@172.30.6.249 '
+    sudo install -m 644 /tmp/soc-hardening.conf /etc/apache2/conf-available/soc-hardening.conf &&
+    sudo a2enconf soc-hardening &&
+    sudo apache2ctl configtest &&
+    sudo systemctl reload apache2 &&
+    rm -f /tmp/soc-hardening.conf'
+configtest trebuie sa dea "Syntax OK" (si fara AH00558, acum ca ServerName e setat).
+Daca configtest NU da OK: NU face reload; a2disconf soc-hardening si raporteaza.
+
+### C. Verificare
+  ssh tiberiu@172.30.6.249 '
+    echo "== Server header =="; curl -sI http://127.0.0.1/ | grep -i "^Server:"
+    echo "== site inca 200 =="; curl -sI http://127.0.0.1/ | head -1
+    echo "== xmlrpc 403 =="; curl -sI http://127.0.0.1/xmlrpc.php | head -1
+    echo "== semnatura in pagina 404 (nu trebuie versiune) =="; curl -s http://127.0.0.1/no-such-xyz | grep -i apache || echo "fara semnatura"'
+Asteptat: `Server: Apache` (fara versiune/OS); prima linie 200 (sau redirect ca inainte);
+xmlrpc 403; pagina 404 fara "Apache/2.4.58 (Ubuntu)".
+
+### D. Metrica
+Semnatura ascunsa (Server: Apache), xmlrpc.php -> 403, site functional (200). Acceptare:
+toate cele trei; benign/WordPress normal neafectat. (Scriere in benign-ground-truth
+action:hardening -- abia la pasul 4, cand indexul exista; acum nu e necesar, regulile
+3.x inca nu exista ca sa dea fals pozitiv.)
+
+### E. Rollback
+  ssh -t tiberiu@172.30.6.249 'sudo a2disconf soc-hardening; sudo systemctl reload apache2; sudo rm -f /etc/apache2/conf-available/soc-hardening.conf'
+Nu atinge security.conf sau vhost-ul (nemodificate). Apache revine exact la starea de dinainte.
+
+### Optional (nu in 0.5): fail2ban log-only pe wp-login.php
+B5 mentiona limitare la wp-login.php (fail2ban/mod_evasive in mod log-only pana la pasul
+9). E mai involved si separat de semnatura/xmlrpc; il tratam ca follow-up, nu blocheaza
+raportul PASUL 0.
