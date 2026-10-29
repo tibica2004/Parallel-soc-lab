@@ -29,7 +29,8 @@ class EscalationDecision(BaseModel):
 
 def should_escalate(v: Verdict, *, floor_applied: bool,
                     pair_in_baseline: bool | None, native_detection: bool = False,
-                    honeytoken: bool = False, sensor_detection: bool = False) -> EscalationDecision:
+                    honeytoken: bool = False, sensor_detection: bool = False,
+                    behavioral: bool = False) -> EscalationDecision:
     r: list[EscalationReason] = []
     c = v.classification
     if c is Classification.UNDETERMINED:
@@ -53,4 +54,7 @@ def should_escalate(v: Verdict, *, floor_applied: bool,
         r.append(EscalationReason.HONEYTOKEN)
     if sensor_detection:
         r.append(EscalationReason.SENSOR_DETECTION)
+    # Regula comportamentala fara semnatura: lantul de exploatare nu se inchide pe Tier 1.
+    if behavioral:
+        r.append(EscalationReason.BEHAVIORAL)
     return EscalationDecision(escalate=bool(r), reasons=r)

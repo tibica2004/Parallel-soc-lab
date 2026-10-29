@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 
 import case_adapter
 import degraded
+import behavioral_rules
 import honeytokens
 import notify
 import sensor_rules
@@ -581,7 +582,8 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                                               pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
                                               native_detection=bool((out.get("context") or {}).get("native_detection")),
                                               honeytoken=honeytokens.is_honeytoken(a),
-                                              sensor_detection=sensor_rules.is_sensor_alert(a))
+                                              sensor_detection=sensor_rules.is_sensor_alert(a),
+                                              behavioral=behavioral_rules.is_behavioral(a))
                     except degraded.CaseTimeout:
                         failure = degraded.FailureKind.CASE_TIMEOUT
                     except Exception as e:

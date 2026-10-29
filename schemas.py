@@ -90,6 +90,10 @@ class EscalationReason(str, Enum):
     # Detectie a unui senzor propriu (sensor_rules.RULES: YARA pe webroot sau Suricata
     # IDS pe atac web): poate fi fals pozitiva, dar nu o inchide Tier 1 singur.
     SENSOR_DETECTION = "sensor_detection"
+    # Regula comportamentala (behavioral_rules.RULES, pasul 3.A): lantul de exploatare
+    # fara semnatura (web->shell, PHP in webroot, outbound nou, citire shadow) nu se
+    # inchide pe Tier 1, chiar daca podelele din fast_path n-au prins cazul.
+    BEHAVIORAL = "behavioral"
     # Un sablon de vanatoare Tier 3 (hunt.py) a gasit urma tehnicii cautate.
     HUNT_MATCH = "hunt_match"
 

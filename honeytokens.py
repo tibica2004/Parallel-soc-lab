@@ -87,11 +87,17 @@ RULES: dict[str, dict] = {
     },
 }
 
-PARENT_NAME = {"T1552": "Unsecured Credentials", "T1505": "Server Software Component"}
+PARENT_NAME = {"T1552": "Unsecured Credentials", "T1505": "Server Software Component",
+               # folosite si de behavioral_rules (pasul 3.A), acelasi builder
+               "T1059": "Command and Scripting Interpreter", "T1003": "OS Credential Dumping"}
 TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Discovery"),
           "T1078": ("TA0001", "Initial Access"), "T1505.003": ("TA0003", "Persistence"),
           "T1190": ("TA0001", "Initial Access"), "T1595": ("TA0043", "Reconnaissance"),
-          "T1110": ("TA0006", "Credential Access")}
+          "T1110": ("TA0006", "Credential Access"),
+          # tehnici comportamentale (behavioral_rules.py, pasul 3.A)
+          "T1059.004": ("TA0002", "Execution"), "T1059": ("TA0002", "Execution"),
+          "T1071": ("TA0011", "Command and Control"), "T1105": ("TA0011", "Command and Control"),
+          "T1003.008": ("TA0006", "Credential Access")}
 
 
 def rule_id_of(alert: dict) -> str | None:
