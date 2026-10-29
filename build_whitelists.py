@@ -31,6 +31,24 @@ log = logging.getLogger("soc.whitelists")
 ROOT = Path(__file__).resolve().parent
 OUT_FILE = ROOT / "data" / "behavioral-whitelists.json"
 
+# Binare de descoperire/shell/transfer pe care un cont de serviciu web NU are de ce sa
+# le ruleze direct. NU intra in lista alba nici daca apar in baseline: baseline-ul poate
+# fi contaminat de atac (un webshell care a rulat `id` de >=3 ori). Exact ce vrem sa
+# prinda regula c. Comparam pe basename. php8.3/dash raman (wp-cron, operare web legitima).
+NEVER_WHITELIST = frozenset({
+    "id", "whoami", "uname", "hostname", "hostnamectl", "env", "printenv",
+    "cat", "head", "tail", "less", "more", "ls", "dir", "find", "locate", "tree",
+    "ps", "top", "netstat", "ss", "ifconfig", "ip", "arp", "route", "w", "who",
+    "last", "getent", "uptime", "lsb_release", "mount", "lsof", "dmesg",
+    "nc", "ncat", "netcat", "socat", "curl", "wget", "ftp", "tftp", "nmap",
+    "ssh", "scp", "sftp", "base64", "xxd", "od", "openssl",
+    "gcc", "cc", "clang", "make", "ld",
+    "perl", "ruby", "lua", "node", "nodejs", "python", "python3", "python2",
+    "chmod", "chown", "chattr", "setcap", "crontab", "at", "batch",
+    "useradd", "usermod", "adduser", "passwd", "chpasswd", "sudo", "su", "visudo",
+    "insmod", "modprobe", "rmmod", "dd", "shred", "mkfifo",
+})
+
 HOST = os.environ.get("BWL_HOST", "web-prod")
 BASELINE_DAYS = int(os.environ.get("BWL_BASELINE_DAYS", "7"))
 MIN_DOC_COUNT = int(os.environ.get("BWL_MIN_DOC_COUNT", "3"))
@@ -60,11 +78,18 @@ def _terms(es: Elasticsearch, index: str, field: str, filters: list[dict]) -> li
 
 
 def build(es: Elasticsearch) -> dict:
-    # c) executabilele reale rulate de www-data (contul de serviciu web)
-    wwwdata_exec = _terms(es, PROC_INDEX, "process.executable", [
+    # c) executabilele reale rulate de www-data (contul de serviciu web). Scoatem binarele
+    # de descoperire/shell din NEVER_WHITELIST: chiar daca apar in baseline (posibil
+    # contaminat de atac), nu vrem sa orbim regula c. Ce ramane = operare web legitima.
+    wwwdata_raw = _terms(es, PROC_INDEX, "process.executable", [
         {"term": {"user.name": "www-data"}},
         {"term": {"event.type": "start"}},
     ])
+    wwwdata_exec = [e for e in wwwdata_raw if os.path.basename(e) not in NEVER_WHITELIST]
+    dropped = sorted(set(wwwdata_raw) - set(wwwdata_exec))
+    if dropped:
+        log.warning("excluse din lista alba (NEVER_WHITELIST, posibil recon in baseline): %s",
+                    ", ".join(dropped))
     # d) destinatiile outbound vazute de web-prod in afara retelei interne (DNS/NTP excluse)
     egress_ip = _terms(es, NET_INDEX, "destination.ip", [
         {"term": {"host.name": HOST}},
