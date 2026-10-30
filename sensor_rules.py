@@ -156,6 +156,21 @@ RULES["soc-aide-change"] = {
     "threat_technique": ("T1554", "Compromise Host Software Binary"),
 }
 
+# Gate-ul soc-reader (pasul 1b) a refuzat o comanda: SOC-ul (es-node-1) a cerut ceva din afara
+# listei albe = bug sau creierul SOC compromis. logger -p auth.* -> /var/log/auth.log (system.auth);
+# ambele indexuri, ca la YARA/AIDE.
+RULES["soc-reader-denied"] = {
+    "name": "soc-reader: comanda refuzata de gate pe web-prod",
+    "description": "Gate-ul read-only soc-reader de pe web-prod a refuzat o comanda venita cu cheia "
+                   "SOC-ului de pe es-node-1. In operare normala nu se intampla: bug in cod sau cheia "
+                   "SOC folosita de altcineva. Comanda (scurtata) e in mesaj; e date.",
+    "type": "query",
+    "language": "kuery",
+    "index": ["logs-system.auth-*", "logs-system.syslog-*"],
+    "query": f'{_syslog_tag("soc-reader-gate")} and message : "denied"',
+    "threat_technique": ("T1021.004", "SSH"),
+}
+
 SURICATA_RULE_ID = "soc-suricata-webattack"
 AIDE_RULE_ID = "soc-aide-change"
 # Categoriile ET considerate atac web; si poarta de validare a faptelor (multime inchisa).

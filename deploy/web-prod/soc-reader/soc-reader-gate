@@ -1,0 +1,62 @@
+#!/bin/bash
+# soc-reader-gate (pasul 1b / 6.2): singura comanda pe care o poate rula cheia soc-reader
+# a SOC-ului pe web-prod (authorized_keys: restrict,command="/usr/local/bin/soc-reader-gate").
+#
+# Lista ALBA EXACTA: comanda ceruta (SSH_ORIGINAL_COMMAND) trebuie sa fie identica, caracter
+# cu caracter, cu una de mai jos; se executa argumentele fixe din acest fisier, niciodata
+# textul primit. Fara shell, fara interpretare. Singura exceptie e rsync (copia webroot-ului
+# pentru analiza statica, pasul 2): o preia rrsync -ro, care valideaza el optiunile si
+# restrange totul la /var/www/html, doar citire.
+#
+# Sursa unica a listei: reader.py (ReaderCommand) pe es-node-1; un test verifica ca cele doua
+# coincid. Fiecare apel se logheaza (journald -> logs-system.syslog-*, eticheta
+# soc-reader-gate): allowed / denied. Un DENIED inseamna ca SOC-ul a cerut ceva nepermis:
+# bug sau SOC compromis -> regula Kibana soc-reader-denied.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 077
+
+cmd=${SSH_ORIGINAL_COMMAND-}
+# textul primit e date: in jurnal doar caractere tiparibile, scurtat
+shown=$(printf '%s' "$cmd" | tr -cd '[:print:]' | cut -c1-200)
+
+allow() { logger -t soc-reader-gate -p auth.info -- "allowed cmd=$shown"; }
+deny() {
+    logger -t soc-reader-gate -p auth.warning -- "denied cmd=$shown"
+    echo "DENIED" >&2
+    exit 1
+}
+
+case "$cmd" in
+    "ps -eo pid,ppid,user,etimes,cmd")
+        allow; exec ps -eo pid,ppid,user,etimes,cmd ;;
+    "ss -tlnp")
+        allow; exec ss -tlnp ;;
+    "sha256sum /usr/local/bin/soc-canary /etc/cron.d/soc-canary")
+        allow; exec sha256sum /usr/local/bin/soc-canary /etc/cron.d/soc-canary ;;
+    "sha256sum /etc/crontab /etc/cron.d/*")
+        # globul il expandeaza gate-ul (aici), nu cel care cere
+        allow; exec sha256sum /etc/crontab /etc/cron.d/* ;;
+    "cat /etc/passwd")
+        allow; exec cat /etc/passwd ;;
+    "ls -la /var/www/html")
+        allow; exec ls -la /var/www/html ;;
+    "ls -la /var/www/html/wp-content/plugins")
+        allow; exec ls -la /var/www/html/wp-content/plugins ;;
+    # stat nu deschide fisierul: momelile si wp-config.php nu declanseaza auditd
+    "stat /var/www/html/wp-config.php")
+        allow; exec stat /var/www/html/wp-config.php ;;
+    "stat /var/www/html/.htaccess")
+        allow; exec stat /var/www/html/.htaccess ;;
+    "stat /var/www/html/backup.sql")
+        allow; exec stat /var/www/html/backup.sql ;;
+    "stat /var/www/html/robots.txt")
+        allow; exec stat /var/www/html/robots.txt ;;
+    "rsync --server --sender "*)
+        # rrsync citeste din nou SSH_ORIGINAL_COMMAND, refuza optiunile de scriere si orice
+        # cale in afara /var/www/html. Doar trimitere (sender), niciodata primire.
+        case "$cmd" in *$'\n'*|*';'*|*'|'*|*'&'*|*'`'*|*'$'*|*'<'*|*'>'*) deny ;; esac
+        allow; exec rrsync -ro /var/www/html ;;
+    *)
+        deny ;;
+esac

@@ -7,20 +7,16 @@ document curent in soc-wp-inventory. De acolo, vanatoarea Tier 3 (--expunere)
 le potriveste cu lista de vulnerabilitati (exposure.py) si le coreleaza cu
 recon-ul/exploitul (fazele 16-17).
 
-Ruleaza pe elastic-lab, NU pe web-prod: cheia de writer ramane aici, nu se copiaza
-pe hostul web (CLAUDE.md). web-prod e interogat prin ssh, cu WP-CLI, fara sudo:
-    wp core version
-    wp plugin list --fields=name,version,status --format=json
-Comanda ssh foloseste doar argumente constante (cale din env, controlata de om);
-nicio valoare din telemetrie nu intra in ea.
+Ruleaza pe es-node-1, NU pe web-prod. Pasul 1b: sursa e SBOM-ul zilnic (logs-soc.sbom-*,
+colectat pe web-prod de soc-sbom.sh, pasul 1.A), NU ssh + WP-CLI. WP-CLI porneste tot
+WordPress-ul: citeste wp-config.php (parola reala a bazei) si se conecteaza la baza, deci ar
+cere un cont cu acces la secretele aplicatiei. Codul SOC nu mai intra prin ssh ca tiberiu@ (D1).
 
-  python3 wp_inventory.py arata                 # colecteaza prin ssh + afiseaza (dry-run)
-  python3 wp_inventory.py scrie                 # colecteaza + scrie in soc-wp-inventory
-  python3 wp_inventory.py arata --fisier inv.json   # dintr-un JSON local, fara ssh (test)
+  python3 wp_inventory.py arata                 # citeste ultimul SBOM + afiseaza (dry-run)
+  python3 wp_inventory.py scrie                 # + scrie in soc-wp-inventory
+  python3 wp_inventory.py arata --fisier inv.json   # dintr-un JSON local, fara ES (test)
 
-Variabile (toate cu implicit): WP_HOST (numele host.name, implicit web-prod),
-WP_SSH_TARGET (tinta ssh, implicit tiberiu@172.20.99.240), WP_PATH (radacina
-WordPress pe host, implicit /var/www/html).
+Variabile: WP_HOST (host.name, implicit web-prod), ES_URL, ES_API_KEY (citire logs-*).
 """
 
 from __future__ import annotations
@@ -28,7 +24,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,9 +34,7 @@ import exposure as E  # noqa: E402
 
 INDEX = "soc-wp-inventory"
 HOST = os.environ.get("WP_HOST", "web-prod")
-SSH_TARGET = os.environ.get("WP_SSH_TARGET", "tiberiu@172.20.99.240")
-WP_PATH = os.environ.get("WP_PATH", "/var/www/html")
-SSH_TIMEOUT_S = 30
+SBOM_IDX = "logs-soc.sbom-*"
 
 
 def parse_plugin_json(text: str) -> list[dict]:
@@ -73,23 +66,31 @@ def build_doc(host: str, core_version: str, plugins: list[dict], now_iso: str) -
 
 
 # ------------------------------------------------------------------------------
-# I/O: ssh catre web-prod (colectare) si scriere in ES (cu cheia writer)
+# I/O: ultimul SBOM din ES (colectare) si scriere in ES (cu cheia writer)
 # ------------------------------------------------------------------------------
 
-def _ssh(args: list[str]) -> str:
-    """Ruleaza WP-CLI pe web-prod prin ssh, fara shell, cu argumente constante."""
-    cmd = ["ssh", "-o", "BatchMode=yes", "-o", f"ConnectTimeout={SSH_TIMEOUT_S}", SSH_TARGET] + args
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=SSH_TIMEOUT_S + 10)
-    if r.returncode != 0:
-        raise RuntimeError(f"ssh/wp esuat ({r.returncode}): {r.stderr.strip()[:200]}")
-    return r.stdout
+def from_sbom(components: list[dict]) -> tuple[str, list[dict]]:
+    """(versiunea nucleului, plugin-urile) din componentele unui SBOM. Pur. SBOM-ul nu are
+    starea activ/inactiv (expunerea nu o foloseste); status ramane gol."""
+    comps = [c for c in components or [] if isinstance(c, dict)]
+    core = next((str(c.get("version") or "") for c in comps if c.get("type") == "wp_core"), "")
+    plugins = [{"name": str(c["name"]), "version": str(c.get("version") or ""), "status": ""}
+               for c in comps if c.get("type") == "plugin" and c.get("name")]
+    return core, plugins
 
 
 def collect() -> dict:
-    """Interogheaza web-prod si construieste documentul. Cale din env (constanta)."""
-    core = _ssh(["wp", "core", "version", f"--path={WP_PATH}"]).strip()
-    plugins = parse_plugin_json(_ssh(
-        ["wp", "plugin", "list", "--fields=name,version,status", "--format=json", f"--path={WP_PATH}"]))
+    """Ultimul SBOM al hostului (term pe host.name, R7) -> documentul de inventar."""
+    from elasticsearch import Elasticsearch
+    es = Elasticsearch(os.environ.get("ES_URL", "http://localhost:9200"),
+                       api_key=os.environ.get("ES_READONLY_API_KEY") or os.environ["ES_API_KEY"],
+                       request_timeout=30)
+    r = es.search(index=SBOM_IDX, size=1, sort=[{"@timestamp": "desc"}],
+                  query={"term": {"host.name": HOST}}, source=["@timestamp", "components"])
+    hits = r["hits"]["hits"]
+    if not hits:
+        raise RuntimeError(f"niciun SBOM pentru {HOST} in {SBOM_IDX}")
+    core, plugins = from_sbom(hits[0]["_source"].get("components"))
     return build_doc(HOST, core, plugins, datetime.now(timezone.utc).isoformat())
 
 
