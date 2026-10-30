@@ -54,7 +54,8 @@ SQL_KEY = "soc_honey_sql"
 
 # Binarele care citesc wp-config.php legitim, la fiecare cerere sau rulare wp-cli. Caile
 # reale se confirma pe host cu readlink -f inainte de lipirea regulilor in Fleet.
-WPCONFIG_LEGIT_EXE = ("/usr/sbin/apache2", "/usr/sbin/php-fpm8.3", "/usr/bin/php8.3")
+# web-prod (2026-10-30): mod_php in apache2, fara php-fpm; wp-cli ruleaza prin php8.3.
+WPCONFIG_LEGIT_EXE = ("/usr/sbin/apache2", "/usr/bin/php8.3")
 
 # Regulile auditd pentru politica auditd_manager (Fleet), sursa unica pentru documentatie si
 # teste. A4: kernelul accepta UN singur camp exe per regula, deci excluderile sunt reguli
@@ -126,7 +127,7 @@ RULES: dict[str, dict] = {
     "soc-honey-wpconfig-read": {
         "name": "Honeytoken: wp-config.php citit de un proces neasteptat (auditd)",
         "description": "Kernelul (auditd, cheia soc_honey_wpconfig) a vazut wp-config.php deschis pentru "
-                       "citire de alt proces decat apache2/php-fpm/php (exclusi in regula auditd). Tipic "
+                       "citire de alt proces decat apache2 (mod_php) sau php8.3 (wp-cli) (exclusi in regula auditd). Tipic "
                        "cat/grep dintr-un shell obtinut prin exploatare, dupa credentiale.",
         "type": "query",
         "language": "kuery",
