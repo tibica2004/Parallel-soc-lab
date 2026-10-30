@@ -164,3 +164,15 @@ def test_dedup_separa_atacatorii_dupa_ip():
     assert k(a1) == k(a2) and k(a1) != k(b)
     # alertele de proces raman pe entity_id, ca inainte
     assert k(_alert(1, source={"ip": "1.1.1.1"})) == k(_alert(1, source={"ip": "2.2.2.2"}))
+
+
+
+def test_dedup_alertele_din_jurnal_se_separa_dupa_mesaj():
+    # YARA/AIDE/MySQL/auditd: fara proces, fisier sau IP; altfel a doua potrivire ar fi sarita 24 h
+    k = orchestrator.dedup_key_alert
+    def J(msg):
+        return {"kibana.alert.rule.name": "AIDE", "host": {"name": "web-prod"}, "message": msg}
+    a = J('{"event": "aide_unexplained", "unexplained": ["/usr/local/bin/x"]}')
+    b = J('{"event": "aide_unexplained", "unexplained": ["/etc/cron.d/y"]}')
+    assert k(a) != k(b) and k(a) == k(dict(a))
+    assert k({"kibana.alert.rule.name": "AIDE", "host": {"name": "web-prod"}}).endswith("|")

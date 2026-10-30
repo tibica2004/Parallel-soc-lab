@@ -19,6 +19,7 @@ sa scrie. Motorul de politici si scrierea vin in pasul 2, rularea automata in 3.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import time
 import uuid
@@ -103,11 +104,16 @@ def dedup_key_alert(a: dict) -> str:
     """Doua alerte de la aceeasi regula, pe aceeasi entitate de proces, sunt
     acelasi caz — nu-l investigam de doua ori. Alertele fara proces si fara
     fisier (cereri web, autentificari) se separa dupa IP-ul sursa: altfel un al
-    doilea atacator pe aceeasi regula ar fi sarit ca duplicat 24 de ore."""
+    doilea atacator pe aceeasi regula ar fi sarit ca duplicat 24 de ore.
+    Alertele din jurnal (YARA, AIDE, MySQL, auditd) n-au nici proces, nici fisier,
+    nici IP: se separa dupa hash-ul mesajului, altfel a doua potrivire YARA pe alt
+    fisier ar fi sarita ca duplicat 24 de ore (gasit la testul 3.E)."""
+    msg = _g(a, "message")
     return "|".join(str(x) for x in [
         _g(a, "kibana.alert.rule.name"),
         _g(a, "host.name"),
-        _g(a, "process.entity_id") or _g(a, "file.path") or _g(a, "source.ip") or "",
+        _g(a, "process.entity_id") or _g(a, "file.path") or _g(a, "source.ip")
+        or (hashlib.sha256(msg.encode()).hexdigest()[:16] if isinstance(msg, str) and msg else ""),
     ])
 
 
