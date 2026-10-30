@@ -77,6 +77,28 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
+## PASUL 3.C (honeytokens WordPress/MySQL) — 2026-10-30, aproape complet
+
+Cod: de10129, f90057b, 2407d7e (detalii A-E: docs/pasi/pas-03c.md). Fara conturi reale
+(wp_backup MySQL si backup_admin WP NU exista: orice incercare e logata). Plantat pe web-prod
+(copii in /root/soc-pre-honey-20261030T072907Z), cod deployat pe es-node-1 (*.pre-3c),
+BENIGN_GEN_IPS adaugat in soc.env, 6 reguli soc-honey-* create in Kibana, orchestrator repornit
+(activeaza si BEHAVIORAL din 3.A). web-prod: mod_php in apache2 (fara php-fpm), MariaDB 10.11
+log_warnings=2, jurnal in journald -> logs-system.syslog.
+
+Teste 07:47 (de pe es-node-1: boxa admin NU ajunge pe 80 la web-prod, doar 22):
+- T1 /backup.sql -> soc-honey-backup-sql-http in 36 s; T2 /db-backup/ -> robots-trap;
+  T3 login backup_admin -> soc-honey-wp-login 33 s; T4 mysql wp_backup -> soc-honey-mysql-user 26 s;
+  T5 curl local /wp-admin-old/ -> escaladare cu motivul honeytoken_config_error (OK).
+- Orchestrator: 5/5 escaladate Tier 2 cu motiv honeytoken / honeytoken_config_error.
+- DESCHIS: regulile auditd 3.A/3.C NU sunt active (T1 fara soc_honey_sql; .env.bak vechi
+  merge -> auditd OK). De verificat textul din Fleet (auditd_manager -> Audit rules) dupa
+  linia soc_kmod. Pana atunci soc-honey-wpconfig-read, soc-honey-backup-sql-read si
+  soc-apache-reads-shadow sunt inerte.
+- Fleet: textul anterior avea linia soc_kmod rupta in doua -> eroare "failed to unpack the
+  auditd config" (auditd oprit complet). Reparat prin inlocuirea intregului text.
+- De etichetat benign: alertele soc-php-written-in-webroot de la plantare (07:29-07:33).
+
 ## Sesiune 2026-10-29 (continuare): acces de pe boxa veche + constatari retea
 
 Model de lucru confirmat: sesiunea Claude ruleaza inca pe elastic-lab vechi (172.20.99.220);
