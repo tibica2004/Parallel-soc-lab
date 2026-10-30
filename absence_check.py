@@ -22,8 +22,13 @@ Fiecare problema: pointer pe Discord (notify.py, dedup per tip) + document
 Discord cazut sa nu piarda alerta). La fiecare rulare: un puls `integrity_check` in
 soc-metrics; orchestratorul pagineaza daca pulsul lipseste (cine pazeste paznicul).
 
-Inca NU (dependente): hash-ul canarului (cere gate-ul SSH soc-reader, pasul 1b);
-starea agentului din Fleet API (cere o cheie Kibana cu fleet:read, creata de om).
+  6. HASH-URI PE WEB-PROD (1b.2), la fiecare HASH_EVERY_MIN minute, prin gate-ul read-only
+     soc-reader (reader.py): canarul (binar + cron) comparat cu o referinta SCRISA DE OM
+     (CANARY_REF; nu se actualizeaza singura) si fisierele cron (/etc/crontab, /etc/cron.d/*)
+     comparate cu ultima stare vazuta (CRON_STATE; prima rulare o invata, apoi fiecare
+     schimbare se raporteaza o data, ca la AIDE).
+
+Inca NU: starea agentului din Fleet API (cere o cheie Kibana cu fleet:read, creata de om).
 
 Iesire: 0 daca verificarile au rulat (chiar daca s-au gasit probleme), 1 daca o
 verificare sau o scriere a esuat (ca journalul sa arate rosu).
@@ -44,6 +49,7 @@ from elasticsearch import Elasticsearch
 from pydantic import BaseModel, ConfigDict, Field
 
 import notify
+import reader
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
@@ -57,6 +63,10 @@ FLEET_STATUS_URL = os.environ.get("FLEET_STATUS_URL", "http://localhost:8220/api
 INCIDENTS_IDX = "soc-incidents"
 METRICS_IDX = "soc-metrics"
 INCIDENT_DEDUP_MIN = 10
+HASH_EVERY_MIN = int(os.environ.get("INTEGRITY_HASH_EVERY_MIN", "10"))
+_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+CANARY_REF = os.environ.get("INTEGRITY_CANARY_REF", os.path.join(_DATA, "canary.sha256"))
+CRON_STATE = os.environ.get("INTEGRITY_CRON_STATE", os.path.join(_DATA, "cron.sha256"))
 
 # (nume, data stream, campul cu numele hostului, prag in minute). Pragurile: ~2x pauza
 # maxima reala pe 3 zile (2026-10-30: 4 min peste tot, 6 min la fisiere, 0 la Suricata).
@@ -80,6 +90,8 @@ class IntegrityKind(str, Enum):
     SERVICE_DOWN = "service_down"
     BACKUP_STALE = "backup_stale"
     CHECK_FAILED = "check_failed"
+    CANARY_TAMPERED = "canary_tampered"
+    CRON_CHANGED = "cron_changed"
 
 
 class IntegrityAlert(BaseModel):
@@ -287,6 +299,69 @@ def check_services(run: Run) -> None:
             log.info("serviciu %s: active", svc)
 
 
+def _read_ref(path: str) -> dict[str, str]:
+    try:
+        with open(path, encoding="utf-8") as f:
+            return reader.parse_sha256sum(f.read())
+    except OSError:
+        return {}
+
+
+def hash_diff(ref: dict[str, str], now: dict[str, str]) -> dict[str, list[str]]:
+    """{added, removed, changed}: caile care difera intre doua stari {cale: sha256}. Pur."""
+    return {"added": sorted(set(now) - set(ref)), "removed": sorted(set(ref) - set(now)),
+            "changed": sorted(k for k in set(ref) & set(now) if ref[k] != now[k])}
+
+
+def check_canary_hash(run: Run) -> None:
+    """Canarul (binar + cron) == referinta scrisa de om. Un canar modificat poate raporta
+    „viu” in timp ce atacatorul il controleaza: critic. Referinta lipsa = nu pot verifica (R9)."""
+    ref = _read_ref(CANARY_REF)
+    if not ref:
+        run.problem(IntegrityKind.CHECK_FAILED, "Canar: referinta de hash lipsa",
+                    f"{CANARY_REF} lipseste sau e gol: hash-ul canarului nu poate fi verificat.",
+                    severity="high", host="es-node-1", subject="canary_ref", dedup_minutes=360)
+        run.failed = True
+        return
+    now = reader.parse_sha256sum(reader.run(reader.ReaderCommand.CANARY_HASH))
+    d = hash_diff(ref, now)
+    bad = d["changed"] + d["removed"] + d["added"]
+    run.ages["canary_hash_ok"] = 0.0 if bad else 1.0
+    if bad:
+        run.problem(IntegrityKind.CANARY_TAMPERED, "Canar modificat pe web-prod",
+                    f"Hash diferit de referinta pentru: {', '.join(bad)[:300]}. Canarul poate fi "
+                    "controlat de altcineva; telemetria lui nu mai dovedeste nimic.",
+                    severity="critical", host=CANARY_HOST, subject="canary_hash", dedup_minutes=30)
+        log.warning("canar modificat: %s", d)
+    else:
+        log.info("canar hash OK")
+
+
+def check_cron_hash(run: Run) -> None:
+    """Fisierele cron vs ultima stare vazuta. Prima rulare invata starea; apoi orice fisier
+    nou/sters/modificat se raporteaza O DATA si devine noua stare (persistenta, T1053.003)."""
+    now = reader.parse_sha256sum(reader.run(reader.ReaderCommand.CRON_HASH))
+    if not now:
+        raise reader.ReaderError("raspuns sha256sum gol sau neparsabil")
+    ref = _read_ref(CRON_STATE)
+    if ref:
+        d = hash_diff(ref, now)
+        bad = d["added"] + d["removed"] + d["changed"]
+        if bad:
+            run.problem(IntegrityKind.CRON_CHANGED, "Cron schimbat pe web-prod",
+                        f"adaugate: {d['added']} sterse: {d['removed']} modificate: {d['changed']}"[:480],
+                        severity="high", host=CANARY_HOST, subject="cron", dedup_minutes=30)
+            log.warning("cron schimbat: %s", d)
+        else:
+            log.info("cron hash OK (%d fisiere)", len(now))
+    else:
+        log.info("cron: stare initiala invatata (%d fisiere)", len(now))
+    tmp = CRON_STATE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("".join(f"{h}  {p}\n" for p, h in sorted(now.items())))
+    os.replace(tmp, CRON_STATE)
+
+
 def write_heartbeat(metrics: Elasticsearch | None, run: Run) -> None:
     """Pulsul din soc-metrics: orchestratorul pagineaza daca lipseste (paznicul paznicului)."""
     if metrics is None:
@@ -326,6 +401,17 @@ def main() -> int:
                         subject=f"check_{name}", dedup_minutes=30)
             log.error("verificarea %s a esuat: %s", name, e)
             run.failed = True
+    # Hash-urile de pe web-prod (prin soc-reader) doar la fiecare HASH_EVERY_MIN minute.
+    if HASH_EVERY_MIN > 0 and run.now.minute % HASH_EVERY_MIN == 0:
+        for name, fn in (("canar_hash", check_canary_hash), ("cron_hash", check_cron_hash)):
+            try:
+                fn(run)
+            except Exception as e:
+                run.problem(IntegrityKind.CHECK_FAILED, f"Absence-check: verificarea `{name}` a esuat",
+                            f"soc-reader: {type(e).__name__}: {str(e)[:200]}", severity="high",
+                            host="es-node-1", subject=f"check_{name}", dedup_minutes=30)
+                log.error("verificarea %s a esuat: %s", name, e)
+                run.failed = True
     write_heartbeat(_client("ES_METRICS_WRITER_API_KEY", False), run)
     return 1 if run.failed else 0
 

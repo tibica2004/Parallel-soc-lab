@@ -200,3 +200,106 @@ def test_orchestrator_nu_cade_daca_es_cade(monkeypatch, izolat):
     monkeypatch.setattr(orchestrator, "WRITER", Boom())
     orchestrator._integrity_watch(NOW)   # nu ridica
     assert izolat == []
+
+
+# ---------------- 1b.2: hash-uri pe web-prod prin soc-reader ----------------
+
+H1, H2, H3 = "a" * 64, "b" * 64, "c" * 64
+
+
+@pytest.fixture
+def hashes(monkeypatch, tmp_path):
+    ref, state = tmp_path / "canary.sha256", tmp_path / "cron.sha256"
+    monkeypatch.setattr(A, "CANARY_REF", str(ref))
+    monkeypatch.setattr(A, "CRON_STATE", str(state))
+    out = {}
+    def run(cmd):
+        assert isinstance(cmd, A.reader.ReaderCommand)      # doar comenzi din enumerare
+        if isinstance(out.get(cmd), Exception):
+            raise out[cmd]
+        return out.get(cmd, "")
+    monkeypatch.setattr(A.reader, "run", run)
+    return ref, state, out
+
+
+def _sums(d):
+    return "".join(f"{h}  {p}\n" for p, h in d.items())
+
+
+def test_hash_diff():
+    assert A.hash_diff({"/a": H1, "/b": H2}, {"/a": H3, "/c": H1}) == {
+        "added": ["/c"], "removed": ["/b"], "changed": ["/a"]}
+
+
+def test_canar_identic_cu_referinta(hashes):
+    ref, _, out = hashes
+    ref.write_text(_sums({"/usr/local/bin/soc-canary": H1, "/etc/cron.d/soc-canary": H2}))
+    out[A.reader.ReaderCommand.CANARY_HASH] = _sums({"/usr/local/bin/soc-canary": H1, "/etc/cron.d/soc-canary": H2})
+    run = _run()
+    A.check_canary_hash(run)
+    assert run.kinds == [] and not run.failed
+
+
+def test_canar_modificat_e_critic(hashes):
+    ref, _, out = hashes
+    ref.write_text(_sums({"/usr/local/bin/soc-canary": H1, "/etc/cron.d/soc-canary": H2}))
+    out[A.reader.ReaderCommand.CANARY_HASH] = _sums({"/usr/local/bin/soc-canary": H3, "/etc/cron.d/soc-canary": H2})
+    inc = FakeES()
+    run = _run(inc)
+    A.check_canary_hash(run)
+    assert run.kinds == ["canary_tampered:canary_hash"]
+    assert inc.indexed[0][1]["severity"] == "critical"
+    # referinta NU se actualizeaza singura: o scrie omul
+    assert H1 in ref.read_text()
+
+
+def test_canar_fara_referinta_nu_trece_drept_ok(hashes):
+    run = _run()
+    A.check_canary_hash(run)
+    assert run.failed and run.kinds == ["check_failed:canary_ref"]
+
+
+def test_cron_invata_apoi_raporteaza_o_data(hashes):
+    _, state, out = hashes
+    out[A.reader.ReaderCommand.CRON_HASH] = _sums({"/etc/crontab": H1, "/etc/cron.d/php": H2})
+    run = _run()
+    A.check_cron_hash(run)                       # prima rulare: invata, fara alerta
+    assert run.kinds == [] and A.reader.parse_sha256sum(state.read_text()) == {
+        "/etc/crontab": H1, "/etc/cron.d/php": H2}
+    out[A.reader.ReaderCommand.CRON_HASH] = _sums({"/etc/crontab": H1, "/etc/cron.d/php": H2,
+                                                   "/etc/cron.d/evil": H3})
+    run = _run()
+    A.check_cron_hash(run)
+    assert run.kinds == ["cron_changed:cron"]
+    run = _run()
+    A.check_cron_hash(run)                       # aceeasi stare: raportat o singura data
+    assert run.kinds == []
+
+
+def test_cron_raspuns_gol_e_esec(hashes):
+    with pytest.raises(A.reader.ReaderError):
+        A.check_cron_hash(_run())
+
+
+def test_main_hash_doar_la_10_minute_si_esecul_escaladeaza(monkeypatch, hashes):
+    ref, _, out = hashes
+    ref.write_text(_sums({"/usr/local/bin/soc-canary": H1}))
+    out[A.reader.ReaderCommand.CANARY_HASH] = A.reader.ReaderError("DENIED de gate")
+    for fn in ("check_services", "check_fleet_server", "check_backup", "check_canary", "check_streams"):
+        monkeypatch.setattr(A, fn, lambda *a, **k: None)
+    monkeypatch.setattr(A, "_es", lambda: FakeES())
+    monkeypatch.setattr(A, "write_heartbeat", lambda m, run: seen.append(run))
+    monkeypatch.setattr(A, "_client", lambda var, req: FakeES())
+    seen = []
+
+    class T(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls._t
+    monkeypatch.setattr(A, "datetime", T)
+    T._t = NOW.replace(minute=7)
+    assert A.main() == 0 and seen[-1].kinds == []          # nu e minutul de hash
+    T._t = NOW.replace(minute=10)
+    out[A.reader.ReaderCommand.CRON_HASH] = _sums({"/etc/crontab": H1})
+    assert A.main() == 1
+    assert "check_failed:check_canar_hash" in seen[-1].kinds and seen[-1].failed
