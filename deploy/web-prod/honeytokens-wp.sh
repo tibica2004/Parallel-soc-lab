@@ -73,7 +73,8 @@ if command -v mysql >/dev/null && mysql -NBe "SELECT 1" >/dev/null 2>&1; then
     if [ -n "$(mysql -NBe "SELECT 1 FROM mysql.user WHERE user='wp_backup'")" ]; then
         echo "ATENTIE: utilizatorul MySQL wp_backup exista; momeala nu mai e momeala." >&2
     fi
-    if mysql -NBe "SELECT @@version_comment" | grep -qi mariadb; then
+    # @@version (ex. 10.11.14-MariaDB-0ubuntu...); pe Ubuntu @@version_comment e doar "Ubuntu 24.04"
+    if mysql -NBe "SELECT @@version" | grep -qi mariadb; then
         lw=$(mysql -NBe "SELECT @@log_warnings")
         if [ "$lw" -lt 2 ]; then
             mysql -e "SET GLOBAL log_warnings=2"
