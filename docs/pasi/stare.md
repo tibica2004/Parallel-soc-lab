@@ -77,6 +77,20 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
+## PASUL 3.D (monitor de integritate) — FACUT 2026-10-30
+
+Cod f719c06 + 4046536 (detalii A-E: docs/pasi/pas-03d.md). absence_check.py extins (timer la
+1 min, AccuracySec=1s): tacere pe 7 fluxuri web-prod (prag din pauzele reale; Suricata pe
+agent.name, n-are host.name; Apache exclus), fleet-server /api/status (HTTP :8220),
+integrity_alert Pydantic in soc-incidents (ES_INCIDENTS_WRITER, dedup 10 min), puls
+integrity_check in soc-metrics (ES_METRICS_WRITER); orchestratorul pagineaza daca pulsul
+lipseste > 5 min (paza reciproca). Deployat (*.pre-3d), unitati instalate, orchestrator repornit.
+Verificat: puls ok la ~1 min, 0 integrity_alert false, exit 0.
+Amanat: hash canar (cere gate soc-reader, 1b); stare agent din Fleet API (cheie Kibana fleet:read).
+De facut la pasul 7: mapping explicit pe soc-metrics (create_doc a extins mapping-ul automat;
+ES avertizeaza ca nu va mai fi permis). Notat pentru 11/12: eve.json 545 MB pe web-prod, nerotit?
+Test negativ ramas (optional, cu OK): oprirea soc-absence.timer 6 min -> Discord "monitorul tace".
+
 ## PASUL 3.C (honeytokens WordPress/MySQL) — FACUT si verificat 2026-10-30
 
 Cod: de10129, f90057b, 2407d7e, 09e11d2 (+ diagnostic d19fe57). Detalii A-E: docs/pasi/pas-03c.md.
