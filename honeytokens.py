@@ -132,11 +132,11 @@ RULES: dict[str, dict] = {
         "type": "query",
         "language": "kuery",
         "index": ["logs-auditd_manager.auditd-*"],
-        # yara: scannerul de webroot (soc-yara-scan) citeste wp-config.php la 10 minute, intentionat
-        # (webshell injectat in wp-config). Excludere aici, nu in kernel: regulile auditd sunt
-        # blocate (immutable) pana la reboot.
+        # yara (la 10 min) si aide (zilnic, 3.E) citesc wp-config.php intentionat (webshell
+        # injectat / integritate). Excludere aici, nu in kernel: regulile auditd sunt blocate
+        # (immutable) pana la reboot.
         "query": (f'tags : "{WPCONFIG_KEY}" and not process.executable : /opt/Elastic/* '
-                  'and not process.executable : "/usr/bin/yara"'),
+                  'and not process.executable : ("/usr/bin/yara" or "/usr/bin/aide")'),
         "threat_technique": ("T1552.001", "Credentials In Files"),
     },
     "soc-honey-mysql-user": {
@@ -202,7 +202,9 @@ TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Dis
           # tehnici comportamentale (behavioral_rules.py, pasul 3.A)
           "T1059.004": ("TA0002", "Execution"), "T1059": ("TA0002", "Execution"),
           "T1071": ("TA0011", "Command and Control"), "T1105": ("TA0011", "Command and Control"),
-          "T1003.008": ("TA0006", "Credential Access")}
+          "T1003.008": ("TA0006", "Credential Access"),
+          # AIDE (sensor_rules, pasul 3.E)
+          "T1554": ("TA0003", "Persistence")}
 
 
 def rule_id_of(alert: dict) -> str | None:

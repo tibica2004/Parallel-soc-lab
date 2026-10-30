@@ -1,0 +1,19 @@
+[Unit]
+Description=SOC: verificare de integritate AIDE (doar citire, raporteaza in jurnal)
+
+[Service]
+Type=oneshot
+# root: citeste /etc/shadow, /etc/sudoers, /usr/sbin (R13: necesar). Scrie DOAR baza si
+# starea in /var/lib/soc-aide; fara retea.
+ExecStart=/usr/local/sbin/soc-aide-check
+Nice=19
+IOSchedulingClass=idle
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/soc-aide
+StateDirectory=soc-aide
+StateDirectoryMode=0700
+TimeoutStartSec=1h

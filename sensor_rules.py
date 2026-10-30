@@ -27,6 +27,8 @@ YARA_PROC = "soc-yara-scan"           # numele procesului (scriptul din /usr/loc
 SURICATA_IDX = "logs-suricata.eve-*"  # indicele Suricata (local, ca sa nu importam elastic_tools)
 APACHE_IDX = "logs-apache.*"          # logurile de acces Apache ale serverului web
 AUTH_IDX = "logs-system.auth-*"       # jurnalul de autentificare al sistemului (sshd)
+AIDE_TAG = "soc-aide"                 # identificatorul din jurnal al verificarii AIDE (3.E)
+AIDE_PROC = "soc-aide-check"          # scriptul din /usr/local/sbin
 
 RULES: dict[str, dict] = {
     "soc-yara-webshell": {
@@ -131,7 +133,26 @@ RULES: dict[str, dict] = {
     },
 }
 
+# AIDE (pasul 3.E, G9): integritatea fisierelor de sistem si a webroot-ului, zilnic. Doar
+# schimbarile NEEXPLICATE de un pachet instalat de apt (decis de soc-aide-check, cod) si
+# erorile verificarii. Un binar de sistem schimbat in afara unui update nu se inchide pe
+# Tier 1 (SENSOR_DETECTION).
+RULES["soc-aide-change"] = {
+    "name": "AIDE: fisier de sistem/webroot schimbat in afara unui update",
+    "description": "Verificarea zilnica AIDE (soc-aide-check pe web-prod) a gasit fisiere adaugate, "
+                   "sterse sau modificate in /etc, /usr/bin, /usr/sbin, /usr/local sau webroot care NU "
+                   "apartin unui pachet instalat de apt de la rularea anterioara; sau verificarea a esuat. "
+                   "Caile sunt in mesaj (date). Poate fi o schimbare de administrare legitima.",
+    "type": "query",
+    "language": "kuery",
+    "index": ["logs-system.syslog-*"],
+    "query": f'log.syslog.appname : "{AIDE_TAG}" and process.name : "{AIDE_PROC}" '
+             f'and message : ("aide_unexplained" or "aide_error")',
+    "threat_technique": ("T1554", "Compromise Host Software Binary"),
+}
+
 SURICATA_RULE_ID = "soc-suricata-webattack"
+AIDE_RULE_ID = "soc-aide-change"
 # Categoriile ET considerate atac web; si poarta de validare a faptelor (multime inchisa).
 WEB_ATTACK_CATEGORIES = ("Web Application Attack",
                          "Attempted Administrator Privilege Gain",
@@ -199,10 +220,35 @@ def suricata_facts(alert: dict) -> dict | None:
             "source_ip": sip, "destination_ip": dip if _is_ip(dip) else None}
 
 
+def aide_facts(alert: dict) -> dict | None:
+    """{sensor, event, counts, unexplained} din randul JSON al soc-aide-check, sau None.
+    Caile sunt nume de fisiere (eventual alese de atacator): DATE, scurtate si plafonate."""
+    if honeytokens.rule_id_of(alert) != AIDE_RULE_ID:
+        return None
+    msg = alert.get("message")
+    try:
+        d = json.loads(msg) if isinstance(msg, str) else None
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(d, dict) or d.get("event") not in ("aide_unexplained", "aide_error"):
+        return None
+    if d["event"] == "aide_error":
+        rc = d.get("rc")
+        return {"sensor": "aide", "event": "aide_error", "rc": rc if isinstance(rc, int) else None}
+    counts = {k: d.get(k) for k in ("added", "removed", "changed", "unexplained_count", "explained_count")}
+    paths = d.get("unexplained")
+    if not (all(isinstance(v, int) and v >= 0 for v in counts.values()) and isinstance(paths, list)
+            and all(isinstance(p, str) and p.startswith("/") for p in paths)):
+        return None
+    return {"sensor": "aide", "event": "aide_unexplained", **counts,
+            "unexplained": [p[:200] for p in paths[:20]]}
+
+
 def sensor_facts(alert: dict) -> dict | None:
-    """Faptele senzorului care a produs alerta: YARA (fisier din webroot) sau Suricata
-    (semnatura de atac web pe retea). Fiecare se recunoaste dupa rule_id-ul propriu."""
-    return yara_facts(alert) or suricata_facts(alert)
+    """Faptele senzorului care a produs alerta: YARA (fisier din webroot), Suricata
+    (semnatura de atac web pe retea) sau AIDE (integritatea fisierelor). Fiecare se
+    recunoaste dupa rule_id-ul propriu."""
+    return yara_facts(alert) or suricata_facts(alert) or aide_facts(alert)
 
 
 def kibana_payload(rule_id: str) -> dict:

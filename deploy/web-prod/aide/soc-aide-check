@@ -1,0 +1,171 @@
+#!/usr/bin/python3
+"""
+Verificarea de integritate AIDE (pasul 3.E, G9). Ruleaza din soc-aide-check.service
+(timer zilnic 03:30), ca root (citeste /etc/shadow, /usr/sbin; nu scrie decat in
+/var/lib/soc-aide).
+
+- Prima rulare (fara baza): `aide --init`, apoi promoveaza baza. Jurnal: aide_init.
+- Apoi: `aide --update` = compara cu baza si scrie una noua; baza noua se promoveaza,
+  deci fiecare schimbare se raporteaza O DATA.
+- CODUL decide ce e explicat (R5): o cale schimbata e explicata daca apartine (dpkg) unui
+  pachet instalat de la rularea anterioara, sau e un fisier generat de dpkg/ldconfig
+  (GENERATED) si a existat activitate de pachete. Restul = neexplicat -> alerta.
+- Un singur rand JSON pe rulare, eticheta soc-aide (journald -> logs-system.syslog-*):
+  aide_ok | aide_init | aide_explained | aide_unexplained | aide_error. Regula Kibana
+  soc-aide-change prinde aide_unexplained si aide_error. Caile sunt nume de fisiere
+  alese eventual de atacator: DATE, scurtate si plafonate.
+- Fara retea, fara alte scrieri.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import syslog
+from datetime import datetime, timedelta
+
+CONF = "/etc/soc-aide/aide.conf"
+DIR = "/var/lib/soc-aide"
+DB = f"{DIR}/aide.db.gz"
+NEW = f"{DIR}/aide.db.new.gz"
+STATE = f"{DIR}/state.json"
+DPKG_LOGS = ("/var/log/dpkg.log.1", "/var/log/dpkg.log")
+MAX_PATHS = 20
+# Fisiere regenerate de dpkg/ldconfig/update-* la instalarea pachetelor, fara proprietar dpkg.
+GENERATED = (re.compile(r"^/etc/ld\.so\.cache$"), re.compile(r"^/etc/alternatives/"),
+             re.compile(r"^/etc/ssl/certs/"))
+
+SECTIONS = {"Added entries:": "added", "Removed entries:": "removed", "Changed entries:": "changed"}
+ENTRY = re.compile(r"^\S[^:]*: (/.*)$")
+
+
+def log(event: dict) -> None:
+    syslog.openlog("soc-aide")
+    prio = syslog.LOG_WARNING if event["event"] in ("aide_unexplained", "aide_error") else syslog.LOG_INFO
+    syslog.syslog(prio, json.dumps(event, ensure_ascii=True))
+
+
+def parse_report(text: str) -> dict[str, list[str]]:
+    """Caile din sectiunile Added/Removed/Changed ale raportului plain AIDE (0.16-0.18).
+    Antetul de sectiune e singur pe rand ("Added entries:"); in Summary are si un numar."""
+    out: dict[str, list[str]] = {"added": [], "removed": [], "changed": []}
+    cur = None
+    for line in text.splitlines():
+        s = line.strip()
+        if s in SECTIONS:
+            cur = SECTIONS[s]
+            continue
+        if s.startswith("Detailed information about changes"):
+            break
+        if cur and (m := ENTRY.match(s)):
+            out[cur].append(m.group(1))
+    return out
+
+
+def updated_packages(since: datetime | None) -> set[str]:
+    """Pachetele instalate/actualizate dupa `since` (dpkg.log). Fara `since`: niciunul."""
+    if since is None:
+        return set()
+    pkgs: set[str] = set()
+    for f in DPKG_LOGS:
+        try:
+            lines = open(f, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            p = line.split()
+            if len(p) >= 5 and p[2] == "status" and p[3] == "installed":
+                try:
+                    ts = datetime.strptime(f"{p[0]} {p[1]}", "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+                if ts >= since:
+                    pkgs.add(p[4].split(":")[0])
+    return pkgs
+
+
+def owners(paths: list[str]) -> dict[str, set[str]]:
+    """Cale -> pachetele dpkg care o detin (dpkg-query -S), in loturi. Lipsa = nedetinut."""
+    out: dict[str, set[str]] = {}
+    for i in range(0, len(paths), 100):
+        batch = paths[i:i + 100]
+        r = subprocess.run(["dpkg-query", "-S", "--", *batch], capture_output=True, text=True, timeout=120)
+        for line in r.stdout.splitlines():
+            if line.startswith("diversion ") or ": /" not in line:
+                continue
+            pk, _, path = line.partition(": ")
+            out.setdefault(path, set()).update(x.strip().split(":")[0] for x in pk.split(","))
+    return out
+
+
+def classify(diff: dict[str, list[str]], pkgs: set[str], own: dict[str, set[str]]) -> tuple[list[str], list[str]]:
+    """(explicate, neexplicate). Fara activitate de pachete, nimic nu e explicat."""
+    explained, unexplained = [], []
+    for path in diff["added"] + diff["removed"] + diff["changed"]:
+        ok = bool(pkgs) and (bool(own.get(path, set()) & pkgs) or any(g.match(path) for g in GENERATED))
+        (explained if ok else unexplained).append(path)
+    return explained, unexplained
+
+
+def load_last_run() -> datetime | None:
+    try:
+        return datetime.fromisoformat(json.load(open(STATE))["last_run"])
+    except Exception:
+        return None
+
+
+def save_last_run(ts: datetime) -> None:
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump({"last_run": ts.isoformat(timespec="seconds")}, f)
+    os.replace(tmp, STATE)
+
+
+def aide(mode: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["aide", f"--config={CONF}", mode], capture_output=True, text=True, timeout=3600)
+
+
+def main() -> int:
+    os.makedirs(DIR, mode=0o700, exist_ok=True)
+    started = datetime.now()                 # ora locala, ca in dpkg.log
+    if not os.path.exists(DB):
+        r = aide("--init")
+        if r.returncode != 0 or not os.path.exists(NEW):
+            log({"event": "aide_error", "mode": "init", "rc": r.returncode, "stderr": r.stderr[-300:]})
+            return 1
+        os.replace(NEW, DB)
+        save_last_run(started)
+        log({"event": "aide_init"})
+        return 0
+    r = aide("--update")
+    # AIDE: 0 = nicio diferenta; 1|2|4 (added|removed|changed) combinate = diferente; >= 8 = eroare.
+    if r.returncode >= 8 or not os.path.exists(NEW):
+        log({"event": "aide_error", "mode": "update", "rc": r.returncode, "stderr": r.stderr[-300:]})
+        return 1
+    since = load_last_run()
+    if since is not None:
+        since -= timedelta(minutes=5)
+    diff = parse_report(r.stdout) if r.returncode else {"added": [], "removed": [], "changed": []}
+    paths = diff["added"] + diff["removed"] + diff["changed"]
+    pkgs = updated_packages(since)
+    explained, unexplained = classify(diff, pkgs, owners(paths) if paths and pkgs else {})
+    os.replace(NEW, DB)                      # fiecare schimbare raportata o data
+    save_last_run(started)
+    counts = {k: len(v) for k, v in diff.items()}
+    if r.returncode and not paths:
+        # AIDE spune ca sunt diferente, dar parserul n-a gasit nimic: nu presupunem "ok"
+        log({"event": "aide_error", "mode": "parse", "rc": r.returncode, "stderr": "raport neparsat"})
+        return 1
+    if unexplained:
+        log({"event": "aide_unexplained", **counts, "unexplained_count": len(unexplained),
+             "unexplained": [p[:200] for p in unexplained[:MAX_PATHS]],
+             "explained_count": len(explained), "packages": sorted(pkgs)[:MAX_PATHS]})
+    elif explained:
+        log({"event": "aide_explained", **counts, "packages": sorted(pkgs)[:MAX_PATHS]})
+    else:
+        log({"event": "aide_ok"})
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

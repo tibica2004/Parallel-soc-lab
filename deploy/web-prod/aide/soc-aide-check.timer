@@ -1,0 +1,9 @@
+[Unit]
+Description=SOC: verificare AIDE zilnica la 03:30 (dupa backup 01:30, wp-update 02:00, sbom 03:00)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
