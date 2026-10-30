@@ -77,27 +77,37 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
-## PASUL 3.C (honeytokens WordPress/MySQL) — 2026-10-30, aproape complet
+## PASUL 3.C (honeytokens WordPress/MySQL) — FACUT si verificat 2026-10-30
 
-Cod: de10129, f90057b, 2407d7e (detalii A-E: docs/pasi/pas-03c.md). Fara conturi reale
-(wp_backup MySQL si backup_admin WP NU exista: orice incercare e logata). Plantat pe web-prod
-(copii in /root/soc-pre-honey-20261030T072907Z), cod deployat pe es-node-1 (*.pre-3c),
-BENIGN_GEN_IPS adaugat in soc.env, 6 reguli soc-honey-* create in Kibana, orchestrator repornit
-(activeaza si BEHAVIORAL din 3.A). web-prod: mod_php in apache2 (fara php-fpm), MariaDB 10.11
-log_warnings=2, jurnal in journald -> logs-system.syslog.
+Cod: de10129, f90057b, 2407d7e, 09e11d2 (+ diagnostic d19fe57). Detalii A-E: docs/pasi/pas-03c.md.
+Fara conturi reale (wp_backup MySQL si backup_admin WP NU exista: orice incercare e logata).
+Plantat pe web-prod (copii in /root/soc-pre-honey-20261030T072907Z), cod pe es-node-1 (*.pre-3c),
+BENIGN_GEN_IPS in soc.env, 6 reguli soc-honey-* in Kibana (10 honeytoken in total), orchestrator
+repornit (activeaza si BEHAVIORAL din 3.A). web-prod: mod_php in apache2 (fara php-fpm), MariaDB
+10.11 log_warnings=2, jurnal in journald -> logs-system.syslog.
 
-Teste 07:47 (de pe es-node-1: boxa admin NU ajunge pe 80 la web-prod, doar 22):
-- T1 /backup.sql -> soc-honey-backup-sql-http in 36 s; T2 /db-backup/ -> robots-trap;
-  T3 login backup_admin -> soc-honey-wp-login 33 s; T4 mysql wp_backup -> soc-honey-mysql-user 26 s;
-  T5 curl local /wp-admin-old/ -> escaladare cu motivul honeytoken_config_error (OK).
-- Orchestrator: 5/5 escaladate Tier 2 cu motiv honeytoken / honeytoken_config_error.
-- DESCHIS: regulile auditd 3.A/3.C NU sunt active (T1 fara soc_honey_sql; .env.bak vechi
-  merge -> auditd OK). De verificat textul din Fleet (auditd_manager -> Audit rules) dupa
-  linia soc_kmod. Pana atunci soc-honey-wpconfig-read, soc-honey-backup-sql-read si
-  soc-apache-reads-shadow sunt inerte.
-- Fleet: textul anterior avea linia soc_kmod rupta in doua -> eroare "failed to unpack the
-  auditd config" (auditd oprit complet). Reparat prin inlocuirea intregului text.
-- De etichetat benign: alertele soc-php-written-in-webroot de la plantare (07:29-07:33).
+Teste (HTTP de pe es-node-1: boxa admin NU ajunge pe 80 la web-prod, doar 22):
+- T1 /backup.sql -> backup-sql-http 36 s; T2 /db-backup/ -> robots-trap; T3 login backup_admin ->
+  wp-login 33 s; T4 mysql wp_backup -> mysql-user 26 s; T5 curl local -> motiv
+  honeytoken_config_error (fara Discord). Orchestrator: 5/5 escaladate (3 Tier 2, 2 peste buget).
+- T7 head backup.sql -> backup-sql-read; T8 cat wp-config (refuzat) -> wpconfig-read. 5 cereri
+  la site -> 0 evenimente wp-config (excluderea apache2 merge).
+
+GOTCHA MAJOR — kernelul de audit pe web-prod e IMUABIL (enabled=2, optiunea Immutable din
+auditd_manager): dupa incarcarea regulilor, kernelul refuza orice schimbare pana la reboot. Fleet
+ramane "Healthy" si nu apare nicio eroare; auditbeat sare tacut peste reguli. Simptom: regulile
+noi nu prind nimic, cele vechi da. Diagnostic: deploy/web-prod/audit-status.py (sudo; auditctl -s
+prin netlink, fara pachetul auditd, care ar fura socketul). ORICE regula auditd noua = Fleet +
+REBOOT web-prod. Rebootat 08:10: 19/19 reguli (18 + ignore-self), din nou blocat. Decizie: Immutable
+ramane pornit (atacatorul cu root nu poate opri auditul fara reboot, iar reboot-ul se vede).
+- Fleet: un rand rupt in campul Audit rules (soc_kmod) a oprit tot auditd-ul din 29.10 14:57
+  ("failed to unpack the auditd config") pana azi 07:43. Lipeste doar randuri intregi.
+- kernel lost=2632 evenimente auditd de la boot-ul din 26.10 -> de urmarit la pasul 7.
+- YARA (soc-yara-scan) citea momelile -> fals pozitive la 10 min. Fix: backup.sql sarit dupa cale,
+  wp-config.php inca scanat iar regula wpconfig-read exclude /usr/bin/yara (excludere in Kibana,
+  nu in kernel, ca sa nu mai cerem un reboot).
+- De etichetat benign: soc-php-written-in-webroot la plantare (07:29-07:33), yara 08:13-08:17,
+  "Payload download: curl/wget" din testele mele (curl din bash), testele T1-T8.
 
 ## Sesiune 2026-10-29 (continuare): acces de pe boxa veche + constatari retea
 
