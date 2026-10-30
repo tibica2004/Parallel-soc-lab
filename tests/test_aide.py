@@ -242,3 +242,8 @@ def test_eroarea_aide_e_fapt():
 
 def test_wpconfig_exclude_aide():
     assert '"/usr/bin/aide"' in H.RULES["soc-honey-wpconfig-read"]["query"]
+
+
+def test_regula_aide_accepta_ambele_surse_ale_jurnalului():
+    # pe web-prod jurnalul vine din /var/log/syslog: process.name = eticheta, fara appname
+    assert '(log.syslog.appname : "soc-aide" or process.name : "soc-aide")' in S.RULES["soc-aide-change"]["query"]

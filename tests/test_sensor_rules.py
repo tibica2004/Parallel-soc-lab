@@ -145,7 +145,8 @@ def test_orchestrator_model_cazut_pastreaza_motivul(rec):
 def test_payload():
     p = S.kibana_payload("soc-yara-webshell")
     assert p["severity"] == "high" and p["tags"] == [S.TAG]
-    assert 'log.syslog.appname : "soc-yara"' in p["query"] and 'process.name : "soc-yara-scan"' in p["query"]
+    # ambele surse ale jurnalului: journald (appname) si /var/log/syslog (process.name = eticheta)
+    assert '(log.syslog.appname : "soc-yara" or process.name : "soc-yara")' in p["query"]
     t = p["threat"][0]
     assert t["tactic"]["id"] == "TA0003" and t["technique"][0]["subtechnique"][0]["id"] == "T1505.003"
 

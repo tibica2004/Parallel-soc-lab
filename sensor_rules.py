@@ -30,6 +30,15 @@ AUTH_IDX = "logs-system.auth-*"       # jurnalul de autentificare al sistemului 
 AIDE_TAG = "soc-aide"                 # identificatorul din jurnal al verificarii AIDE (3.E)
 AIDE_PROC = "soc-aide-check"          # scriptul din /usr/local/sbin
 
+
+def _syslog_tag(tag: str) -> str:
+    """Eticheta syslog a unui script propriu, oricum e citit jurnalul. Din journald:
+    log.syslog.appname=<tag> (process.name=scriptul); din /var/log/syslog (integrarea System,
+    de la ~20.10): process.name=<tag>, fara appname. O regula pe un singur camp a lasat
+    YARA fara alerte din 20.10 (60 de potriviri pe 26.10, zero alerte)."""
+    return f'(log.syslog.appname : "{tag}" or process.name : "{tag}")'
+
+
 RULES: dict[str, dict] = {
     "soc-yara-webshell": {
         "name": "YARA: webshell gasit in webroot",
@@ -38,10 +47,7 @@ RULES: dict[str, dict] = {
         "type": "query",
         "language": "kuery",
         "index": ["logs-system.syslog-*"],
-        # Integrarea System (journald): eticheta syslog e in log.syslog.appname, iar
-        # process.name e numele procesului (scriptul). Ambele trebuie sa se potriveasca.
-        "query": f'log.syslog.appname : "{YARA_TAG}" and process.name : "{YARA_PROC}" '
-                 f'and message : "yara_match"',
+        "query": f'{_syslog_tag(YARA_TAG)} and message : "yara_match"',
         "threat_technique": ("T1505.003", "Web Shell"),
     },
     "soc-suricata-webattack": {
@@ -146,8 +152,7 @@ RULES["soc-aide-change"] = {
     "type": "query",
     "language": "kuery",
     "index": ["logs-system.syslog-*"],
-    "query": f'log.syslog.appname : "{AIDE_TAG}" and process.name : "{AIDE_PROC}" '
-             f'and message : ("aide_unexplained" or "aide_error")',
+    "query": f'{_syslog_tag(AIDE_TAG)} and message : ("aide_unexplained" or "aide_error")',
     "threat_technique": ("T1554", "Compromise Host Software Binary"),
 }
 
