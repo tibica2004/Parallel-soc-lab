@@ -404,7 +404,9 @@ Scrie `narrative` in limba romana."""
 
 
 UNTRUSTED_DETAIL_KINDS = {"new_url_path", "response_size_outlier", "dns_anomaly", "new_ja4",
-                          "suspicious_exec_path", "web_enumeration", "wp_recon_path"}
+                          "suspicious_exec_path", "web_enumeration", "wp_recon_path",
+                          # 3.B: cale, nume de cont, nume de plugin = alese de atacator
+                          "new_executable", "new_user", "sbom_drift"}
 
 
 def _seed_payload(f: RarityFinding | None, c: Case | None) -> dict:

@@ -130,6 +130,9 @@ FINDING_KEY = {
     "dns_anomaly": ("process", "domain"),
     "new_ja4": ("ja4",),
     "suspicious_exec_path": ("exec", "process"),
+    "new_executable": ("exec",),
+    "new_user": ("user",),
+    "sbom_drift": ("component_type", "name", "change", "version"),
 }
 
 
@@ -455,12 +458,14 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
           f"{'OK' if model_ok else 'CAZUT'})", flush=True)
     hunt = HuntRunner(model_ok)
     done = 0
+    over: list = []
     for f in findings:
-        if done >= limit:
-            break
         k = dedup_key_finding(f)
-        entity = describe_finding(f)
         if k in seen:
+            continue
+        entity = describe_finding(f)
+        if done >= limit:
+            over.append((f, k, entity))
             continue
         done += 1
         try:
@@ -472,6 +477,23 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
         except Exception as e:
             # Nici auditul nu s-a putut scrie (ex. Elasticsearch cazut).
             print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}", flush=True)
+    # R9: bugetul de investigatii epuizat escaladeaza, nu pierde. Cu baseline-ul glisant, un
+    # finding nemarcat intra in baseline la sweep-ul urmator si nu mai revine niciodata
+    # (masurat 2026-10-30: 9 sweep-uri peste limita in 7 zile, pana la 511 findings pierdute).
+    for f, k, entity in over:
+        try:
+            _record("LENT", entity, degraded.no_model_verdict(f.entity_id, "hunt"),
+                    OVER_BUDGET_NARRATIVE, datetime.now(timezone.utc),
+                    escalation=degraded.backlog_escalation(), refs=list(f.evidence_refs))
+            seen.add(k)
+        except Exception as e:
+            print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}", flush=True)
+    if over:
+        print(f"  FINDINGS peste buget: {len(over)} escaladate la om fara model", flush=True)
+
+
+OVER_BUDGET_NARRATIVE = ("Peste bugetul de investigatii al sweep-ului: escaladat la om fara "
+                         "verdict de model, ca sa nu fie pierdut (R9).")
 
 
 INTEGRITY_MAX_AGE_MIN = float(os.environ.get("INTEGRITY_MAX_AGE_MIN", "5"))

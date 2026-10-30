@@ -244,6 +244,10 @@ class RarityFinding(BaseModel):
         "beaconing",
         "dns_anomaly",
         "suspicious_exec_path",
+        # pasul 3.B
+        "new_executable",
+        "new_user",
+        "sbom_drift",
     ]
     entity_type: EntityType
     entity_id: str

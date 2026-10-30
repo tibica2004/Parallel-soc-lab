@@ -558,12 +558,141 @@ def sweep_suspicious_exec_path(window_hours: int = 1) -> list[RarityFinding]:
     ]
 
 
+# Pasul 3.B: raritate pe tipurile lipsa (executabil, utilizator, deriva SBOM).
+SBOM_IDX = "logs-soc.sbom-*"
+# Executabile noi in directoarele de sistem apar mai ales la update-uri; agentul Elastic se
+# actualizeaza singur. Restul (home, /var, /opt, /usr/local, webroot) = unealta adusa.
+_SYSTEM_EXEC = ("/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/lib/", "/usr/libexec/", "/lib/")
+_AGENT_EXEC = ("/opt/Elastic/",)
+
+
+def _new_exec_score(path: str) -> float:
+    p = path or ""
+    if p.startswith(_AGENT_EXEC):
+        return 0.4
+    if p.startswith(_SYSTEM_EXEC):
+        return 0.6
+    return 0.9
+
+
+def sweep_new_executable(window_hours: int = 1) -> list[RarityFinding]:
+    """Executabil pornit pe host pentru prima data in 30 de zile, de ORICE utilizator
+    (parent-child vede perechi, suspicious_exec_path vede doar caile fileless). Dropper,
+    unealta adusa, binar inlocuit sub alt nume. Masurat 2026-10-30: ~4 pe zi, toate
+    explicabile (pachet instalat, reboot). Caile fileless raman la suspicious_exec_path."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {PROC_IDX}
+        | WHERE {{w}} AND process.executable IS NOT NULL
+          AND NOT STARTS_WITH(process.executable, "/tmp/")
+          AND NOT STARTS_WITH(process.executable, "/var/tmp/")
+          AND NOT STARTS_WITH(process.executable, "/dev/shm/")
+          AND NOT STARTS_WITH(process.executable, "memfd:")
+          AND NOT ENDS_WITH(process.executable, "(deleted)")
+        | STATS cnt = COUNT(*), users = VALUES(user.name) BY host.name, process.executable
+        | LIMIT 10000
+        """
+    keys = ("host.name", "process.executable")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_executable", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"exec": str(r["process.executable"])[:200], "count": r["cnt"],
+                    "users": [str(u)[:64] for u in _as_list(r.get("users"))][:10]},
+            rarity_score=_new_exec_score(str(r["process.executable"])))
+        for r in rows
+    ]
+
+
+def sweep_new_user(window_hours: int = 1) -> list[RarityFinding]:
+    """Cont care ruleaza procese pe host pentru prima data in 30 de zile: cont creat de
+    atacator (T1136) sau cont de serviciu deturnat. Masurat: 0 pe zi in operare normala."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {PROC_IDX}
+        | WHERE {{w}} AND user.name IS NOT NULL
+        | STATS cnt = COUNT(*), execs = VALUES(process.name) BY host.name, user.name
+        | LIMIT 10000
+        """
+    keys = ("host.name", "user.name")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_user", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"user": str(r["user.name"])[:64], "count": r["cnt"],
+                    "processes": [str(e)[:64] for e in _as_list(r.get("execs"))][:10]},
+            rarity_score=1.0)
+        for r in rows
+    ]
+
+
+def _as_list(v) -> list:
+    """VALUES() intoarce un scalar cand e o singura valoare."""
+    if v is None:
+        return []
+    return list(v) if isinstance(v, list) else [v]
+
+
+# Tipurile de componente SBOM urmarite (codul, nu versiunile serverului: alea le are nday_watch).
+SBOM_DRIFT_TYPES = ("apache_module", "php_ext", "plugin", "theme")
+
+
+def sbom_drift(prev: list[dict], cur: list[dict]) -> list[dict]:
+    """Diferentele dintre doua SBOM-uri consecutive, pe tipurile urmarite. Pur.
+    added (modul/extensie/plugin nou), removed, modified (acelasi plugin si aceeasi
+    versiune, alt sha256 = cod schimbat fara update: grav), version_changed (update)."""
+    def index(comps):
+        return {(c.get("type"), c.get("name")): c for c in comps or []
+                if c.get("type") in SBOM_DRIFT_TYPES and isinstance(c.get("name"), str)}
+    p, c = index(prev), index(cur)
+    out = []
+    for k in sorted(set(p) | set(c), key=str):
+        a, b = p.get(k), c.get(k)
+        if a is None:
+            change, score = "added", 0.9
+        elif b is None:
+            change, score = "removed", 0.6
+        elif a.get("version") != b.get("version"):
+            change, score = "version_changed", 0.5
+        elif a.get("sha256") != b.get("sha256"):
+            change, score = "modified", 1.0
+        else:
+            continue
+        out.append({"component_type": k[0], "name": k[1][:120], "change": change,
+                    "version": str((b or a).get("version") or "")[:40],
+                    "old_version": str((a or {}).get("version") or "")[:40], "score": score})
+    return out
+
+
+def sweep_sbom_drift(window_hours: int = 1, host: str = "web-prod") -> list[RarityFinding]:
+    """Modul Apache / extensie PHP / plugin / tema aparut, disparut sau modificat intre
+    ultimele doua SBOM-uri (zilnice, 03:00). Doar cand SBOM-ul cel mai nou e proaspat
+    (fereastra + 1 h), ca o diferenta sa fie raportata o data, nu toata ziua."""
+    r = ES.search(index=SBOM_IDX, size=2, sort=[{"@timestamp": "desc"}],
+                  query={"term": {"host.name": host}}, source=["@timestamp", "components"])
+    hits = r["hits"]["hits"]
+    if len(hits) < 2:
+        return []
+    cur, prev = hits[0]["_source"], hits[1]["_source"]
+    from datetime import datetime, timedelta, timezone
+    ts = datetime.fromisoformat(cur["@timestamp"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) - ts > timedelta(hours=int(window_hours) + 1):
+        return []
+    return [
+        RarityFinding(
+            kind="sbom_drift", entity_type=EntityType.HOST, entity_id=host,
+            detail={k: v for k, v in d.items() if k != "score"}, rarity_score=d["score"])
+        for d in sbom_drift(prev.get("components"), cur.get("components"))
+    ]
+
+
 def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     findings: list[RarityFinding] = []
     import anomalies
     for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
                sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
                sweep_new_ja4, sweep_suspicious_exec_path, sweep_web_enumeration, sweep_wp_recon_path,
+               sweep_new_executable, sweep_new_user, sweep_sbom_drift,
                anomalies.sweep_beaconing, anomalies.sweep_dns):
         try:
             findings.extend(fn(window_hours))
