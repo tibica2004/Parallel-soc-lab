@@ -1,5 +1,5 @@
 [Unit]
-Description=Agentic SOC - alerte de absenta (backup vechi, orchestrator/tunel cazut, canar lipsa)
+Description=Agentic SOC - absenta si integritate (backup, servicii, canar, fluxuri web-prod, fleet-server)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,7 +9,9 @@ User=tiberiu
 WorkingDirectory=/home/tiberiu/lab
 EnvironmentFile=/home/tiberiu/lab/soc.env
 Environment=PYTHONUNBUFFERED=1
-# Nu atinge niciun host; doar citeste ES (read-only), citeste starea serviciilor locale
-# si trimite un pointer pe Discord. Iesirea != 0 doar cand ES e de neatins.
+# Nu atinge niciun host; citeste ES (read-only), starea serviciilor locale si
+# /api/status al fleet-server, trimite un pointer pe Discord si scrie DOAR in
+# soc-incidents (integrity_alert) si soc-metrics (puls), cu chei separate, scoped.
+# Iesirea != 0 cand o verificare sau o scriere a esuat.
 ExecStart=/home/tiberiu/lab/venv/bin/python absence_check.py
 Nice=10

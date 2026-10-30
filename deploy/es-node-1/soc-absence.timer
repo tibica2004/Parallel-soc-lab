@@ -1,10 +1,11 @@
 [Unit]
-Description=Agentic SOC - verificarea alertelor de absenta la 10 min
+Description=Agentic SOC - absenta si integritate (3.D), la fiecare minut
 
 [Timer]
-OnCalendar=*:0/10
+# 3.D: la minut, ca pulsul integrity_check sa fie des (orchestratorul alerteaza la > 5 min).
+OnCalendar=*:*:00
 # Jitter mic: nu pornim exact la fix odata cu toate celelalte timere.
-RandomizedDelaySec=1min
+RandomizedDelaySec=10s
 # Dupa o oprire a masinii, ruleaza o data la pornire in loc sa sara peste.
 Persistent=true
 

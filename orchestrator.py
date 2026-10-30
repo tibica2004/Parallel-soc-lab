@@ -468,6 +468,40 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
             print(f"  [EROARE la inregistrare, ar escalada la om] {entity}: {e}", flush=True)
 
 
+INTEGRITY_MAX_AGE_MIN = float(os.environ.get("INTEGRITY_MAX_AGE_MIN", "5"))
+_integrity_warned = False
+
+
+def _integrity_watch(now: datetime) -> None:
+    """Paznicul paznicului (3.D): absence_check scrie un puls integrity_check in soc-metrics
+    la fiecare minut; daca pulsul lipseste, monitorul de integritate e mort (timer oprit,
+    cheie revocata) si nimic altceva n-ar observa. absence_check verifica la randul lui ca
+    orchestratorul ruleaza. Citeste cu WRITER (are read pe soc-metrics); un esec nu opreste ciclul."""
+    global _integrity_warned
+    if WRITER is None:
+        return
+    try:
+        r = WRITER.search(index="soc-metrics", size=0,
+                          query={"term": {"type.keyword": "integrity_check"}},
+                          aggs={"last": {"max": {"field": "@timestamp"}}})
+        last = r["aggregations"]["last"].get("value_as_string")
+        age = None if not last else (now - datetime.fromisoformat(last.replace("Z", "+00:00"))
+                                     ).total_seconds() / 60
+        if age is None or age > INTEGRITY_MAX_AGE_MIN:
+            shown = "niciun puls" if age is None else f"ultimul puls acum {age:.0f} min"
+            print(f"  [integritate] monitorul tace: {shown}", flush=True)
+            notify.notify_human("Monitorul de integritate tace",
+                                f"soc-absence (absence_check.py): {shown} (prag "
+                                f"{INTEGRITY_MAX_AGE_MIN:.0f} min). Verifica soc-absence.timer.",
+                                severity="critical", dedup_key="integrity:checker_down",
+                                dedup_minutes=30, host="es-node-1")
+    except Exception as e:
+        if not _integrity_warned:
+            print(f"  [integritate] verificarea pulsului a esuat: {type(e).__name__} "
+                  f"(se reincearca, fara alte mesaje)", flush=True)
+            _integrity_warned = True
+
+
 def run_positioned(args) -> int:
     """Mod autonom. La fiecare ciclu: alertele de la pozitie pana la (acum - lag),
     apoi, la fiecare `sweep_every` cicluri, sweep-ul pe calea lenta. O eroare
@@ -499,6 +533,7 @@ def run_positioned(args) -> int:
 
             if args.metrics_every > 0 and (cycle - 1) % args.metrics_every == 0:
                 _metrics_snapshot()
+            _integrity_watch(datetime.now(timezone.utc))
 
             run_sweep = (args.sweep if not args.loop
                          else args.sweep_every > 0 and (cycle - 1) % args.sweep_every == 0)

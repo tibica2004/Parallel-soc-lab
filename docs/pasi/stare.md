@@ -100,8 +100,10 @@ noi nu prind nimic, cele vechi da. Diagnostic: deploy/web-prod/audit-status.py (
 prin netlink, fara pachetul auditd, care ar fura socketul). ORICE regula auditd noua = Fleet +
 REBOOT web-prod. Rebootat 08:10: 19/19 reguli (18 + ignore-self), din nou blocat. Decizie: Immutable
 ramane pornit (atacatorul cu root nu poate opri auditul fara reboot, iar reboot-ul se vede).
-- Fleet: un rand rupt in campul Audit rules (soc_kmod) a oprit tot auditd-ul din 29.10 14:57
-  ("failed to unpack the auditd config") pana azi 07:43. Lipeste doar randuri intregi.
+- Fleet: un rand rupt in campul Audit rules (soc_kmod) a facut configul invalid din 29.10 14:57
+  ("failed to unpack the auditd config") pana azi 07:43. CORECTIE (masurat la 3.D): colectarea NU
+  s-a oprit (pauza max 4 min in 3 zile); componenta veche a mers mai departe, doar configurile noi
+  nu se aplicau. Lipeste doar randuri intregi.
 - kernel lost=2632 evenimente auditd de la boot-ul din 26.10 -> de urmarit la pasul 7.
 - YARA (soc-yara-scan) citea momelile -> fals pozitive la 10 min. Fix: backup.sql sarit dupa cale,
   wp-config.php inca scanat iar regula wpconfig-read exclude /usr/bin/yara (excludere in Kibana,

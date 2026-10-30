@@ -83,6 +83,16 @@ def _mark(key: str) -> None:
     _save_state(state)
 
 
+def recent(key: str, minutes: float) -> bool:
+    """Dedup public pentru alte inregistrari decat Discord (ex. soc-incidents in absence_check):
+    aceeasi stare, chei separate."""
+    return _recent(key, minutes)
+
+
+def mark(key: str) -> None:
+    _mark(key)
+
+
 def notify_human(title: str, detail: str = "", *, severity: str = "critical",
                  dedup_key: str | None = None, dedup_minutes: float = 15,
                  host: str | None = None) -> bool:
