@@ -87,8 +87,12 @@ reader.py (ReaderCommand = lista gate-ului). wp_inventory din SBOM (nu mai intra
 Verificat de pe es-node-1: 5 permise OK; ls /, cat /etc/shadow, "; id", sesiune fara comanda ->
 DENIED rc=1; -L forwarding "administratively prohibited"; PTY refuzat; toate in logs-system.auth
 (process.name soc-reader-gate). stat backup.sql fara alerta honeytoken. reader.run live OK.
-RAMAS: honeytoken_rules.py aplica (soc-reader-denied) + restart orchestrator; 1b.2 = canar-hash +
-cron_hash in absence_check prin reader.run.
+FACUT si dupa: regula soc-reader-denied creata si testata (DENIED -> alerta in 48 s); restart
+orchestrator; testul 3.B live a trecut (new_executable soc-rarity-test, new_user soc-reader).
+1b.2 FACUT (deb4553): canar-hash (vs ~/lab/data/canary.sha256, referinta verificata: binar =
+/usr/bin/true, cron = fisierul din repo) + cron_hash (vs ~/lab/data/cron.sha256, invatat) in
+absence_check la fiecare 10 min prin reader.run. Live 11:00: "canar hash OK", cron 5 fisiere.
+=> PASUL 3 COMPLET IN INTREGIME (inclusiv cron_hash). Pasii 0, 1, 1b, 1c, 3 = gata.
 CONSTATARE: sshd pe web-prod are passwordauthentication yes GLOBAL (soc-reader nu e afectat:
 parola blocata). Atenuat de nft (22 doar es-node-1 + admin). De inchis la hardening.
 
