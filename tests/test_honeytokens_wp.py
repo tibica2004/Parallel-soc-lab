@@ -201,3 +201,10 @@ def test_backup_exclude_contine_momelile():
 def test_documentatia_auditd_e_la_zi():
     doc = (ROOT / "deploy/web-prod/auditd-fim.md").read_text()
     assert all(r in doc for r in H.AUDITD_RULES)
+
+
+def test_scannerul_yara_nu_declanseaza_momelile():
+    # soc-yara-scan sare backup.sql (dupa cale) si regula wp-config il exclude explicit
+    assert 'process.executable : "/usr/bin/yara"' in H.RULES["soc-honey-wpconfig-read"]["query"]
+    scan = (ROOT / "deploy/web-prod/yara/soc-yara-scan").read_text()
+    assert f'SKIP_PATHS = {{"{H.DECOY_SQL}"}}' in scan and "p in SKIP_PATHS" in scan

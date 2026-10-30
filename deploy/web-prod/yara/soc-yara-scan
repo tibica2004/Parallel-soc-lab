@@ -3,8 +3,10 @@
 Scanare YARA a webroot-ului (faza 12). Ruleaza din soc-yara-scan.service, pornit
 de timer (la 10 minute) si de soc-yara-scan.path (la orice creare in /var/www/html).
 
-- Lista de fisiere o face scriptul, nu yara -r: momeala .env.bak NU se citeste
-  (altfel auditd ar declansa honeytoken-ul de citire la fiecare scanare).
+- Lista de fisiere o face scriptul, nu yara -r: momelile .env.bak si backup.sql NU se
+  citesc (altfel auditd ar declansa honeytoken-ul de citire la fiecare scanare).
+  wp-config.php se scaneaza (webshell injectat acolo e o tehnica reala); regula
+  soc-honey-wpconfig-read exclude /usr/bin/yara.
 - Doar potrivirile NOI (cale + sha256 + regula) se scriu, in jurnal, cu eticheta
   soc-yara, ca un rand JSON; integrarea System le duce in logs-system.syslog-*.
 - Fara retea, fara scriere in afara directorului de stare.
@@ -20,6 +22,7 @@ RULES = "/etc/soc-yara/webshells.yar"
 ROOTS = ["/var/www"]
 STATE = "/var/lib/soc-yara/seen.json"
 SKIP_NAMES = {".env.bak"}                  # momeli: vezi honeytokens.py
+SKIP_PATHS = {"/var/www/html/backup.sql"}  # momeala 3.C (dupa cale: alt backup.sql se scaneaza)
 MAX_SIZE = 5 * 1024 * 1024
 
 
@@ -28,7 +31,7 @@ def files():
         for d, dirs, names in os.walk(root, followlinks=False):
             for n in names:
                 p = os.path.join(d, n)
-                if n in SKIP_NAMES or os.path.islink(p):
+                if n in SKIP_NAMES or p in SKIP_PATHS or os.path.islink(p):
                     continue
                 try:
                     if os.path.isfile(p) and os.path.getsize(p) <= MAX_SIZE:

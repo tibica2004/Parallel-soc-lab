@@ -132,7 +132,11 @@ RULES: dict[str, dict] = {
         "type": "query",
         "language": "kuery",
         "index": ["logs-auditd_manager.auditd-*"],
-        "query": f'tags : "{WPCONFIG_KEY}" and not process.executable : /opt/Elastic/*',
+        # yara: scannerul de webroot (soc-yara-scan) citeste wp-config.php la 10 minute, intentionat
+        # (webshell injectat in wp-config). Excludere aici, nu in kernel: regulile auditd sunt
+        # blocate (immutable) pana la reboot.
+        "query": (f'tags : "{WPCONFIG_KEY}" and not process.executable : /opt/Elastic/* '
+                  'and not process.executable : "/usr/bin/yara"'),
         "threat_technique": ("T1552.001", "Credentials In Files"),
     },
     "soc-honey-mysql-user": {
