@@ -10,7 +10,7 @@ delete table inet soc_fw
 table inet soc_fw {
     set admin_v4 {
         type ipv4_addr
-        elements = { 172.20.99.220 }
+        elements = { 172.20.99.220, 192.168.62.206 }
     }
 
     chain input {

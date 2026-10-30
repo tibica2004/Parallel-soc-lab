@@ -13,10 +13,11 @@ table inet soc_fw
 delete table inet soc_fw
 
 table inet soc_fw {
-    # Administrare (SSH, Kibana, interfata de etichetare). Azi: elastic-lab vechi.
+    # Administrare (SSH, Kibana, interfata de etichetare): elastic-lab vechi + laptopul (Debian, Wi-Fi).
+    # Laptopul are IP prin DHCP: daca se schimba, accesul direct se pierde (ramane elastic-lab).
     set admin_v4 {
         type ipv4_addr
-        elements = { 172.20.99.220 }
+        elements = { 172.20.99.220, 192.168.62.206 }
     }
     # Cine scrie direct in ES: Elastic Agent de pe web-prod (output Fleet) si benign-gen.
     set es_clients_v4 {
