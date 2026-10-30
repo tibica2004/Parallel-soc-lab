@@ -581,7 +581,8 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                         esc = should_escalate(v, floor_applied=bool(out.get("floor_applied")),
                                               pair_in_baseline=(out.get("context") or {}).get("pair_in_baseline"),
                                               native_detection=bool((out.get("context") or {}).get("native_detection")),
-                                              honeytoken=honeytokens.is_honeytoken(a),
+                                              honeytoken=(honeytokens.escalation_reason(a)
+                                                          is EscalationReason.HONEYTOKEN),
                                               sensor_detection=sensor_rules.is_sensor_alert(a),
                                               behavioral=behavioral_rules.is_behavioral(a))
                     except degraded.CaseTimeout:
@@ -598,7 +599,9 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                                          degraded.NARRATIVE[failure], degraded.failure_escalation())
                 # Momeala atinsa / detectie de senzor: motivul ajunge in audit si la Tier 2
                 # si pe caile fara model (restanta, model cazut), unde should_escalate nu ruleaza.
-                for flag, reason in ((honeytokens.is_honeytoken(a), EscalationReason.HONEYTOKEN),
+                # Momeala atinsa de pe un IP propriu/benign: motiv separat (config_error), fara paginare.
+                ht_reason = honeytokens.escalation_reason(a)
+                for flag, reason in ((ht_reason is not None, ht_reason),
                                      (sensor_rules.is_sensor_alert(a), EscalationReason.SENSOR_DETECTION)):
                     if flag and reason not in esc.reasons:
                         esc = EscalationDecision(escalate=True, reasons=[*esc.reasons, reason])

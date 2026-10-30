@@ -1,2 +1,3 @@
 var/www/html/.env.bak
+var/www/html/backup.sql
 var/www/html/wp-content/cache

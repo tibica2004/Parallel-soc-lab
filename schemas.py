@@ -87,6 +87,9 @@ class EscalationReason(str, Enum):
     # Regula de honeytoken (honeytokens.RULES): nimic legitim nu atinge momeala,
     # deci escaladeaza mereu, oricat de sigur ar fi modelul (faza 12).
     HONEYTOKEN = "honeytoken"
+    # Momeala atinsa de pe un IP propriu (WP_SELF_IPS) sau al generatorului benign
+    # (BENIGN_GEN_IPS): eroare de configurare, nu intruziune. Tot la om, fara paginare.
+    HONEYTOKEN_CONFIG_ERROR = "honeytoken_config_error"
     # Detectie a unui senzor propriu (sensor_rules.RULES: YARA pe webroot sau Suricata
     # IDS pe atac web): poate fi fals pozitiva, dar nu o inchide Tier 1 singur.
     SENSOR_DETECTION = "sensor_detection"

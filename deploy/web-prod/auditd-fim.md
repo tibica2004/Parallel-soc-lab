@@ -20,6 +20,14 @@ Integrations -> "Auditd Manager" -> Add -> politica agentului web-prod.
 ```
 ## Honeytoken: orice deschidere pentru citire a momelii
 -w /var/www/html/.env.bak -p r -k soc_honeytoken
+## Pasul 3.C (sursa: honeytokens.AUDITD_RULES). Ordinea conteaza: "never" inaintea
+## lui "always" (prima potrivire castiga; un singur camp exe per regula).
+-a never,exit -F arch=b64 -F path=/var/www/html/wp-config.php -F perm=r -F exe=/usr/sbin/apache2
+-a never,exit -F arch=b64 -F path=/var/www/html/wp-config.php -F perm=r -F exe=/usr/sbin/php-fpm8.3
+-a never,exit -F arch=b64 -F path=/var/www/html/wp-config.php -F perm=r -F exe=/usr/bin/php8.3
+-a never,exit -F arch=b64 -F path=/var/www/html/wp-config.php -F perm=r -F exe=/usr/bin/tar -F uid=0
+-a always,exit -F arch=b64 -F path=/var/www/html/wp-config.php -F perm=r -k soc_honey_wpconfig
+-w /var/www/html/backup.sql -p r -k soc_honey_sql
 ## Persistenta
 -w /etc/cron.d/ -p wa -k soc_persistence
 -w /etc/crontab -p wa -k soc_persistence

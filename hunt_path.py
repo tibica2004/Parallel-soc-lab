@@ -798,7 +798,8 @@ def node_finalize(state: HuntState) -> dict:
         _floor = True
     # Momeala atinsa (motiv decis de cod pe Tier 1): Tier 2 nu o poate inchide.
     elif (_cls == "benign" and c is not None
-          and EscalationReason.HONEYTOKEN in (c.escalation_reasons or [])):
+          and {EscalationReason.HONEYTOKEN, EscalationReason.HONEYTOKEN_CONFIG_ERROR}
+          & set(c.escalation_reasons or [])):
         _floor = True
     if _floor:
         p = dict(p)
