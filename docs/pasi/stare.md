@@ -77,6 +77,17 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
+## PASUL 3.B (raritate) — FACUT 2026-10-30 -> PASUL 3 COMPLET (minus cron_hash, depinde de 1b)
+
+Cod 7e79232 (detalii A-E: docs/pasi/pas-03b.md). Sweep-uri noi in run_full_sweep (orar):
+new_executable (orice user, fara caile fileless), new_user, sbom_drift (apache_module/php_ext/
+plugin/tema: added/removed/version_changed/modified = alt sha256 la aceeasi versiune). Fum pe
+date reale (24 h): 4 / 0 / 0. Reparatie R9: findings peste --hunt-limit 5 erau sarite si intrau
+in baseline (pana la 511 pierdute in 7 zile); acum verdict de cod undetermined + escalate_human
+(BACKLOG_SEVERE). Deployat pe es-node-1 (*.pre-3b); necesita restart orchestrator.
+Amanat: cron_hash (gate soc-reader, 1b). Bug SBOM: modul Apache "Loaded" (antetul din
+apache2ctl -M) — de reparat in soc-sbom.sh.
+
 ## PASUL 3.E (AIDE pe web-prod) — FACUT si verificat 2026-10-30
 
 Cod e2104b4 (detalii A-E: docs/pasi/pas-03e.md). AIDE 0.18.6 fara aide-common (fara timerul
