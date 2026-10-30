@@ -6,6 +6,8 @@ Description=Agentic SOC - absenta si integritate (3.D), la fiecare minut
 OnCalendar=*:*:00
 # Jitter mic: nu pornim exact la fix odata cu toate celelalte timere.
 RandomizedDelaySec=10s
+# Implicit AccuracySec=1min: systemd ar grupa declansarile -> pulsuri la ~2 min. Precis la secunda.
+AccuracySec=1s
 # Dupa o oprire a masinii, ruleaza o data la pornire in loc sa sara peste.
 Persistent=true
 
