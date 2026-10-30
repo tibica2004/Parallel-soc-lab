@@ -77,6 +77,25 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
+## PASUL 3.E (AIDE pe web-prod) — FACUT si verificat 2026-10-30
+
+Cod e2104b4 (detalii A-E: docs/pasi/pas-03e.md). AIDE 0.18.6 fara aide-common (fara timerul
+distributiei), config /etc/soc-aide/aide.conf (G9 + /usr/bin, fara uploads/cache si fara momele),
+soc-aide-check root la 03:30, baza promovata la fiecare rulare (fiecare schimbare raportata o
+data), explicat = pachet dpkg instalat de la rularea anterioara (decis de cod). Regula
+soc-aide-change (senzor, high). Regula wp-config exclude /usr/bin/aide (verificat: citire logata,
+fara alerta). Test: fisier nou + sters in /usr/local/bin -> 2 alerte in ~11 s, ambele procesate,
+escaladare cu sensor_detection.
+
+Doua defecte PREEXISTENTE gasite la testul 3.E (reparate):
+- 0f291ab: jurnalul web-prod vine din /var/log/syslog din ~20.10 (process.name = eticheta, fara
+  log.syslog.appname) -> soc-yara-webshell n-a mai alertat 10 zile (60 potriviri pe 26.10, toate
+  pe fisiere WordPress core = fals pozitive; niciun webshell real ascuns). Helper _syslog_tag.
+- f6cdd85: dedup orchestrator: alertele din jurnal (YARA/AIDE/MySQL/auditd) aveau cheia
+  regula|host| -> a doua alerta a aceleiasi reguli sarita 24 h. Acum hash pe message.
+De facut ulterior: YARA da fals pozitive pe WordPress core (lista alba dupa checksum-urile WP).
+De etichetat benign: soc-aide-change de la testele 09:10-10:19.
+
 ## PASUL 3.D (monitor de integritate) — FACUT 2026-10-30
 
 Cod f719c06 + 4046536 (detalii A-E: docs/pasi/pas-03d.md). absence_check.py extins (timer la
