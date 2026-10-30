@@ -77,6 +77,21 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
+## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
+
+Cod 5c909df (detalii A-E: docs/pasi/pas-01b.md). web-prod: cont soc-reader (uid 995, parola
+blocata, shell /bin/sh), authorized_keys al lui root cu restrict,command=soc-reader-gate; gate cu
+11 comenzi exacte + rrsync -ro /var/www/html; sshd neatins. es-node-1: ~/.ssh/soc-reader (ed25519,
+SHA256:UkPJB+...F1vU), host key web-prod verificat in known_hosts (SHA256:Nj2GU0...Dk4k).
+reader.py (ReaderCommand = lista gate-ului). wp_inventory din SBOM (nu mai intra ca tiberiu@).
+Verificat de pe es-node-1: 5 permise OK; ls /, cat /etc/shadow, "; id", sesiune fara comanda ->
+DENIED rc=1; -L forwarding "administratively prohibited"; PTY refuzat; toate in logs-system.auth
+(process.name soc-reader-gate). stat backup.sql fara alerta honeytoken. reader.run live OK.
+RAMAS: honeytoken_rules.py aplica (soc-reader-denied) + restart orchestrator; 1b.2 = canar-hash +
+cron_hash in absence_check prin reader.run.
+CONSTATARE: sshd pe web-prod are passwordauthentication yes GLOBAL (soc-reader nu e afectat:
+parola blocata). Atenuat de nft (22 doar es-node-1 + admin). De inchis la hardening.
+
 ## PASUL 3.B (raritate) — FACUT 2026-10-30 -> PASUL 3 COMPLET (minus cron_hash, depinde de 1b)
 
 Cod 7e79232 (detalii A-E: docs/pasi/pas-03b.md). Sweep-uri noi in run_full_sweep (orar):
