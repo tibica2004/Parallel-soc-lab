@@ -77,6 +77,16 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
+## PASUL 2 (analiza statica) — FACUT 2026-11-02, cu o problema de calitate deschisa
+
+Poarta pasului 3 rulata inainte (results/poarta3-*-2026-11-02-0706 pe es-node-1): fast 4/4,
+0day 1/1, dev 13/14 (recall 8/8; FP-ul cunoscut php --version, identic cu referinta post-migrare),
+val 8/8. Cod 7b2166b, 717f6c6.., dfed52c (detalii A-E si rezultate: docs/pasi/pas-02.md).
+Semgrep 1.180.0 in ~/semgrep-venv pe es-node-1; static-findings + cheia soc-static-writer create
+de om. 2 rulari exit 0, idempotent (77 -> 0 noi). Triajul: 43 "open" toate in WP core, 2/2
+verificate = fals pozitive -> propunere: filtru pe checksum-urile oficiale WP (decis de cod).
+RAMAS (om): instalarea soc-static.timer (sudo) — comanda in pas-02.md B.6.
+
 ## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
 
 Cod 5c909df (detalii A-E: docs/pasi/pas-01b.md). web-prod: cont soc-reader (uid 995, parola

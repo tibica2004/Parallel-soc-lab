@@ -98,6 +98,32 @@ rm -rf ~/lab/data/static ~/semgrep-venv
 # scoate ES_STATIC_WRITER_API_KEY din soc.env; draft_rule-urile din soc-incidents au source=static.
 ```
 
-## Rezultate
+## Rezultate (2026-11-02, es-node-1)
 
-(se completeaza dupa rulare)
+- `semgrep --validate`: 12 reguli, 0 erori; `semgrep --test`: 12/12; pytest 27/27 (si pe es-node-1).
+- Defect gasit la prima rulare: snapshot-ul sta sub data/ (in .gitignore) si semgrep a scanat
+  0 fisiere, raportand "0 rezultate" fara eroare. Reparat: `--no-git-ignore` + garda de
+  acoperire (scanat < 90% din fisierele PHP = esec, exit 1). Commit dfed52c.
+- Copia: 1487 fisiere PHP, 25 MB, fara wp-config.php/backup.sql/.env.bak; 1442 scanate.
+- Rularea 1 (cu model, 25.8 min, exit 0): 77 rezultate (61 xss-echo, 9 exec, 3 include,
+  3 file-read, 1 wpdb) -> 43 open, 19 closed_fp, 15 escalated (din care 1 triage_failed),
+  42 draft_rule propuse in soc-incidents.
+- Rularea 2 (sync complet, 37 s, exit 0): findings_new=0, findings_known=77 -> idempotent.
+- static-findings _count=77; soc-incidents draft_rule source=static = 42; soc-metrics type=static = 2.
+
+### Calitatea triajului: NESATISFACATOARE pe WordPress core
+
+Toate cele 43 "open" sunt in WordPress core 7.1.3 (niciunul in plugin-uri/teme). Doua verificate
+manual, ambele fals pozitive:
+- wp-admin/setup-config.php:338 (`$wpdb->query("SELECT $prefix")`): $prefix e validat cu
+  `preg_match('|[^a-z0-9_]|i')` la linia 308, in afara ferestrei de +-12 linii vazute de model.
+- wp-admin/users.php:350: $id si user_login vin din date incarcate, nu direct din cerere.
+Concluzie: qwen3:14b cu fereastra ingusta supra-declara "adevarat pozitiv" pe cod pe care nu-l
+vede intreg. Nicio actiune automata nu decurge din asta (open = la om; draft = propunere), dar
+42 de drafturi sunt zgomot pentru om.
+
+Propunere (de decis de om): findings in fisiere de core identice cu sumele oficiale WordPress
+(api.wordpress.org/core/checksums) -> status `upstream_core`, decis de cod, fara model si fara
+draft (remedierea e update-ul de WordPress, deja urmarit de N-day watch). Modelul ramane pentru
+plugin-uri, teme si fisierele de core MODIFICATE (exact cele interesante pentru un 0-day/webshell).
+Plus fereastra = functia intreaga (nu +-12 linii).
