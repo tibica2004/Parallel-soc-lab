@@ -81,7 +81,7 @@ Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E 
 
 Poarta pasului 3 rulata inainte (results/poarta3-*-2026-11-02-0706 pe es-node-1): fast 4/4,
 0day 1/1, dev 13/14 (recall 8/8; FP-ul cunoscut php --version, identic cu referinta post-migrare),
-val 8/8. Cod 7b2166b, 717f6c6.., dfed52c (detalii A-E si rezultate: docs/pasi/pas-02.md).
+val 8/8. Cod 7b2166b, b9197a7, dfed52c (detalii A-E si rezultate: docs/pasi/pas-02.md).
 Semgrep 1.180.0 in ~/semgrep-venv pe es-node-1; static-findings + cheia soc-static-writer create
 de om. 2 rulari exit 0, idempotent (77 -> 0 noi). Triajul: 43 "open" toate in WP core, 2/2
 verificate = fals pozitive -> propunere: filtru pe checksum-urile oficiale WP (decis de cod).
