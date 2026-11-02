@@ -1,0 +1,24 @@
+[Unit]
+Description=SOC - generator de trafic benign (pasul 4), adevar in benign-ground-truth
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=soc-benign
+Group=soc-benign
+WorkingDirectory=/opt/soc-benign
+EnvironmentFile=/etc/soc-benign/benign.env
+Environment=PYTHONUNBUFFERED=1 TZ=Europe/Bucharest PLAYWRIGHT_BROWSERS_PATH=/opt/soc-benign/browsers
+ExecStart=/opt/soc-benign/venv/bin/python /opt/soc-benign/benign_gen.py
+Restart=on-failure
+RestartSec=60
+MemoryMax=1500M
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/opt/soc-benign/home
+
+[Install]
+WantedBy=multi-user.target
