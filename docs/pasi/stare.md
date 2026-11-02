@@ -122,6 +122,21 @@ imposibil cu SNAT-ul unic); lab-sink CREAT (192.168.10.160, m1.small: m1.tiny n-
 imaginea Noble; cheie host verificata din consola); igiena: regula es-sg 9300 STEARSA; SSH fara
 parole si HTTPS pe web-prod = dupa poarta (reload sshd/Apache nu in timpul harness-ului).
 
+## 2026-11-02 seara: podeaua 4, plann.md, sincronizare completa pe es-node-1
+- Poarta podelei 4 (15:01): dev 8/8 atacuri (FP 2/6 cunoscute), val 4/4 atacuri (FP 2/4: admin
+  prin sudo, enrich_only, variatie Tier 2 = S2), injectie 4/4 cu AMBELE cazuri Tier 2 malicious
+  (podeaua merge). Acceptat de om.
+- plann.md implementat in cod (S1, S3, S6, A1-A7; S2 de masurat dupa pasul 8; S4/S5 prin decizie)
+  + igiena (implicite OpenStack, DISABLE_CRITIC scos din exemple, 2 fisiere marcate deprecate).
+- es-node-1 = laboratorul (decizia omului): arborele git HEAD (507a50b) extras cu `git archive`
+  peste ~/lab (rsync nu exista pe boxa veche); sha256 identice, 1071 teste verzi acolo,
+  prompt_set f1d721739bf7. Secretele raman cele ale masinii. Git-ul de pe es-node-1 ramane in urma
+  pana la push-ul omului (git pull apoi).
+- Poarta finala (fast+dev+val+inj) pornita 15:5x pe arborele complet, benign-gen oprit.
+- RAMAS om dupa poarta: pas-a1-cases.sh, import soc-status.ndjson (ca pas7-setup), restart
+  orchestrator + soc-readiness.timer; apoi benign-gen start (Claude), HTTPS/SSH web-prod,
+  art-setup.sh; apoi pasii 5 si 8.
+
 ## COD SCRIS, NEAPLICAT (2026-11-02, dupa poarta 6) — o singura implementare + poarta completa
 10.2 grupare pe cazuri (a164c96), 10.1 CLAUDE.md (ea1ac05), 11 ILM + sanatate ES (920838f),
 12 suricata-update (920838f), 12b ModSecurity (4983971), 6.1 Tier 2 delimitat + scenarios_injection
