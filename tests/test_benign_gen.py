@@ -142,3 +142,15 @@ def test_rute_rest_fara_permalinkuri_sunt_sigure():
     for r in (bg.rest("/wp/v2/posts"), bg.rest("/wp/v2/users/me"), bg.rest("/wp/v2/media"),
               bg.rest("/wp/v2/posts/12"), bg.rest("/wp/v2/posts", author=3, per_page=5, context="edit")):
         assert bg.safe_path(r), r
+
+
+def test_admin_https_separat_de_navigarea_publica(monkeypatch):
+    env = {"BENIGN_BASE_URL": "http://192.168.10.138", "BENIGN_WP_USER": "u", "BENIGN_WP_PASSWORD": "p",
+           "ES_URL": "http://e:9200", "ES_BENIGN_WRITER_API_KEY": "k", "BENIGN_SRC_IP": "192.168.10.150"}
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("BENIGN_ADMIN_URL", raising=False)
+    assert bg.Cfg.from_env().admin_base == "http://192.168.10.138"
+    monkeypatch.setenv("BENIGN_ADMIN_URL", "https://192.168.10.138/")
+    c = bg.Cfg.from_env()
+    assert c.admin_base == "https://192.168.10.138" and c.base == "http://192.168.10.138"

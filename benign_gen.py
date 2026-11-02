@@ -127,6 +127,7 @@ class Cfg:
     es_url: str
     es_key: str
     src_ip: str
+    admin_base: str = ""      # login + editor (HTTPS, pasul 10); gol = base
 
     @classmethod
     def from_env(cls) -> "Cfg":
@@ -135,8 +136,10 @@ class Cfg:
         if miss:
             raise RuntimeError(f"lipsesc: {', '.join(miss)}")
         e = os.environ
-        return cls(e["BENIGN_BASE_URL"].rstrip("/"), e["BENIGN_WP_USER"], e["BENIGN_WP_PASSWORD"],
-                   e["ES_URL"].rstrip("/"), e["ES_BENIGN_WRITER_API_KEY"], e["BENIGN_SRC_IP"])
+        base = e["BENIGN_BASE_URL"].rstrip("/")
+        return cls(base, e["BENIGN_WP_USER"], e["BENIGN_WP_PASSWORD"],
+                   e["ES_URL"].rstrip("/"), e["ES_BENIGN_WRITER_API_KEY"], e["BENIGN_SRC_IP"],
+                   (e.get("BENIGN_ADMIN_URL") or base).rstrip("/"))
 
 
 class Session:
@@ -161,7 +164,7 @@ class Session:
         r = self.es.post(f"{self.cfg.es_url}/{INDEX}/_doc", data=json.dumps(doc), timeout=10)
         r.raise_for_status()
 
-    def act(self, action: str, target: str, fn) -> int | None:
+    def act(self, action: str, target: str, fn, base: str | None = None) -> int | None:
         """start in ES -> cerere -> end in ES. Fara start inregistrat, nu se face cererea."""
         if self.requests_done >= MAX_REQUESTS:
             return None
@@ -174,7 +177,7 @@ class Session:
         t0 = time.monotonic()
         status, err = None, None
         try:
-            status = fn(self.cfg.base + target)
+            status = fn((base or self.cfg.base) + target)
         except Exception as e:  # noqa: BLE001 — eroarea se inregistreaza, sesiunea continua
             err = f"{type(e).__name__}: {e}"
             self.errors += 1
@@ -208,7 +211,8 @@ class Session:
     def login(self, pw) -> None:
         def do(url: str) -> int:
             self.browser = pw.chromium.launch()
-            ctx = self.browser.new_context(user_agent=UA,
+            # certificatul web-prod e self-signed (laborator): acceptat doar in sesiunea de editor
+            ctx = self.browser.new_context(user_agent=UA, ignore_https_errors=True,
                                            extra_http_headers={"X-SOC-Benign": self.run_id})
             self.page = ctx.new_page()
             self.page.goto(url, timeout=30000)
@@ -216,12 +220,12 @@ class Session:
             self.page.fill("#user_pass", self.cfg.password)
             with self.page.expect_navigation(timeout=30000):
                 self.page.click("#wp-submit")
-            resp = self.page.goto(self.cfg.base + "/wp-admin/post-new.php", timeout=60000)
+            resp = self.page.goto(self.cfg.admin_base + "/wp-admin/post-new.php", timeout=60000)
             self.nonce = self.page.evaluate("() => window.wpApiSettings && wpApiSettings.nonce")
             if not self.nonce:
                 raise RuntimeError("login esuat sau nonce REST lipsa")
             return resp.status if resp else 0
-        self.act(Action.LOGIN, "/wp-login.php", do)
+        self.act(Action.LOGIN, "/wp-login.php", do, base=self.cfg.admin_base)
 
     def _rest(self, method: str, url: str, **kw) -> int:
         """Ca Gutenberg: REST cu cookie-ul sesiunii si X-WP-Nonce."""
@@ -235,29 +239,31 @@ class Session:
         body = {"title": f"Nota de lucru {n}", "status": "publish",
                 "content": f"<p>Paragraf de test benign numarul {n}.</p>"}
         self.act(Action.CREATE_POST, rest("/wp/v2/posts"),
-                 lambda u: self._rest("POST", u, data=body))
+                 lambda u: self._rest("POST", u, data=body), base=self.cfg.admin_base)
 
     def edit_post(self) -> None:
-        code = self.act(Action.EDIT_POST, rest("/wp/v2/users/me"), lambda u: self._rest("GET", u))
+        code = self.act(Action.EDIT_POST, rest("/wp/v2/users/me"), lambda u: self._rest("GET", u),
+                        base=self.cfg.admin_base)
         me = self._last_json if code == 200 else None
         if not isinstance(me, dict) or not isinstance(me.get("id"), int):
             return None
         code = self.act(Action.EDIT_POST, rest("/wp/v2/posts", author=me["id"], per_page=5, context="edit"),
-                        lambda u: self._rest("GET", u))
+                        lambda u: self._rest("GET", u), base=self.cfg.admin_base)
         mine = self._last_json if code == 200 else None
         if not mine:
             return self.create_post()
         pid = int(mine[0]["id"])
         body = {"content": f"<p>Actualizat {datetime.now(timezone.utc):%Y-%m-%d %H:%M}.</p>"}
         self.act(Action.EDIT_POST, rest(f"/wp/v2/posts/{pid}"),
-                 lambda u: self._rest("POST", u, data=body))
+                 lambda u: self._rest("POST", u, data=body), base=self.cfg.admin_base)
 
     def upload_media(self) -> None:
         name = f"soc-benign-{self.rnd.randint(1, 99999)}.png"
         data = png_bytes(self.rnd)
         self.act(Action.UPLOAD_MEDIA, rest("/wp/v2/media"), lambda u: self._rest(
             "POST", u, data=data, headers={"Content-Type": "image/png",
-                                           "Content-Disposition": f'attachment; filename="{name}"'}))
+                                           "Content-Disposition": f'attachment; filename="{name}"'}),
+                 base=self.cfg.admin_base)
 
     def trigger_cron(self) -> None:
         self.act(Action.CRON, "/wp-cron.php?doing_wp_cron=", self._get)
@@ -265,14 +271,14 @@ class Session:
     def logout(self) -> None:
         def do(url: str) -> int:
             # linkul de logout (cu nonce) e in meniul ascuns al barei de admin: il urmam direct
-            self.page.goto(self.cfg.base + "/wp-admin/", timeout=30000)
+            self.page.goto(self.cfg.admin_base + "/wp-admin/", timeout=30000)
             href = self.page.get_attribute("#wp-admin-bar-logout a", "href", timeout=15000)
-            if not href or not href.startswith(self.cfg.base + "/wp-login.php?action=logout"):
+            if not href or not href.startswith(self.cfg.admin_base + "/wp-login.php?action=logout"):
                 raise RuntimeError("link de logout neasteptat")
             resp = self.page.goto(href, timeout=30000)
             return resp.status if resp else 0
         try:
-            self.act(Action.LOGOUT, "/wp-login.php?action=logout", do)
+            self.act(Action.LOGOUT, "/wp-login.php?action=logout", do, base=self.cfg.admin_base)
         finally:
             if self.page is not None:
                 self.browser.close()
