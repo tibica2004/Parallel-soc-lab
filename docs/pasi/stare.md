@@ -92,9 +92,13 @@ mai inchide nimic (3/3 FP verificate raman "TP conf 90" si in v2). 42 drafturi -
 VM benign-gen CREAT de Claude (aprobat): 192.168.10.150 / flotant 172.30.6.210, m1.small, benign-sg
 (22 doar admin), victim-sg +80 de la .150. Generator instalat (/opt/soc-benign, user soc-benign,
 Chromium testat), benign.env cu parola WP generata pe VM. Cod 288e170.
-RAMAS (om): benign-setup.sh (elastic), cheia pe VM prin pipe, wp user create, Fleet Custom Logs
-soc.benign_actions, soc-fp-rate.timer. Apoi Claude: sesiune de proba + start benign-gen.
-benign-gen se opreste in timpul harness-ului.
+Om a facut: chei/index, cheia pe VM, cont WP, soc-fp-rate.timer. benign-gen.service ACTIV din
+2026-11-02 ~09:31 UTC (sesiune completa 14/14 OK). Reparate pe drum (aprobat): WP siteurl/home
+172.20.99.240 -> 192.168.10.138; / servea copia statica index.html din 20.10 (cu injectorul de
+test wp-warden; efect al scenariului wget) -> carantina /root/soc-quarantine-20261102 + scenariul
+curata dupa el. RAMAS: Fleet Custom Logs soc.benign_actions (om); acceptare 24 h + 4 rapoarte FP.
+benign-gen se opreste in timpul harness-ului: ssh ubuntu@172.30.6.210 'sudo systemctl stop benign-gen'.
+Acces VM: ssh ubuntu@172.30.6.210 (lab-key; cheie host verificata din consola OpenStack).
 
 ## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
 

@@ -77,3 +77,35 @@ ssh tiberiu@172.30.6.249 'sudo -u www-data wp --path=/var/www/html user delete s
 sudo systemctl disable --now soc-fp-rate.timer
 # elastic: DELETE benign-ground-truth; _invalidate soc-benign-writer, soc-fp-reader; scoate cheile din soc.env
 ```
+
+## Rezultate (2026-11-02)
+
+Facut de om: benign-setup.sh (index + 2 chei, verificat 403/200/403), cheia pe VM, contul
+soc-benign-admin (editor), soc-fp-rate.timer (prima rulare 12:10 UTC).
+
+Probleme gasite si reparate la sesiunea de proba:
+1. **WordPress siteurl/home = http://172.20.99.240** (web-prod-ul vechi, ramas de la migrare):
+   orice login din browser trimitea formularul la o adresa moarta. Schimbat (aprobat) cu
+   `wp option update home|siteurl http://192.168.10.138`. Rollback: aceeasi comanda cu valoarea veche.
+2. **Permalink-uri "plain"**: /wp-json/ si /feed/ dau 404 -> generatorul foloseste
+   `?rest_route=` si `?feed=rss2`.
+3. **/ servea o copie statica din 20.10** (/var/www/html/index.html + .1-.7, 263 KB) in locul
+   WordPress, cu injectorul JS ofuscat de test wp-warden (faza 15) prins in copie. Cauza: scenariul
+   dev "Download payload — webshell lanseaza wget" ruleaza `wget -q http://127.0.0.1/` din webroot;
+   wget salveaza index.html acolo, Apache il prefera lui index.php. Telemetrie: creat 2026-10-20
+   12:51:02 de www-data cu /usr/bin/wget (parinte `sh -c wget -q http://127.0.0.1/`). Nu e intruziune:
+   wp-warden nu mai e instalat, 0 potriviri in baza. Mutate (aprobat) in
+   /root/soc-quarantine-20261102 (root 700, cu SHA256SUMS). Scenariul curata acum index.html* scrise
+   de el (commit-ul "harness: scenariul wget ..."); comanda vazuta de detectie e neschimbata.
+   Pasul 2 nu l-a vazut (copia e doar *.php); AIDE il avea in baseline (init 30.10).
+
+Sesiunea completa de proba: 14 cereri, 0 erori (articol 201, editare 200, imagine 201, logout).
+Apache: 340 cereri de la 192.168.10.150 in 30 min (Chromium incarca si resursele).
+benign-gen.service activ de la ~09:31 UTC. fp_rate manual pe 1 h: 15 alerte / 4 reguli /
+38 actiuni; toate alertele din fereastra = actiunile mele de admin (wp-cli prin /usr/bin/env ->
+"binar nevazut"; `ls -la /var/www/html` -> 6 honeytoken, auditd numara citirile de atribute).
+De etichetat benign in interfata: alertele 09:21-09:27 UTC din 2026-11-02.
+
+Ramas: Fleet Custom Logs soc.benign_actions (om, UI); fereastra de acceptare 24 h + 4 rapoarte FP.
+Candidat de recalibrare: "www-data a executat un binar nevazut" pe wp-cli (/usr/bin/env php);
+NU se adauga /usr/bin/env in lista alba (lansator generic) — de decis o regula pe php + wp.
