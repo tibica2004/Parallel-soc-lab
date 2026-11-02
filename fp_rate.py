@@ -152,6 +152,41 @@ def per_rule(alerts: list[dict], benign_ips, gen_wins, upd_wins) -> dict[str, di
     return dict(rules)
 
 
+def propose_whitelist(rules: dict[str, dict], alerts: list[dict], benign_ips, gen_wins, upd_wins,
+                      min_fp: int = 3) -> list[dict]:
+    """plann.md A6: pentru regulile peste prag, CE anume ar intra in lista alba, dedus din alertele
+    atribuite traficului benign dovedit. Doar PROPUNERE (omul aproba in build_whitelists /
+    reguli); nimic nu se aplica. Pur.
+      - reguli de retea (benign_ip / benign_ua): excluderea IP-urilor benign-gen din regula;
+      - reguli de host (benign_time / benign_update): executabilele vazute in alertele atribuite."""
+    by_rule: dict[str, dict] = {}
+    for a in alerts:
+        name = _first(_g(a, "kibana.alert.rule.name")) or "(fara nume)"
+        r = rules.get(name)
+        if not r or not r["recalibrate"]:
+            continue
+        why = attribute(a, benign_ips, gen_wins, upd_wins)
+        if not why:
+            continue
+        d = by_rule.setdefault(name, {"rule_name": name, "fp_rate": r["fp_rate"], "fp_count": r["fp_count"],
+                                      "total": r["total"], "kind": None, "values": {}})
+        if why in ("benign_ip", "benign_ua"):
+            d["kind"] = "exclude_source_ips"
+            v = str(_first(_g(a, "source.ip")) or "")
+        else:
+            d["kind"] = "whitelist_executables"
+            v = str(_first(_g(a, "process.executable")) or _first(_g(a, "process.name")) or "")
+        if v:
+            d["values"][v] = d["values"].get(v, 0) + 1
+    out = []
+    for d in by_rule.values():
+        vals = sorted(((v, n) for v, n in d["values"].items() if n >= min_fp), key=lambda x: -x[1])[:10]
+        if vals:
+            out.append({**d, "values": [{"value": v, "fp_count": n} for v, n in vals],
+                        "status": "proposed", "requires_human_approval": True})
+    return out
+
+
 def report_text(rules: dict[str, dict], start: datetime, end: datetime, gen_actions: int) -> str:
     lines = [f"Rata FP per regula, {start:%Y-%m-%d %H:%M} - {end:%Y-%m-%d %H:%M} UTC; "
              f"actiuni benign-gen in fereastra: {gen_actions}",
@@ -204,7 +239,8 @@ def run(hours: float) -> int:
         raise RuntimeError("BENIGN_GEN_IPS gol")
 
     alerts = fetch_all(es, ALERTS, start, end, ["@timestamp", "kibana.alert.rule.name",
-                                                "source.ip", "user_agent.original", "host.name"])
+                                                "source.ip", "user_agent.original", "host.name",
+                                                "process.executable", "process.name"])
     gt = fetch_all(es, GT_INDEX, start - timedelta(minutes=5), end,
                    ["@timestamp", "action_id", "phase"])
     acts = fetch_all(es, ACTIONS_INDEX, start - UPDATE_AFTER, end, ["@timestamp", "ts", "action"])
@@ -221,6 +257,12 @@ def run(hours: float) -> int:
             "by_reason": r["by_reason"], "recalibrate": r["recalibrate"],
             "window_start": start.isoformat(), "window_end": end.isoformat(),
             "benign_actions": n_gen})
+    proposals = propose_whitelist(rules, alerts, benign_ips, gen_w, upd_w)
+    (REPORT.parent / "whitelist-proposals.json").write_text(json.dumps(proposals, indent=1, ensure_ascii=False))
+    for p in proposals:
+        es_met.index(index=METRICS_INDEX, document={"@timestamp": end.isoformat(), "type": "whitelist_proposal", **p})
+    if proposals:
+        log.info("%d propuneri de lista alba (doar propuneri; aprobarea e a omului)", len(proposals))
     log.info("%d alerte, %d reguli, %d actiuni benign-gen, %d reguli de recalibrat -> %s",
              len(alerts), len(rules), n_gen, sum(r["recalibrate"] for r in rules.values()), REPORT)
     if n_gen == 0:

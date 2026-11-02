@@ -154,3 +154,25 @@ def test_admin_https_separat_de_navigarea_publica(monkeypatch):
     monkeypatch.setenv("BENIGN_ADMIN_URL", "https://192.168.10.138/")
     c = bg.Cfg.from_env()
     assert c.admin_base == "https://192.168.10.138" and c.base == "http://192.168.10.138"
+
+
+# --- plann.md A6: propuneri de lista alba (doar propuneri) ------------------------------
+
+def test_propuneri_lista_alba():
+    rules = {"Net": {"total": 10, "fp_count": 5, "fp_rate": 0.5, "recalibrate": True},
+             "Host": {"total": 8, "fp_count": 4, "fp_rate": 0.5, "recalibrate": True},
+             "Ok": {"total": 100, "fp_count": 1, "fp_rate": 0.01, "recalibrate": False}}
+    net = [{"kibana.alert.rule.name": "Net", "source": {"ip": "192.168.10.150"}} for _ in range(5)]
+    host = [{"kibana.alert.rule.name": "Host", "@timestamp": iso(T0 + timedelta(seconds=1)),
+             "process": {"executable": "/usr/bin/php8.3"}} for _ in range(4)]
+    ok = [{"kibana.alert.rule.name": "Ok", "source": {"ip": "192.168.10.150"}}]
+    gt = [{"@timestamp": iso(T0), "action_id": "a", "phase": "start"},
+          {"@timestamp": iso(T0 + timedelta(seconds=3)), "action_id": "a", "phase": "end"}]
+    w = fr.gen_windows(gt)
+    props = fr.propose_whitelist(rules, net + host + ok, BIPS, w, [])
+    by = {p["rule_name"]: p for p in props}
+    assert set(by) == {"Net", "Host"}
+    assert by["Net"]["kind"] == "exclude_source_ips" and by["Net"]["values"][0]["value"] == "192.168.10.150"
+    assert by["Host"]["kind"] == "whitelist_executables" and by["Host"]["values"][0]["value"] == "/usr/bin/php8.3"
+    assert all(p["requires_human_approval"] for p in props)
+    assert fr.propose_whitelist(rules, net[:2], BIPS, w, []) == []     # sub min_fp: nu se propune

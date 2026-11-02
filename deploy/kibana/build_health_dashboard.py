@@ -119,10 +119,74 @@ def build() -> list[dict]:
     return objs + [dash]
 
 
+DV_CASES = B.PREFIX + "dv-cases"
+
+
+def build_status() -> list[dict]:
+    """plann.md A4: O singura vedere pentru demo/examen: readiness, cazuri deschise, portile."""
+    M = B.DV_METRICS
+    objs = [B._so("index-pattern", M, {"title": "soc-metrics", "name": "soc-metrics",
+                                       "timeFieldName": "@timestamp"}, []),
+            B._so("index-pattern", DV_CASES, {"title": "soc-cases", "name": "soc-cases",
+                                              "timeFieldName": "updated_at"}, [])]
+    vis = [
+        tile("status-m-ready", "Readiness (ultima evaluare, 1 = gata)", M,
+             B.last_value("ready", "Gata", 'type.keyword : "readiness"'), 'type.keyword : "readiness"'),
+        tile("status-m-criterii", "Criterii readiness trecute (din 9)", M,
+             B.last_value("criteria_passed", "Criterii", 'type.keyword : "readiness"'), 'type.keyword : "readiness"'),
+        tile("status-m-cazuri", "Cazuri la om (escaladate, neinchise)", DV_CASES, B.count("Cazuri"),
+             'state : "escalated"'),
+        tile("status-m-recall", "Recall la ultima poarta", M,
+             B.last_value("recall", "Recall", 'type.keyword : "gate"', percent=True), 'type.keyword : "gate"'),
+        tile("status-m-fprate", "Rata FP la ultima poarta", M,
+             B.last_value("fp_rate", "FP", 'type.keyword : "gate"', percent=True), 'type.keyword : "gate"'),
+        tile("status-m-propuneri", "Propuneri de lista alba (de aprobat)", M, B.count("Propuneri"),
+             'type.keyword : "whitelist_proposal"'),
+        B.line("status-l-porti", "Portile in timp: recall si rata FP", M,
+               [B.average("recall", "Recall", percent=True), B.average("fp_rate", "Rata FP", percent=True)],
+               B.terms("scenario_set.keyword", "Set", 6), query='type.keyword : "gate"'),
+        B.line("status-l-cazuri", "Cazuri pe stare", DV_CASES, B.count("Cazuri"),
+               B.terms("state", "Stare", 4)),
+    ]
+    objs += vis
+    layout = {"m": (8, 6), "l": (24, 12)}
+    panels, refs = [], []
+    x = y = row_h = 0
+    for i, v in enumerate(vis):
+        short = v["id"][len(B.PREFIX):]
+        w, h = layout[short.split("-")[1]]
+        if x + w > 48:
+            x, y, row_h = 0, y + row_h, 0
+        panels.append({"type": "lens", "panelIndex": short, "panelRefName": f"panel_{i}",
+                       "gridData": {"x": x, "y": y, "w": w, "h": h, "i": short},
+                       "embeddableConfig": {"enhancements": {}}})
+        refs.append({"type": "lens", "id": v["id"], "name": f"panel_{i}"})
+        x += w
+        row_h = max(row_h, h)
+    dash = B._so("dashboard", B.PREFIX + "status-dashboard", {
+        "title": "SOC Status",
+        "description": "Vederea unica: readiness, cazurile la om, portile de regresie, propunerile "
+                       "de lista alba. Calculat de cod, afisat de Kibana.",
+        "panelsJSON": json.dumps(panels),
+        "optionsJSON": json.dumps({"useMargins": True, "syncColors": False, "syncCursor": True,
+                                   "syncTooltips": False, "hidePanelTitles": False}),
+        "timeRestore": True, "timeFrom": "now-7d", "timeTo": "now",
+        "refreshInterval": {"pause": False, "value": 60000}, "version": 1,
+        "kibanaSavedObjectMeta": {"searchSourceJSON": json.dumps({"query": B._kql(""), "filter": []})},
+    }, refs)
+    return objs + [dash]
+
+
+OUT_STATUS = Path(__file__).with_name("soc-status.ndjson")
+
+
 def main() -> int:
     objs = build()
     OUT.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in objs) + "\n", encoding="utf-8")
     print(f"{OUT} ({len(objs)} obiecte)")
+    st = build_status()
+    OUT_STATUS.write_text("\n".join(json.dumps(o, ensure_ascii=False) for o in st) + "\n", encoding="utf-8")
+    print(f"{OUT_STATUS} ({len(st)} obiecte)")
     return 0
 
 

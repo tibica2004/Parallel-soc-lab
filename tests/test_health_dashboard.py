@@ -52,3 +52,21 @@ def test_campurile_exista_in_documente():
 
 def test_fara_formule():
     assert "formula" not in json.dumps(OBJS)
+
+
+# --- plann.md A4: "SOC Status" ---------------------------------------------------------
+
+def test_status_dashboard_la_zi_si_consistent():
+    st = hd.build_status()
+    on_disk = [json.loads(l) for l in hd.OUT_STATUS.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert on_disk == json.loads(json.dumps(st)), "ruleaza: python3 deploy/kibana/build_health_dashboard.py"
+    ids = {o["id"] for o in st}
+    for o in st:
+        for r in o["references"]:
+            assert r["id"] in ids
+    known = {"ready", "criteria_passed", "recall", "fp_rate", "scenario_set.keyword", "state",
+             "@timestamp", "___records___"}
+    for o in st:
+        if o["type"] == "lens":
+            for col in o["attributes"]["state"]["datasourceStates"]["formBased"]["layers"]["layer1"]["columns"].values():
+                assert col["sourceField"] in known, (o["id"], col["sourceField"])
