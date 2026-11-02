@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# DEPRECAT (plann.md, 2026-11-02): inventar Windows, nefolosit in laboratorul Linux. Pastrat ca istoric.
 """
 FERESTRELE DE MENTENANTA din asset-inventory. Le gestioneaza OMUL: o fereastra
 ridica podeaua "actiune sensibila" pentru adminii cunoscuti, deci e o decizie de

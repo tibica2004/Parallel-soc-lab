@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# DEPRECAT (plann.md, 2026-11-02): inlocuit de absence_check.py (canar, hash canar, cron, fluxuri). Nu mai e pornit de niciun timer; pastrat doar ca istoric (CLAUDE.md: fisierele nu se sterg).
 """
 CANARUL — detectia detectorului.
 
