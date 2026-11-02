@@ -56,8 +56,9 @@ log = logging.getLogger("soc.static")
 
 ROOT = Path(__file__).resolve().parent
 RULES_DIR = ROOT / "static" / "semgrep"
-PROMPT_FILE = ROOT / "prompts" / "static_triage.v1.txt"
-PROMPT_VERSION = "static_triage.v1"
+PROMPT_FILE = ROOT / "prompts" / "static_triage.v2.txt"
+PROMPT_VERSION = "static_triage.v2"
+CHECKSUMS_URL = "https://api.wordpress.org/core/checksums/1.0/"
 
 SNAPSHOT = Path(os.environ.get("STATIC_SNAPSHOT", str(ROOT / "data" / "static" / "webroot-snapshot")))
 SEMGREP = os.environ.get("SEMGREP_BIN", str(Path.home() / "semgrep-venv" / "bin" / "semgrep"))
@@ -72,8 +73,15 @@ HOST = os.environ.get("STATIC_HOST", "web-prod")
 MAX_FINDINGS = int(os.environ.get("STATIC_MAX_FINDINGS", "200"))
 MAX_MINUTES = float(os.environ.get("STATIC_MAX_MINUTES", "60"))
 MIN_CONFIDENCE = 60          # sub prag -> escalated, nu inchis si nu "open" sigur
-SNIPPET_MAX_LINES = 40
-SNIPPET_PAD = 12             # linii de context in jurul potrivirii
+# Fereastra pentru model (v2): de la inceputul functiei (sau 40 de linii inainte, pentru cod in
+# afara functiilor) pana la 10 linii dupa potrivire. v1 avea +-12 linii si modelul nu vedea
+# validarea de mai sus (setup-config.php:338: whitelist la linia 308) -> fals pozitive.
+SNIPPET_MAX_LINES = 160
+SNIPPET_HEAD = 20            # cand functia e mai lunga: primele linii + ultimele inainte de potrivire
+SNIPPET_AFTER = 10
+TOPLEVEL_BEFORE = 40
+FUNC_LOOKBACK = 300
+_FUNC_RE = re.compile(r"^\s*(?:(?:public|private|protected|static|final|abstract)\s+)*function\b")
 FIELD_MAX = 2000
 
 # Ce NU se copiaza de pe web-prod. Momelile (honeytokens.py) si wp-config.php: o citire a lor
@@ -122,12 +130,14 @@ class StaticTriage(BaseModel):
 
 class Status(str, Enum):
     open = "open"
+    upstream_core = "upstream_core"
     closed_fp = "closed_fp"
     escalated = "escalated"
     pending_triage = "pending_triage"
 
 
 class Reason(str, Enum):
+    upstream_pristine = "upstream_pristine"
     true_positive = "true_positive"
     false_positive = "false_positive"
     low_confidence = "low_confidence"
@@ -199,17 +209,54 @@ def finding_id(rule_id: str, path: str, line: int, snippet_hash: str) -> str:
     return sha256_text(f"{rule_id}|{path}|{line}|{snippet_hash}")
 
 
-def snippet(lines: list[str], start: int, end: int,
-            pad: int = SNIPPET_PAD, max_lines: int = SNIPPET_MAX_LINES) -> str:
-    """Fragmentul de cod pentru model: potrivirea + context, max max_lines, numerotat.
-    Delimitatorii <untrusted_code> din cod sunt neutralizati (codul vine de pe tinta)."""
-    lo = max(start - 1 - pad, 0)
-    hi = min(end + pad, len(lines), lo + max_lines)
+def context_range(lines: list[str], start: int, end: int) -> tuple[int, int]:
+    """[lo, hi) 0-indexat: de la cea mai apropiata declaratie `function` de deasupra (max
+    FUNC_LOOKBACK linii), altfel TOPLEVEL_BEFORE linii inainte; pana la SNIPPET_AFTER dupa."""
+    lo = max(start - 1 - TOPLEVEL_BEFORE, 0)
+    for i in range(start - 1, max(start - 1 - FUNC_LOOKBACK, -1), -1):
+        if _FUNC_RE.match(lines[i]):
+            lo = i
+            break
+    return lo, min(end + SNIPPET_AFTER, len(lines))
+
+
+def snippet(lines: list[str], start: int, end: int, max_lines: int = SNIPPET_MAX_LINES) -> str:
+    """Fragmentul pentru model, numerotat. Daca e prea lung: primele SNIPPET_HEAD linii (semnatura)
+    + ultimele linii pana la potrivire. Delimitatorii <untrusted_code> din cod sunt neutralizati
+    (codul vine de pe tinta)."""
+    lo, hi = context_range(lines, start, end)
+    idx = list(range(lo, hi))
+    if len(idx) > max_lines:
+        idx = idx[:SNIPPET_HEAD] + [-1] + idx[-(max_lines - SNIPPET_HEAD - 1):]
     out = []
-    for i in range(lo, hi):
+    for i in idx:
+        if i < 0:
+            out.append("  ...| [linii omise]")
+            continue
         txt = _DELIM_RE.sub("[delimitator eliminat]", lines[i])[:400]
         out.append(f"{i + 1:5d}| {txt}")
     return "\n".join(out)
+
+
+_WPVER_RE = re.compile(r"^\$wp_version\s*=\s*'([0-9][0-9A-Za-z.\-]{0,30})'", re.M)
+
+
+def wp_version(version_php: str) -> str | None:
+    m = _WPVER_RE.search(version_php)
+    return m.group(1) if m else None
+
+
+def is_pristine(rel: str, md5: str, checksums: dict[str, str] | None) -> bool:
+    """Fisier identic cu cel oficial WordPress (core + continutul livrat cu core). Fara
+    sume (API cazut) -> False: totul merge la model (directia sigura, nu se ascunde nimic)."""
+    if not checksums:
+        return False
+    return checksums.get(rel.lstrip("/")) == md5
+
+
+def draft_id(fid: str) -> str:
+    """_id fix pentru draft: re-triajul il inlocuieste, nu il dubleaza."""
+    return sha256_text(f"draft_rule|static|{fid}")
 
 
 def build_prompt(rule_id: str, rule_message: str, path: str, line: int, code: str) -> str:
@@ -312,6 +359,44 @@ def _client(key_env: str, required: bool = True):
                          api_key=key, request_timeout=30)
 
 
+def load_core_checksums(version: str | None) -> dict[str, str] | None:
+    """Sumele md5 oficiale pentru versiunea instalata, cu cache local (nu se schimba)."""
+    if not version:
+        log.warning("versiunea WordPress necunoscuta: fara filtru upstream_core")
+        return None
+    cache = SNAPSHOT.parent / f"wp-checksums-{version}.json"
+    if cache.exists():
+        return json.loads(cache.read_text())
+    import requests
+    try:
+        r = requests.get(CHECKSUMS_URL, params={"version": version, "locale": "en_US"}, timeout=30)
+        r.raise_for_status()
+        sums = r.json().get("checksums")
+    except Exception as e:  # noqa: BLE001 — fara sume: totul merge la model
+        log.warning("checksums WordPress %s indisponibile: %s", version, e)
+        return None
+    if not isinstance(sums, dict) or not sums:
+        log.warning("checksums WordPress %s: raspuns fara sume", version)
+        return None
+    cache.write_text(json.dumps(sums))
+    return sums
+
+
+def supersede_drafts(es_read, es_inc, fid: str) -> int:
+    """La re-triaj: draft-urile propuse vechi ale acestui finding devin superseded (nu se
+    sterg). Citirea cu cheia read-only, actualizarea cu cheia soc-incidents."""
+    if es_read is None:
+        return 0
+    body = {"size": 50, "_source": False, "query": {"bool": {"filter": [
+        {"term": {"type.keyword": "draft_rule"}}, {"term": {"source.keyword": "static"}},
+        {"term": {"finding_id.keyword": fid}}, {"term": {"status.keyword": "proposed"}}]}}}
+    hits = es_read.search(index=INCIDENTS_INDEX, body=body)["hits"]["hits"]
+    for h in hits:
+        es_inc.update(index=INCIDENTS_INDEX, id=h["_id"],
+                      doc={"status": "superseded", "superseded_at": now_iso()})
+    return len(hits)
+
+
 def known_status(es, fid: str) -> str | None:
     try:
         return es.get(index=FINDINGS_INDEX, id=fid)["_source"].get("status")
@@ -390,7 +475,12 @@ def run(args) -> int:
     es_f = _client("ES_STATIC_WRITER_API_KEY")
     es_inc = _client("ES_INCIDENTS_WRITER_API_KEY")
     es_met = _client("ES_METRICS_WRITER_API_KEY", required=False)
+    es_read = _client("ES_READER_API_KEY", required=False)
     triage = Triager()
+    version = wp_version((SNAPSHOT / "wp-includes" / "version.php").read_text(errors="replace"))
+    checksums = load_core_checksums(version)
+    m.update({"wp_version": version, "checksums_available": bool(checksums),
+              "findings_upstream_core": 0, "drafts_superseded": 0})
     triaged = 0
     over_budget = False
 
@@ -404,7 +494,7 @@ def run(args) -> int:
         fid = finding_id(rule_id, path, start, snip_hash)
 
         prev = known_status(es_f, fid)
-        if prev is not None and prev not in RETRIAGE_STATUSES:
+        if prev is not None and prev not in RETRIAGE_STATUSES and not args.retriage:
             m["findings_known"] += 1
             continue
         m["findings_new"] += prev is None
@@ -412,6 +502,16 @@ def run(args) -> int:
         common = dict(fid=fid, rule_id=rule_id, path=path, line=start, snip_hash=snip_hash,
                       severity=severity, prompt_hash=triage.prompt_hash,
                       model_tag=triage.model_tag)
+        if prev is not None:
+            m["drafts_superseded"] += supersede_drafts(es_read, es_inc, fid)
+
+        md5 = hashlib.md5((SNAPSHOT / path.lstrip("/")).read_bytes()).hexdigest()  # noqa: S324 — sumele WP sunt md5
+        if is_pristine(path, md5, checksums):
+            es_f.index(index=FINDINGS_INDEX, id=fid, document=finding_doc(
+                triage=None, status=Status.upstream_core, reason=Reason.upstream_pristine, **common))
+            m["findings_upstream_core"] += 1
+            continue
+
         if over_budget or triaged >= MAX_FINDINGS or time.monotonic() > deadline:
             over_budget = True
             es_f.index(index=FINDINGS_INDEX, id=fid, document=finding_doc(
@@ -435,7 +535,7 @@ def run(args) -> int:
         else:
             m["findings_escalated"] += 1
         if status is Status.open and res and res.detection_rule_draft:
-            es_inc.index(index=INCIDENTS_INDEX,
+            es_inc.index(index=INCIDENTS_INDEX, id=draft_id(fid),
                          document=draft_rule_doc(fid, rule_id, path, res.detection_rule_draft))
             m["rules_drafted"] += 1
         log.info("%s %s:%d -> %s (%s)", rule_id, path, start, status.value, reason.value)
@@ -454,6 +554,8 @@ def run(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--no-sync", action="store_true", help="foloseste snapshot-ul existent")
+    ap.add_argument("--retriage", action="store_true",
+                    help="retriaza si rezultatele cunoscute (dupa schimbarea promptului/filtrului)")
     ap.add_argument("--dry-run", action="store_true", help="doar semgrep, fara model si fara ES")
     args = ap.parse_args(argv)
     try:
