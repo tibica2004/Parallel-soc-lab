@@ -1,0 +1,83 @@
+{
+ "prompt_set": "4f01c8b50efc",
+ "prompts": {
+  "fast.extended_rules": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "5732e15c3f41b7fa221340daebbd62e6dad99380fbe6e67597f2974705b38e52",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "fast.fact_rules": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "b6586a93ddfacebdcfeb28e7c58088e2b539a0d8a051439170b7c519178069f9",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "fast.l1_agent": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "2e6d2f901577221aeec3ae06fdb301142d767d18e83996ecde9c0ceceda20465",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "fast.pattern": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "8e195ac91012b0f42beefbb571ac9c12f27847aa0cc114e32621b91a6443ffad",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "fast.verdict": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "6f418e0cdf54911549f0b969af36b6ec86db8f0b0ded1da5e23a3318b1d4a008",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "hunt.case_note": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "42767f03bd94f8d95f0dc14b473b0c64fdc4836070b3d2ecf748fc3a6ff8f618",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "hunt.critic": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "dda713eaacf243c1560dd49e6b5780d9c168d13fd8601ff351c5fa4000d87f79",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "hunt.investigator": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "4278f553414c5816aba8a0f4a86418f2b4f7ad14b9a229e69aebf64df1b4e00e",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "hunt.secondary_note": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "687ac5e7931775eb475078c9e397b93c1ae9b7b389792c1629aee09bce3fd5a4",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "static.triage": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "dcfff85dbf1fd7418e2e10eb0b31ce5d27856e3b8e95e6c9ed78f90df7b03572",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "tier3.hunt_plan": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "de9f7f3a2d5c27e20cfa942eebef4077443fafbca576ce6146833fb89d841680",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "tier3.incident_narrative": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "7ca8b88688d7494be32ab6925cd90fc998db48218886ba8ec92921fb77460ebb",
+   "updated": "2026-11-02",
+   "version": 1
+  },
+  "tier3.rule_draft": {
+   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
+   "sha256": "73449654dbde568e930dde252ccd5c1dc910617670a48e755a79d7e6fd2b74f0",
+   "updated": "2026-11-02",
+   "version": 1
+  }
+ }
+}

@@ -35,6 +35,10 @@ def get_llm(role: str, json_schema: dict | None = None) -> ChatOpenAI:
         base_url=base_url(role),
         api_key="local", temperature=cfg["temperature"],
         max_tokens=cfg["max_tokens"], timeout=cfg.get("timeout", 300),
+        # Pasul 8.1: samanta fixa si top_p=1 -> doua rulari identice dau acelasi raspuns
+        # (Ollama respecta seed pe API-ul compatibil OpenAI). Temperaturile per rol raman cele
+        # masurate: hunt_b=0.7 e intentionat (erori decorelate A/B, faza 7).
+        seed=int(os.environ.get("LLM_SEED", "20261102")), top_p=1.0,
     )
 
 

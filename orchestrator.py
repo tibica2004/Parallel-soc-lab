@@ -30,6 +30,7 @@ import degraded
 import behavioral_rules
 import honeytokens
 import cycle_metrics
+import prompts
 import sdnotify
 import notify
 import sensor_rules
@@ -268,6 +269,16 @@ def make_plan(verdict, decision):
     return p, executor.summary(p)
 
 
+def _prompt_set() -> str | None:
+    try:
+        return prompts.prompt_set(prompts.current())
+    except Exception:  # noqa: BLE001 — identificatorul nu are voie sa opreasca scrierea verdictului
+        return None
+
+
+PROMPT_SET: str | None = None     # calculat lenes la primul verdict (importurile sunt grele)
+
+
 def persist(verdict, narrative: str, decision, started, finished, extra: dict | None = None,
             escalation: EscalationDecision | None = None, failure=None, tier2=None,
             plan=None, action_result: str | None = None) -> None:
@@ -277,11 +288,15 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     `failure` = FailureKind cand verdictul e scris de cod, fara model."""
     if WRITER is None:
         return
+    global PROMPT_SET
+    if PROMPT_SET is None:
+        PROMPT_SET = _prompt_set()
     from schemas import AuditRecord
     vdoc = verdict.model_dump(mode="json")
     vdoc["@timestamp"] = finished.isoformat()
     vdoc["ground_truth"] = None            # NICIODATA setat automat
     vdoc["rule_name"] = (extra or {}).get("rule_name")
+    vdoc["prompt_set"] = PROMPT_SET                      # 8.2: prompturile exacte ale verdictului
     if (extra or {}).get("case_alert_count"):
         vdoc["case_alert_count"] = extra["case_alert_count"]   # 10.2: alerte judecate ca un caz
     WRITER.index(index=VERDICTS_IDX, document=vdoc)
@@ -614,6 +629,7 @@ def run_positioned(args) -> int:
             llm=tracing.take_llm_totals(), backlog=bool(stats.get("backlog")),
             sweep_ran=bool(run_sweep), interval_s=args.interval)
         doc["error"] = cycle_error
+        doc["prompt_set"] = PROMPT_SET or _prompt_set()
         err = cycle_metrics.write(WRITER, doc)
         if err:
             print(f"  [metrici ciclu] nescrise: {err}", flush=True)
@@ -784,6 +800,17 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.once or args.loop:
+        # Pasul 8.2: un prompt schimbat fara bump de versiune (prompts/MANIFEST.json) -> refuz.
+        ok, bad, pset = prompts.verify()
+        if not ok:
+            msg = (f"Prompturi schimbate fara bump de versiune: {', '.join(bad)}. Ruleaza `make "
+                   "regression`, apoi `python prompts.py --update --reason ...`. Orchestratorul NU porneste.")
+            print(f"[prompturi] REFUZ: {msg}", flush=True)
+            notify.notify_human("Orchestratorul refuza sa porneasca: prompturi neversionate", msg,
+                                severity="critical", dedup_key="prompts:mismatch",
+                                dedup_minutes=60, host="es-node-1")
+            return 3
+        print(f"[prompturi] la zi, prompt_set={pset}", flush=True)
         return run_positioned(args)
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
