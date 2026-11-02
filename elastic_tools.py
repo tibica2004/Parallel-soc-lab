@@ -686,6 +686,12 @@ def sweep_sbom_drift(window_hours: int = 1, host: str = "web-prod") -> list[Rari
     ]
 
 
+def _sweep_entity_risk(window_hours: int = 1) -> list[RarityFinding]:
+    """plann.md A3: scor de risc acumulat per IP sursa / utilizator (risk.py)."""
+    import risk
+    return risk.sweep_entity_risk(window_hours, es=ES)
+
+
 def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
     findings: list[RarityFinding] = []
     import anomalies
@@ -693,7 +699,7 @@ def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
                sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
                sweep_new_ja4, sweep_suspicious_exec_path, sweep_web_enumeration, sweep_wp_recon_path,
                sweep_new_executable, sweep_new_user, sweep_sbom_drift,
-               anomalies.sweep_beaconing, anomalies.sweep_dns):
+               anomalies.sweep_beaconing, anomalies.sweep_dns, _sweep_entity_risk):
         try:
             findings.extend(fn(window_hours))
         except Exception as exc:  # un sweep cazut nu trebuie sa omoare restul

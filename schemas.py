@@ -248,6 +248,8 @@ class RarityFinding(BaseModel):
         "new_executable",
         "new_user",
         "sbom_drift",
+        # plann.md A3
+        "entity_risk",
     ]
     entity_type: EntityType
     entity_id: str

@@ -160,6 +160,7 @@ FINDING_KEY = {
     "new_executable": ("exec",),
     "new_user": ("user",),
     "sbom_drift": ("component_type", "name", "change", "version"),
+    "entity_risk": ("entity_type", "entity"),
 }
 
 
