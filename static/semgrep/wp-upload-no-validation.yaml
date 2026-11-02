@@ -1,0 +1,30 @@
+rules:
+  - id: wp-upload-no-validation
+    message: >-
+      move_uploaded_file() intr-o functie care nu verifica tipul fisierului
+      (wp_check_filetype / wp_check_filetype_and_ext) si nu foloseste wp_handle_upload().
+      Un fisier .php incarcat in webroot devine executabil. Mitigare: wp_handle_upload()
+      cu 'test_form' => true si lista de mime-uri permise, sau wp_check_filetype_and_ext()
+      inainte de mutare.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-434: Unrestricted Upload of File with Dangerous Type"
+      owasp: "A04:2021 - Insecure Design"
+      category: security
+    patterns:
+      - pattern: move_uploaded_file(...)
+      - pattern-inside: |
+          function $F(...) { ... }
+      - pattern-not-inside: |
+          function $F(...) { ... wp_check_filetype(...); ... }
+      - pattern-not-inside: |
+          function $F(...) { ... $T = wp_check_filetype(...); ... }
+      - pattern-not-inside: |
+          function $F(...) { ... wp_check_filetype_and_ext(...); ... }
+      - pattern-not-inside: |
+          function $F(...) { ... $T = wp_check_filetype_and_ext(...); ... }
+      - pattern-not-inside: |
+          function $F(...) { ... wp_handle_upload(...); ... }
+      - pattern-not-inside: |
+          function $F(...) { ... $T = wp_handle_upload(...); ... }

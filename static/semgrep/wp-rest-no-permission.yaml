@@ -1,0 +1,22 @@
+rules:
+  - id: wp-rest-no-permission
+    message: >-
+      Ruta REST inregistrata fara permission_callback sau cu '__return_true'. Ruta e
+      accesibila oricui, neautentificat. Corect doar pentru date publice; pentru
+      orice scriere sau date private: permission_callback care verifica
+      current_user_can().
+    severity: WARNING
+    languages: [php]
+    metadata:
+      cwe: "CWE-862: Missing Authorization"
+      owasp: "A01:2021 - Broken Access Control"
+      category: security
+    pattern-either:
+      - pattern: "register_rest_route($NS, $ROUTE, [..., 'permission_callback' => '__return_true', ...], ...)"
+      - pattern: "register_rest_route($NS, $ROUTE, array(..., 'permission_callback' => '__return_true', ...), ...)"
+      - patterns:
+          - pattern-either:
+              - pattern: "register_rest_route($NS, $ROUTE, [..., 'callback' => $CB, ...], ...)"
+              - pattern: "register_rest_route($NS, $ROUTE, array(..., 'callback' => $CB, ...), ...)"
+          - pattern-not: "register_rest_route($NS, $ROUTE, [..., 'permission_callback' => $P, ...], ...)"
+          - pattern-not: "register_rest_route($NS, $ROUTE, array(..., 'permission_callback' => $P, ...), ...)"

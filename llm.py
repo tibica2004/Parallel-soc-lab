@@ -11,6 +11,8 @@ ROLES = {
     "critic":    {"temperature": 0.3, "max_tokens": 2000},
     "correlate": {"temperature": 0.2, "max_tokens": 4000},
     "rules":     {"temperature": 0.1, "max_tokens": 1500},
+    # pasul 2: triajul rezultatelor Semgrep (determinist, raspuns scurt, timeout mai mic)
+    "static_triage": {"temperature": 0.0, "max_tokens": 1200, "timeout": 120},
 }
 
 NO_THINK = "\n\n/no_think"
@@ -32,7 +34,7 @@ def get_llm(role: str, json_schema: dict | None = None) -> ChatOpenAI:
         model=model_name(role),
         base_url=base_url(role),
         api_key="local", temperature=cfg["temperature"],
-        max_tokens=cfg["max_tokens"], timeout=300,
+        max_tokens=cfg["max_tokens"], timeout=cfg.get("timeout", 300),
     )
 
 

@@ -1,0 +1,35 @@
+rules:
+  - id: wp-ajax-no-nonce
+    message: >-
+      Handler AJAX inregistrat pe wp_ajax_* fara verificare de nonce
+      (check_ajax_referer / wp_verify_nonce). Un site tert poate declansa actiunea in
+      numele unui utilizator autentificat (CSRF). Mitigare: check_ajax_referer('<actiune>')
+      la inceputul handler-ului si nonce-ul trimis din wp_create_nonce().
+      Limita: acopera handler-ele date ca nume de functie (sir), nu [$this, 'metoda'].
+    severity: WARNING
+    languages: [php]
+    metadata:
+      cwe: "CWE-352: Cross-Site Request Forgery (CSRF)"
+      owasp: "A01:2021 - Broken Access Control"
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              add_action("$HOOK", "$FN", ...);
+              ...
+          - pattern-inside: |
+              function $FN(...) { ... }
+              ...
+              add_action("$HOOK", "$FN", ...);
+      - metavariable-regex:
+          metavariable: $HOOK
+          regex: ^wp_ajax_
+      - pattern: function $FN(...) { ... }
+      - pattern-not: |
+          function $FN(...) { ... <... check_ajax_referer(...) ...>; ... }
+      - pattern-not: |
+          function $FN(...) { ... if (<... check_ajax_referer(...) ...>) { ... } ... }
+      - pattern-not: |
+          function $FN(...) { ... <... wp_verify_nonce(...) ...>; ... }
+      - pattern-not: |
+          function $FN(...) { ... if (<... wp_verify_nonce(...) ...>) { ... } ... }

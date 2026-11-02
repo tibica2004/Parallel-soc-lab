@@ -1,0 +1,42 @@
+rules:
+  - id: wp-xss-unescaped-echo
+    mode: taint
+    message: >-
+      Date controlate de client afisate cu echo/print fara escapare. Continutul ajunge
+      in HTML ca markup (XSS reflectat). Mitigare: esc_html() / esc_attr() / esc_url()
+      dupa context, sau wp_kses() pentru HTML permis.
+    severity: WARNING
+    languages: [php]
+    metadata:
+      cwe: "CWE-79: Improper Neutralization of Input During Web Page Generation"
+      owasp: "A03:2021 - Injection"
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: $_SERVER['REQUEST_URI']
+          - pattern: $_SERVER['PHP_SELF']
+          - pattern: $_SERVER['HTTP_REFERER']
+          - pattern: $_SERVER['HTTP_USER_AGENT']
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: esc_html(...)
+          - pattern: esc_attr(...)
+          - pattern: esc_url(...)
+          - pattern: esc_js(...)
+          - pattern: esc_textarea(...)
+          - pattern: wp_kses(...)
+          - pattern: wp_kses_post(...)
+          - pattern: htmlspecialchars(...)
+          - pattern: htmlentities(...)
+          - pattern: absint(...)
+          - pattern: intval(...)
+          - pattern: (int) $X
+    pattern-sinks:
+      - pattern-either:
+          - pattern: echo ...;
+          - pattern: print(...)
+          - pattern: printf(...)

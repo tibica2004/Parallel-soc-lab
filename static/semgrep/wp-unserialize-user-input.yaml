@@ -1,0 +1,27 @@
+rules:
+  - id: wp-unserialize-user-input
+    mode: taint
+    message: >-
+      unserialize() primeste date controlate de client (superglobale sau corpul brut
+      al cererii). Deserializarea unui obiect ales din afara poate instantia clase
+      arbitrare (PHP object injection). Mitigare: json_decode() in loc de unserialize(),
+      sau unserialize($x, ['allowed_classes' => false]).
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      owasp: "A08:2021 - Software and Data Integrity Failures"
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+          - pattern: file_get_contents("php://input")
+    pattern-sinks:
+      - patterns:
+          - pattern: unserialize($X, ...)
+          - pattern-not: "unserialize($X, ['allowed_classes' => false])"
+          - pattern-not: "unserialize($X, array('allowed_classes' => false))"
+          - focus-metavariable: $X

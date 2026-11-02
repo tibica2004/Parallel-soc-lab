@@ -1,0 +1,11 @@
+[Unit]
+Description=Agentic SOC - analiza statica saptamanala (duminica 05:00)
+
+[Timer]
+# Duminica 05:00: dupa SBOM (03:00), AIDE (03:30) si N-day (04:00); GPU-ul e liber.
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

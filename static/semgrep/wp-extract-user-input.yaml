@@ -1,0 +1,17 @@
+rules:
+  - id: wp-extract-user-input
+    message: >-
+      extract() pe o superglobala: clientul poate defini sau suprascrie orice variabila
+      locala (inclusiv cele folosite apoi in SQL, include sau verificari de acces).
+      Mitigare: citirea explicita a fiecarei chei asteptate, cu sanitizare.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-621: Variable Extraction Error"
+      owasp: "A03:2021 - Injection"
+      category: security
+    pattern-either:
+      - pattern: extract($_GET, ...)
+      - pattern: extract($_POST, ...)
+      - pattern: extract($_REQUEST, ...)
+      - pattern: extract($_COOKIE, ...)

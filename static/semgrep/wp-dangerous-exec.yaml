@@ -1,0 +1,23 @@
+rules:
+  - id: wp-dangerous-exec
+    message: >-
+      Functie de executie dinamica (eval / create_function / executie de comenzi
+      shell). Intr-un plugin sau o tema, fiecare aparitie se justifica: daca
+      argumentul poate fi influentat din afara, e executie de cod. Semnalata
+      indiferent de taint. Mitigare: eliminare; pentru comenzi necesare, escapeshellarg()
+      pe fiecare argument si o comanda fixa.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code"
+      owasp: "A03:2021 - Injection"
+      category: security
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: create_function(...)
+      - pattern: system(...)
+      - pattern: exec(...)
+      - pattern: passthru(...)
+      - pattern: shell_exec(...)
+      - pattern: popen(...)
+      - pattern: proc_open(...)

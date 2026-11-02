@@ -1,0 +1,35 @@
+rules:
+  - id: wp-wpdb-no-prepare
+    mode: taint
+    message: >-
+      Interogare $wpdb construita din date controlate de client fara $wpdb->prepare().
+      Valoarea ajunge in textul SQL (SQL injection). Mitigare: $wpdb->prepare() cu
+      %s/%d/%i, sau absint()/intval() pentru identificatori numerici.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: $DB->prepare(...)
+          - pattern: esc_sql(...)
+          - pattern: absint(...)
+          - pattern: intval(...)
+          - pattern: (int) $X
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB->query($SQL, ...)
+              - pattern: $DB->get_results($SQL, ...)
+              - pattern: $DB->get_var($SQL, ...)
+              - pattern: $DB->get_row($SQL, ...)
+              - pattern: $DB->get_col($SQL, ...)
+          - focus-metavariable: $SQL

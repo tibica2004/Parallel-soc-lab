@@ -1,0 +1,31 @@
+rules:
+  - id: wp-ajax-no-cap
+    message: >-
+      Handler AJAX inregistrat pe wp_ajax_* fara current_user_can(). wp_ajax_* ruleaza
+      pentru ORICE utilizator autentificat (si abonat): fara verificarea capabilitatii,
+      un cont cu drepturi minime poate executa actiunea. Mitigare: current_user_can()
+      cu capabilitatea potrivita, inainte de orice modificare.
+      Limita: acopera handler-ele date ca nume de functie (sir), nu [$this, 'metoda'].
+    severity: WARNING
+    languages: [php]
+    metadata:
+      cwe: "CWE-862: Missing Authorization"
+      owasp: "A01:2021 - Broken Access Control"
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              add_action("$HOOK", "$FN", ...);
+              ...
+          - pattern-inside: |
+              function $FN(...) { ... }
+              ...
+              add_action("$HOOK", "$FN", ...);
+      - metavariable-regex:
+          metavariable: $HOOK
+          regex: ^wp_ajax_
+      - pattern: function $FN(...) { ... }
+      - pattern-not: |
+          function $FN(...) { ... <... current_user_can(...) ...>; ... }
+      - pattern-not: |
+          function $FN(...) { ... if (<... current_user_can(...) ...>) { ... } ... }

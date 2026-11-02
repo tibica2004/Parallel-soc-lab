@@ -1,0 +1,28 @@
+rules:
+  - id: wp-sql-direct-input
+    message: >-
+      Superglobala folosita direct in argumentul unei interogari $wpdb, fara
+      $wpdb->prepare(). Forma sintactica (fara flux), complementara cu
+      wp-wpdb-no-prepare. Mitigare: $wpdb->prepare() cu %s/%d/%i.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      category: security
+    patterns:
+      - pattern-either:
+          - pattern: $DB->query($SQL, ...)
+          - pattern: $DB->get_results($SQL, ...)
+          - pattern: $DB->get_var($SQL, ...)
+          - pattern: $DB->get_row($SQL, ...)
+          - pattern: $DB->get_col($SQL, ...)
+      - pattern-not: $DB->$METHOD($DB2->prepare(...), ...)
+      - metavariable-pattern:
+          metavariable: $SQL
+          patterns:
+            - pattern-either:
+                - pattern: <... $_GET ...>
+                - pattern: <... $_POST ...>
+                - pattern: <... $_REQUEST ...>
+                - pattern: <... $_COOKIE ...>

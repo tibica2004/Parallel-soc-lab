@@ -1,0 +1,23 @@
+[Unit]
+Description=Agentic SOC - analiza statica (Semgrep pe copia webroot web-prod + triaj local)
+After=network-online.target docker.service soc-llm-tunnel.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# Pasul 2. Copie read-only a webroot-ului prin soc-reader (rrsync -ro, doar *.php, fara
+# momele/uploads), semgrep cu static/semgrep/ (--metrics=off), triaj cu rolul static_triage,
+# rezultate in static-findings + draft_rule (propunere pentru om) in soc-incidents.
+# Semgrep NU ruleaza pe web-prod. Nimic executat pe hosturi.
+ExecStart=/home/tiberiu/lab/venv/bin/python static_triage.py
+# 2 = buget epuizat (rezultate ramase pending_triage): esec vizibil, nu succes (R9).
+TimeoutStartSec=90min
+Nice=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ReadWritePaths=/home/tiberiu/lab/data /home/tiberiu/.semgrep

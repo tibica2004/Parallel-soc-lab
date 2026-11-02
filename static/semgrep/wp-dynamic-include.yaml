@@ -1,0 +1,30 @@
+rules:
+  - id: wp-dynamic-include
+    mode: taint
+    message: >-
+      include/require cu o cale derivata din date controlate de client. Permite
+      includerea de fisiere locale arbitrare (LFI) si, cu un fisier incarcat, executie
+      de cod. Mitigare: lista alba fixa de sabloane (array cheie -> cale) si
+      validate_file() / basename() pe orice componenta.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-98: Improper Control of Filename for Include/Require Statement in PHP Program"
+      owasp: "A03:2021 - Injection"
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sinks:
+      - pattern-either:
+          - pattern: include $X;
+          - pattern: include_once $X;
+          - pattern: require $X;
+          - pattern: require_once $X;
+          - pattern: include($X);
+          - pattern: include_once($X);
+          - pattern: require($X);
+          - pattern: require_once($X);

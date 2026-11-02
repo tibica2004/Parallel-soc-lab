@@ -1,0 +1,34 @@
+rules:
+  - id: wp-file-read-user-input
+    mode: taint
+    message: >-
+      Citire de fisier cu o cale derivata din date controlate de client. Permite
+      citirea fisierelor din afara directorului vizat (path traversal), de ex.
+      wp-config.php. Mitigare: lista alba de fisiere, sau basename() + verificare ca
+      realpath() ramane sub directorul permis.
+    severity: ERROR
+    languages: [php]
+    metadata:
+      cwe: "CWE-22: Improper Limitation of a Pathname to a Restricted Directory"
+      owasp: "A01:2021 - Broken Access Control"
+      category: security
+    pattern-sources:
+      - pattern-either:
+          - pattern: $_GET
+          - pattern: $_POST
+          - pattern: $_REQUEST
+          - pattern: $_COOKIE
+    pattern-sanitizers:
+      - pattern-either:
+          - pattern: basename(...)
+          - pattern: sanitize_file_name(...)
+          - pattern: absint(...)
+          - pattern: intval(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: file_get_contents($P, ...)
+              - pattern: fopen($P, ...)
+              - pattern: readfile($P, ...)
+              - pattern: file($P, ...)
+          - focus-metavariable: $P
