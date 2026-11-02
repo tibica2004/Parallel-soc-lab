@@ -133,7 +133,13 @@ parole si HTTPS pe web-prod = dupa poarta (reload sshd/Apache nu in timpul harne
   prompt_set f1d721739bf7. Secretele raman cele ale masinii. Git-ul de pe es-node-1 ramane in urma
   pana la push-ul omului (git pull apoi).
 - Poarta finala (fast+dev+val+inj) pornita 15:5x pe arborele complet, benign-gen oprit.
-- RAMAS om dupa poarta: pas-a1-cases.sh, import soc-status.ndjson (ca pas7-setup), restart
+- POARTA FINALA (arbore complet, 15:49-16:57 UTC): fast 4/4, dev 12/14 (8/8 atacuri, FP cele 2
+  cunoscute), val 8/8, injectie 4/4. type=gate scris in soc-metrics (A5 merge).
+- Igiena aplicata pe web-prod (aprobat): HTTPS self-signed (vhost 443, HTTP ramane; amprenta
+  sha256 FD:50:BF:77...47:8A; copie /root/soc-pre-https-20261102T165829Z), SSH fara parole
+  (00-soc.conf, sshd -t, reload, login cu cheie verificat); victim-sg +443 din benign-gen;
+  benign-gen cu BENIGN_ADMIN_URL=https://192.168.10.138, generator actualizat, repornit.
+- RAMAS om dupa poarta: pas-a1-cases.sh, import soc-status.ndjson (pas-a4-status.sh), restart
   orchestrator + soc-readiness.timer; apoi benign-gen start (Claude), HTTPS/SSH web-prod,
   art-setup.sh; apoi pasii 5 si 8.
 
