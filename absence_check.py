@@ -73,6 +73,11 @@ INCIDENT_DEDUP_MIN = 10
 CYCLE_MAX_AGE_MIN = float(os.environ.get("ABSENCE_CYCLE_MAX_AGE_MIN", "15"))
 SLOW_CYCLE_S = float(os.environ.get("ABSENCE_SLOW_CYCLE_S", "110"))
 SLOW_COUNT = int(os.environ.get("ABSENCE_SLOW_COUNT", "3"))
+SURICATA_RULES_MAX_AGE_H = float(os.environ.get("ABSENCE_SURICATA_RULES_MAX_AGE_H", "26"))
+# Activ doar dupa instalarea soc-suricata-update.timer pe web-prod (altfel ar pagina "niciun log").
+SURICATA_RULES_CHECK = os.environ.get("ABSENCE_SURICATA_RULES", "0") == "1"
+ES_DISK_MAX_PCT = float(os.environ.get("ABSENCE_ES_DISK_MAX_PCT", "80"))
+ES_HEAP_MAX_PCT = float(os.environ.get("ABSENCE_ES_HEAP_MAX_PCT", "90"))
 PROBE_MAX_AGE_MIN = float(os.environ.get("ABSENCE_PROBE_MAX_AGE_MIN", "5"))
 HASH_EVERY_MIN = int(os.environ.get("INTEGRITY_HASH_EVERY_MIN", "10"))
 _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -107,6 +112,10 @@ class IntegrityKind(str, Enum):
     ORCHESTRATOR_SLOW = "orchestrator_slow"
     LLM_TUNNEL_DOWN = "llm_tunnel_down"             # scris de llm_probe.py
     PROBE_MISSING = "probe_missing"                 # llm_probe nu mai raporteaza
+    ES_RED = "es_red"                               # pasul 11: cluster rosu
+    ES_DISK = "es_disk"                             # disc peste prag
+    ES_HEAP = "es_heap"                             # heap JVM peste prag
+    SURICATA_RULES_STALE = "suricata_rules_stale"   # pasul 12: reguli IDS neactualizate
 
 
 class IntegrityAlert(BaseModel):
@@ -208,6 +217,29 @@ def check_backup(es: Elasticsearch, run: Run) -> None:
         log.warning("backup vechi: %.1f h", age_h)
     else:
         log.info("backup OK: acum %.1f h", age_h)
+
+
+def check_suricata_rules(es: Elasticsearch, run: Run) -> None:
+    """Pasul 12: ultima actualizare reusita a regulilor Suricata (soc-suricata-update OK)."""
+    if not SURICATA_RULES_CHECK:
+        return
+    r = es.esql.query(query="""
+        FROM logs-system.syslog-*
+        | WHERE process.name == "soc-suricata-update" AND STARTS_WITH(message, "OK")
+        | SORT @timestamp DESC
+        | KEEP @timestamp
+        | LIMIT 1
+    """, format="json")
+    age_h = None if not r["values"] else (run.now - _parse(r["values"][0][0])).total_seconds() / 3600
+    run.ages["suricata_rules_h"] = None if age_h is None else round(age_h, 2)
+    if age_h is None or age_h > SURICATA_RULES_MAX_AGE_H:
+        shown = "nicio actualizare reusita" if age_h is None else f"ultima reusita acum {age_h:.1f} h"
+        run.problem(IntegrityKind.SURICATA_RULES_STALE, "Regulile Suricata nu se mai actualizeaza",
+                    f"{shown} (prag {SURICATA_RULES_MAX_AGE_H:.0f} h). Verifica soc-suricata-update.timer "
+                    "pe web-prod (iesire spre rules.emergingthreats.net?).", severity="high",
+                    host="web-prod", subject="suricata_rules", dedup_minutes=720,
+                    age_min=None if age_h is None else round(age_h * 60, 1),
+                    threshold_min=SURICATA_RULES_MAX_AGE_H * 60)
 
 
 def check_canary(es: Elasticsearch, run: Run) -> None:
@@ -419,6 +451,36 @@ def check_llm_probe(es: Elasticsearch, run: Run) -> None:
                     age_min=age, threshold_min=PROBE_MAX_AGE_MIN)
 
 
+def es_health_problems(health: dict, nodes: dict) -> list[tuple[str, str, float | None]]:
+    """(tip, detaliu, valoare) din _cluster/health si _nodes/stats/fs,jvm. Galben e normal pe un
+    singur nod (replici nealocate). Pur."""
+    out = []
+    if health.get("status") == "red":
+        out.append(("es_red", f"cluster rosu: {health.get('unassigned_shards')} shard-uri nealocate", None))
+    for n in (nodes.get("nodes") or {}).values():
+        tot = ((n.get("fs") or {}).get("total") or {})
+        if tot.get("total_in_bytes"):
+            pct = 100 * (1 - tot.get("available_in_bytes", 0) / tot["total_in_bytes"])
+            if pct > ES_DISK_MAX_PCT:
+                out.append(("es_disk", f"disc {pct:.0f}% ocupat pe {n.get('name')}", round(pct, 1)))
+        heap = ((n.get("jvm") or {}).get("mem") or {}).get("heap_used_percent")
+        if heap is not None and heap > ES_HEAP_MAX_PCT:
+            out.append(("es_heap", f"heap JVM {heap}% pe {n.get('name')}", float(heap)))
+    return out
+
+
+def check_es_health(es: Elasticsearch, run: Run) -> None:
+    health = es.cluster.health()
+    nodes = es.nodes.stats(metric="fs,jvm")
+    kinds = {"es_red": (IntegrityKind.ES_RED, "critical"), "es_disk": (IntegrityKind.ES_DISK, "critical"),
+             "es_heap": (IntegrityKind.ES_HEAP, "high")}
+    for kind, detail, _v in es_health_problems(dict(health), dict(nodes)):
+        k, sev = kinds[kind]
+        run.problem(k, f"Elasticsearch: {kind}", detail, severity=sev, host="es-node-1",
+                    subject="es01", dedup_minutes=60)
+    log.info("es: status=%s", health.get("status"))
+
+
 def write_heartbeat(metrics: Elasticsearch | None, run: Run) -> None:
     """Pulsul din soc-metrics: orchestratorul pagineaza daca lipseste (paznicul paznicului)."""
     if metrics is None:
@@ -449,7 +511,8 @@ def main() -> int:
                             host="es-node-1")
         log.error("ES init esuat: %s", e)
         return 1
-    for name, fn in (("backup", check_backup), ("canar", check_canary), ("fluxuri", check_streams)):
+    for name, fn in (("backup", check_backup), ("canar", check_canary), ("fluxuri", check_streams),
+                     ("reguli_suricata", check_suricata_rules)):
         try:
             fn(es, run)
         except Exception as e:
@@ -484,6 +547,16 @@ def main() -> int:
                             subject=f"check_{name}", dedup_minutes=30)
                 log.error("verificarea %s a esuat: %s", name, e)
                 run.failed = True
+    # Pasul 11: sanatatea clusterului, cu cheia soc-monitor (cluster:monitor si nimic altceva).
+    mon = _client("ES_MONITOR_API_KEY", False)
+    if mon is not None:
+        try:
+            check_es_health(mon, run)
+        except Exception as e:
+            run.problem(IntegrityKind.CHECK_FAILED, "Absence-check: verificarea `es_health` a esuat",
+                        f"{type(e).__name__}: {str(e)[:200]}", severity="high", host="es-node-1",
+                        subject="check_es_health", dedup_minutes=30)
+            run.failed = True
     write_heartbeat(_client("ES_METRICS_WRITER_API_KEY", False), run)
     return 1 if run.failed else 0
 

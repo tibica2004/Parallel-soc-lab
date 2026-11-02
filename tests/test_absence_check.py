@@ -286,7 +286,8 @@ def test_main_hash_doar_la_10_minute_si_esecul_escaladeaza(monkeypatch, hashes):
     ref.write_text(_sums({"/usr/local/bin/soc-canary": H1}))
     out[A.reader.ReaderCommand.CANARY_HASH] = A.reader.ReaderError("DENIED de gate")
     for fn in ("check_services", "check_fleet_server", "check_backup", "check_canary", "check_streams",
-               "check_orchestrator_cycles", "check_llm_probe"):
+               "check_orchestrator_cycles", "check_llm_probe", "check_es_health",
+               "check_suricata_rules"):
         monkeypatch.setattr(A, fn, lambda *a, **k: None)
     monkeypatch.setattr(A, "_es", lambda: FakeES())
     monkeypatch.setattr(A, "write_heartbeat", lambda m, run: seen.append(run))
@@ -347,4 +348,64 @@ def test_sonda_llm_tacuta():
     assert run.kinds == ["probe_missing:soc-llm-probe"]
     run = _run()
     A.check_llm_probe(_MetricsES(run.now.isoformat()), run)
+    assert run.kinds == []
+
+
+# --- pasul 11: sanatatea Elasticsearch ------------------------------------------------
+
+def _nodes(avail, total=100, heap=50):
+    return {"nodes": {"n1": {"name": "es01", "fs": {"total": {"total_in_bytes": total,
+                                                              "available_in_bytes": avail}},
+                             "jvm": {"mem": {"heap_used_percent": heap}}}}}
+
+
+def test_es_galben_e_normal_rosu_nu():
+    assert A.es_health_problems({"status": "yellow"}, _nodes(85)) == []
+    kinds = [k for k, _, _ in A.es_health_problems({"status": "red", "unassigned_shards": 3}, _nodes(85))]
+    assert kinds == ["es_red"]
+
+
+def test_es_disc_si_heap_peste_prag():
+    probs = A.es_health_problems({"status": "green"}, _nodes(avail=15, heap=95))
+    assert {k for k, _, _ in probs} == {"es_disk", "es_heap"}
+    assert A.es_health_problems({"status": "green"}, _nodes(avail=25, heap=90)) == []
+
+
+# --- pasul 12: vechimea regulilor Suricata --------------------------------------------
+
+class _EsqlES:
+    def __init__(self, values):
+        self.values = values
+
+    class _E:
+        pass
+
+    @property
+    def esql(self):
+        outer = self
+        class Q:
+            def query(self, query, format):
+                assert "soc-suricata-update" in query and 'STARTS_WITH(message, "OK")' in query
+                return {"values": outer.values}
+        return Q()
+
+
+def test_reguli_suricata_oprit_implicit(monkeypatch):
+    monkeypatch.setattr(A, "SURICATA_RULES_CHECK", False)
+    run = _run()
+    A.check_suricata_rules(_EsqlES([]), run)
+    assert run.kinds == []
+
+
+def test_reguli_suricata_vechi_sau_lipsa(monkeypatch):
+    monkeypatch.setattr(A, "SURICATA_RULES_CHECK", True)
+    run = _run()
+    A.check_suricata_rules(_EsqlES([]), run)
+    assert run.kinds == ["suricata_rules_stale:suricata_rules"]
+    run = _run()
+    old = (run.now - timedelta(hours=30)).isoformat()
+    A.check_suricata_rules(_EsqlES([[old]]), run)
+    assert run.kinds == ["suricata_rules_stale:suricata_rules"]
+    run = _run()
+    A.check_suricata_rules(_EsqlES([[(run.now - timedelta(hours=3)).isoformat()]]), run)
     assert run.kinds == []

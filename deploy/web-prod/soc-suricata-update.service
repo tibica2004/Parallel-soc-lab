@@ -1,0 +1,12 @@
+[Unit]
+Description=SOC - actualizare zilnica reguli Suricata ET Open (pasul 12)
+After=network-online.target suricata.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/soc-suricata-update.sh
+Nice=10
+TimeoutStartSec=20min
+ProtectHome=yes
+PrivateTmp=yes
