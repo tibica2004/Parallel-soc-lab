@@ -22,6 +22,7 @@ transforma atunci un benign in undetermined + escalate_human (principiul 8).
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timedelta
 
@@ -62,6 +63,28 @@ def _trim_rows(rows: list[dict]) -> list[dict]:
     out = []
     for r in rows[:MAX_ROWS]:
         out.append({k: (v[:200] if isinstance(v, str) else v) for k, v in r.items()})
+    return out
+
+
+# Pasul 6.1 (masurat 2026-11-02): un text in engleza adaugat in command_line a mutat verdictul
+# Tier 1 de la malicious la suspicious (3/3 repetari). Campurile text din telemetrie ajung acum
+# la model DOAR in interiorul delimitatorilor, cu delimitatorii falsi scosi din valori.
+EXEC_TEXT_FIELDS = ("user", "process", "parent", "executable", "command_line", "sudo_invoked_by")
+_FAKE_DELIMS = re.compile(r"(<<<|>>>|TELEMETRIE_NEINCREZATOARE|</?\s*untrusted[_ a-z]*>)", re.IGNORECASE)
+
+
+def strip_delimiters(v):
+    """Scoate din valorile de telemetrie orice imita delimitatorii (un atacator nu poate inchide
+    blocul neincrezator ca sa para instructiune de sistem)."""
+    return _FAKE_DELIMS.sub("[delimitator eliminat]", v) if isinstance(v, str) else v
+
+
+def wrap_execution(ex: dict) -> dict:
+    """execution pentru model: entity_id ramane in clar (uneltele il cer exact si e validat cu
+    ENTITY_ID_RE); textul din telemetrie trece ca bloc neincrezator."""
+    out = {k: v for k, v in (ex or {}).items() if k not in EXEC_TEXT_FIELDS}
+    text = {k: strip_delimiters((ex or {}).get(k)) for k in EXEC_TEXT_FIELDS if k in (ex or {})}
+    out["telemetrie_neincrezatoare"] = wrap_untrusted(text)
     return out
 
 
@@ -179,8 +202,9 @@ Cand nu mai ai nevoie de date, raspunde cu un singur rand: GATA.""" + NO_THINK
 def agent_payload(ctx: dict) -> dict:
     ex = ctx.get("execution") or {}
     return {"rule_name": ctx.get("rule_name"), "host": ctx.get("host"),
-            "execution": {k: ex.get(k) for k in ("user", "process", "parent", "executable",
-                                                  "command_line", "entity_id")},
+            "execution": wrap_execution({k: ex.get(k) for k in ("user", "process", "parent",
+                                                                 "executable", "command_line",
+                                                                 "entity_id")}),
             "ran_by_web_service_account": ctx.get("ran_by_web_service_account"),
             "ran_by_known_admin": ctx.get("ran_by_known_admin"),
             "sensitive_action": ctx.get("sensitive_action")}

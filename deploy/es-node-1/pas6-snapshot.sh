@@ -52,7 +52,7 @@ SNAP=$(curl -sf "${AUTH[@]}" -X POST "$ES/_slm/policy/soc-daily/_execute" \
        | python3 -c 'import json,sys; print(json.load(sys.stdin)["snapshot_name"])')
 for i in $(seq 1 60); do
   ST=$(curl -s "${AUTH[@]}" "$ES/_snapshot/soc_local/$SNAP" \
-       | python3 -c 'import json,sys; s=json.load(sys.stdin)["snapshots"]; print(s[0]["state"] if s else "PENDING")')
+       | python3 -c 'import json,sys; s=json.load(sys.stdin).get("snapshots"); print(s[0]["state"] if s else "PENDING")')
   [ "$ST" = SUCCESS ] && break
   [ "$ST" = FAILED ] && { echo "snapshot $SNAP FAILED" >&2; exit 1; }
   sleep 5
