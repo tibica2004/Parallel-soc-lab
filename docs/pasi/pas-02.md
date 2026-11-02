@@ -127,3 +127,25 @@ Propunere (de decis de om): findings in fisiere de core identice cu sumele ofici
 draft (remedierea e update-ul de WordPress, deja urmarit de N-day watch). Modelul ramane pentru
 plugin-uri, teme si fisierele de core MODIFICATE (exact cele interesante pentru un 0-day/webshell).
 Plus fereastra = functia intreaga (nu +-12 linii).
+
+### Reparatia (aprobata de om 2026-11-02, commit d05ca31 + urmatorul)
+
+1. **Core nemodificat -> `upstream_core`, decis de cod.** md5 al fisierului vs
+   api.wordpress.org/core/checksums (7.1.3, en_US, 3782 sume, cache local). Masurat: 77/77
+   rezultate sunt in fisiere de core identice cu cele oficiale. Remedierea lor e update-ul de
+   WordPress (urmarit de N-day watch), nu un patch local. API cazut -> totul la model.
+2. **Fereastra = functia** (sau 40 de linii inainte pentru cod in afara functiilor), max 160 linii;
+   prompt v2 (v1 pastrat).
+3. **Modelul nu mai inchide nimic.** Experiment (experiments/static_v2_eval.py, fara scriere in ES):
+   cele 43 "open" din v1, re-triate cu v2 -> 28 open, 9 FP, 6 incerte. Dar toate 3 fals pozitivele
+   verificate manual (setup-config.php:338, users.php:350, ajax-actions.php:3999) raman "adevarat
+   pozitiv" cu incredere 90, chiar cu validarea vizibila in fragment. Concluzie: qwen3:14b nu e de
+   incredere pe triaj static in nicio directie. Parerea "FP" -> `escalated` cu motiv
+   `model_says_fp`; inchide doar codul.
+4. `--retriage`: draft-urile vechi -> `superseded` (nu sterse); draft nou cu _id fix.
+
+Stare ES dupa reparatie: static-findings 77 x upstream_core; soc-incidents 42 draft_rule
+static = superseded, 0 proposed. Rularea finala (sync complet): exit 0, 0 noi, 35.6 s.
+Ramas: soc-static.timer activ (urmatoarea rulare duminica 2026-11-08 05:01 UTC).
+Ce prinde de fapt pasul 2 de acum: orice fisier PHP de core MODIFICAT (webshell injectat in
+core, backdoor) si codul plugin-urilor/temelor ajung la om, cu parerea modelului ca indiciu.

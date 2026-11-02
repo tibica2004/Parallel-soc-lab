@@ -16,7 +16,9 @@ Fluxul:
      (max 40 de linii, in <untrusted_code>) si intoarce StaticTriage (Pydantic, extra=forbid,
      FARA campuri exploit/poc/payload — E2). JSON invalid -> o reincercare, apoi esec.
   5. Starea o decide CODUL (decide_status): esec -> escalated (R9); confidence < 60 ->
-     escalated; is_true_positive=false -> closed_fp; altfel open (de reparat, la om).
+     escalated; is_true_positive=false -> escalated (model_says_fp: modelul nu inchide nimic,
+     masurat nesigur); altfel open. Inchide doar codul: core identic cu sumele oficiale WordPress
+     -> upstream_core.
   6. Draftul de regula al modelului e TEXT LIBER: merge in soc-incidents ca type=draft_rule,
      status=proposed, pentru revizuire umana. NU intra automat in shadow/promovare (principiul
      2: textul liber nu ajunge in actiuni; regulile automate Tier 3 le scrie codul din sabloane,
@@ -89,7 +91,8 @@ FIELD_MAX = 2000
 SYNC_EXCLUDES = ("/wp-config.php", "/.env.bak", "/backup.sql",
                  "/wp-content/uploads/", "/wp-content/cache/", "/wp-content/upgrade/")
 
-# Statusuri: open = adevarat pozitiv, de reparat de om; closed_fp = fals pozitiv clar;
+# Statusuri: open = adevarat pozitiv dupa model, la om; upstream_core = core nemodificat (cod);
+# closed_fp = rezervat omului (interfata), nu il scrie codul;
 # escalated = esec sau incertitudine, la om; pending_triage = peste buget, reluat data viitoare;
 # reopened = pus de om ca sa fie retriat.
 RETRIAGE_STATUSES = frozenset({"pending_triage", "reopened"})
@@ -138,6 +141,7 @@ class Status(str, Enum):
 
 class Reason(str, Enum):
     upstream_pristine = "upstream_pristine"
+    model_says_fp = "model_says_fp"
     true_positive = "true_positive"
     false_positive = "false_positive"
     low_confidence = "low_confidence"
@@ -287,7 +291,11 @@ def decide_status(triage: StaticTriage | None) -> tuple[Status, Reason]:
     if triage.confidence < MIN_CONFIDENCE:
         return Status.escalated, Reason.low_confidence
     if not triage.is_true_positive:
-        return Status.closed_fp, Reason.false_positive
+        # Masurat 2026-11-02 (experiments/static_v2_eval.py): qwen3:14b a dat "adevarat pozitiv"
+        # cu incredere 90 pe 3/3 fals pozitive verificate manual, chiar cu validarea vizibila.
+        # Un model nesigur nu inchide nimic: parerea "FP" merge la om, marcata ca atare.
+        # Inchiderea automata ramane doar cea decisa de cod (upstream_core).
+        return Status.escalated, Reason.model_says_fp
     return Status.open, Reason.true_positive
 
 
@@ -530,8 +538,8 @@ def run(args) -> int:
             m["findings_failed"] += 1
         if status is Status.open:
             m["findings_tp"] += 1
-        elif status is Status.closed_fp:
-            m["findings_fp"] += 1
+        elif reason is Reason.model_says_fp:
+            m["findings_fp"] += 1   # parerea modelului; tot la om
         else:
             m["findings_escalated"] += 1
         if status is Status.open and res and res.detection_rule_draft:

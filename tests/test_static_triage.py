@@ -67,9 +67,9 @@ def test_incredere_mica_escaladeaza_chiar_daca_spune_fp():
     assert st.decide_status(t) == (st.Status.escalated, st.Reason.low_confidence)
 
 
-def test_fp_clar_se_inchide():
-    t = st.parse_triage(_ok(is_true_positive=False, confidence=60), FID)
-    assert st.decide_status(t) == (st.Status.closed_fp, st.Reason.false_positive)
+def test_modelul_nu_inchide_nici_un_fp_sigur():
+    t = st.parse_triage(_ok(is_true_positive=False, confidence=95), FID)
+    assert st.decide_status(t) == (st.Status.escalated, st.Reason.model_says_fp)
 
 
 def test_tp_ramane_deschis_pentru_om():

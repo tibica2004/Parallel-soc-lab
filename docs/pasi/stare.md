@@ -85,7 +85,10 @@ val 8/8. Cod 7b2166b, b9197a7, dfed52c (detalii A-E si rezultate: docs/pasi/pas-
 Semgrep 1.180.0 in ~/semgrep-venv pe es-node-1; static-findings + cheia soc-static-writer create
 de om. 2 rulari exit 0, idempotent (77 -> 0 noi). Triajul: 43 "open" toate in WP core, 2/2
 verificate = fals pozitive -> propunere: filtru pe checksum-urile oficiale WP (decis de cod).
-RAMAS (om): instalarea soc-static.timer (sudo) — comanda in pas-02.md B.6.
+Timer instalat de om (urmatoarea: dum 2026-11-08 05:01 UTC). REPARAT (aprobat): core identic
+cu checksum-urile oficiale -> upstream_core (77/77), fereastra = functia, prompt v2, modelul nu
+mai inchide nimic (3/3 FP verificate raman "TP conf 90" si in v2). 42 drafturi -> superseded.
+URMEAZA: PASUL 4 (benign-gen) — cere aprobare: VM OpenStack, victim-sg, cont WP, Fleet.
 
 ## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
 
