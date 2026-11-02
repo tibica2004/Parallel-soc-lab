@@ -842,6 +842,19 @@ def node_finalize(state: HuntState) -> dict:
         conf = min(conf, 60)
         action = ActionType.ESCALATE_HUMAN
 
+    # Podea 4 (pasul 6.1, ca pe calea rapida): serverul web a pornit un proces -> malicious, la om,
+    # indiferent ce au conchis investigatorii (textul plantat in comanda i-a putut influenta).
+    from escalation import web_exec_floor
+    _parent = _subject(subject)[1] or (_ctx.get("execution") or {}).get("parent")
+    if web_exec_floor(_ctx.get("ran_by_web_service_account"), _parent, _ctx.get("via_sudo_by")) \
+            and p.get("classification") != "malicious":
+        p = dict(p)
+        p["classification"] = "malicious"
+        if action in (ActionType.NONE, ActionType.ENRICH_ONLY):
+            action = ActionType.ESCALATE_HUMAN
+        if os.environ.get("VERBOSE") == "1":
+            print("      podea 4 Tier 2: serverul web a pornit un proces -> malicious, escaladat", flush=True)
+
     # Corectia 1: un critic care rastoarna (simetric) muta verdictul spre escaladare,
     # indiferent de directie. Un benign contestat cu dovezi devine incert, nu ramane benign.
     if state.get("critic_overturns"):

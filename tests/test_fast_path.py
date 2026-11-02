@@ -66,3 +66,17 @@ def test_floor_neaplicat_pe_suspicious():
     out = _finalize({"classification": "suspicious", "confidence": 80}, _ctx(ran_by_web_service_account=True))
     assert out["floor_applied"] is False
     assert out["verdict"].proposed_action.value == "escalate_human"
+
+
+def test_podea4_serverul_web_a_pornit_un_proces():
+    ctx = _ctx(ran_by_web_service_account=True, execution={"parent": "apache2", "sudo_invoked_by": None})
+    out = _finalize({"classification": "suspicious", "confidence": 80, "proposed_action": "enrich_only"}, ctx)
+    v = out["verdict"]
+    assert v.classification.value == "malicious" and v.proposed_action.value == "escalate_human"
+    assert v.confidence == 80 and out["floor_applied"] is True     # increderea modelului neatinsa
+
+
+def test_podea4_nu_se_aplica_prin_sudo():
+    ctx = _ctx(ran_by_web_service_account=True, execution={"parent": "dash", "sudo_invoked_by": "tiberiu"})
+    out = _finalize({"classification": "suspicious", "confidence": 80}, ctx)
+    assert out["verdict"].classification.value == "suspicious"

@@ -58,3 +58,19 @@ def should_escalate(v: Verdict, *, floor_applied: bool,
     if behavioral:
         r.append(EscalationReason.BEHAVIORAL)
     return EscalationDecision(escalate=bool(r), reasons=r)
+
+
+# Podeaua "serverul web a executat un proces" (pasul 6.1, decizia omului 2026-11-02). Masurat:
+# un text plantat in comanda unui webshell (scenarios_injection) a mutat verdictul Tier 2 din
+# malicious in suspicious/enrich_only (fara om), chiar cu telemetria delimitata. Codul decide:
+# pe web-prod (mod_php) www-data nu porneste procese legitim din serverul web; wp-cli (prin sudo)
+# si soc-wp-update (systemd, parinte python3) nu se potrivesc.
+WEB_EXEC_PARENTS = frozenset({"apache2", "php", "php8.3", "php-fpm", "php-fpm8.3", "sh", "dash", "bash"})
+
+
+def web_exec_floor(ran_by_web_service_account, parent: str | None, sudo_invoked_by: str | None) -> bool:
+    """True cand faptele calculate de cod arata un proces pornit de serverul web: cont de
+    serviciu web, NU prin sudo, cu parinte serverul web sau un shell (lantul unui webshell). Pur."""
+    return bool(ran_by_web_service_account) and not sudo_invoked_by and \
+        (parent or "").rsplit("/", 1)[-1] in WEB_EXEC_PARENTS
+

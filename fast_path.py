@@ -599,6 +599,19 @@ def node_finalize(state: FastState) -> dict:
         if os.environ.get("VERBOSE") == "1":
             print("      podea: actiune sensibila in afara ferestrei -> suspicious, escaladat", flush=True)
 
+    # Podea 4 (pasul 6.1): serverul web a pornit un proces -> malicious, la om. Decis de cod din
+    # fapte; textul din telemetrie (oricat de convingator) nu poate cobori clasa.
+    from escalation import web_exec_floor
+    ex = ctx.get("execution") or {}
+    if web_exec_floor(ctx.get("ran_by_web_service_account"), ex.get("parent"), ex.get("sudo_invoked_by")) \
+            and cls.value != "malicious":
+        cls = Classification("malicious")
+        if action in ("none", "enrich_only"):
+            action = "escalate_human"
+        floor_applied = True
+        if os.environ.get("VERBOSE") == "1":
+            print("      podea 4: serverul web a pornit un proces -> malicious, escaladat", flush=True)
+
     verdict = Verdict(
         investigation_id=str(uuid.uuid4()), source_path="fast",
         entity_type=EntityType.HOST, entity_id=ctx.get("host", "unknown"),

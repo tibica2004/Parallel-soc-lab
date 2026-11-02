@@ -298,3 +298,26 @@ def test_verdict_accepta_noul_status():
                 classification="undetermined", confidence=0, rarity_score=1.0, model_id="m",
                 corroboration_status="secondary_unavailable")
     assert v.corroboration_status == "secondary_unavailable"
+
+
+def test_podea4_tier2_finding_webshell_injectat(monkeypatch):
+    # cazul din poarta 2026-11-02: dash -> whoami ca www-data, modelul a zis suspicious/enrich_only
+    monkeypatch.setattr(hunt_path, "prefetch_context",
+                        lambda x: {"ran_by_web_service_account": True, "via_sudo_by": None})
+    f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
+                      detail={"parent": "dash", "child": "whoami"}, rarity_score=1.0)
+    state = {"finding": f, "investigation_id": "i",
+             "merged_draft": {"classification": "suspicious", "confidence": 75, "proposed_action": "enrich_only"}}
+    v = hunt_path.node_finalize(state)["verdict"]
+    assert v.classification.value == "malicious" and v.proposed_action is A.ESCALATE_HUMAN
+
+
+def test_podea4_tier2_wp_cli_prin_sudo_neatins(monkeypatch):
+    monkeypatch.setattr(hunt_path, "prefetch_context",
+                        lambda x: {"ran_by_web_service_account": True, "via_sudo_by": "tiberiu"})
+    f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
+                      detail={"parent": "dash", "child": "php8.3"}, rarity_score=1.0)
+    state = {"finding": f, "investigation_id": "i",
+             "merged_draft": {"classification": "benign", "confidence": 90, "proposed_action": "none"}}
+    v = hunt_path.node_finalize(state)["verdict"]
+    assert v.classification.value != "malicious"
