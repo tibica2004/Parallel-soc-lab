@@ -1,5 +1,5 @@
 {
- "prompt_set": "4f01c8b50efc",
+ "prompt_set": "f1d721739bf7",
  "prompts": {
   "fast.extended_rules": {
    "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
@@ -34,12 +34,6 @@
   "hunt.case_note": {
    "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
    "sha256": "42767f03bd94f8d95f0dc14b473b0c64fdc4836070b3d2ecf748fc3a6ff8f618",
-   "updated": "2026-11-02",
-   "version": 1
-  },
-  "hunt.critic": {
-   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
-   "sha256": "dda713eaacf243c1560dd49e6b5780d9c168d13fd8601ff351c5fa4000d87f79",
    "updated": "2026-11-02",
    "version": 1
   },

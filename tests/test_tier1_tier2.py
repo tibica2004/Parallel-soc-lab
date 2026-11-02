@@ -290,7 +290,9 @@ def test_zona_gri_fara_b_escaladeaza():
     assert out["corroboration_status"] == "secondary_unavailable"
     assert md["classification"] == "undetermined" and md["proposed_action"] == "escalate_human"
     assert md["confidence"] <= 40
-    assert hunt_path.route_after_corroborate(out) == "finalize"
+    # criticul e sters (plann S3): dupa coroborare se merge direct la finalize
+    edges = {(e.source, e.target) for e in hunt_path.build_hunt_path().get_graph().edges}
+    assert ("corroborate", "finalize") in edges and not any("critic" in e for e in edges)
 
 
 def test_verdict_accepta_noul_status():

@@ -35,7 +35,6 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "hunt.investigator": ("hunt_path", "HUNT_PROMPT"),
     "hunt.secondary_note": ("hunt_path", "SECONDARY_NOTE"),
     "hunt.case_note": ("hunt_path", "HUNT_NOTE"),
-    "hunt.critic": ("hunt_path", "CRITIC_PROMPT"),
     "tier3.hunt_plan": ("hunt", "PLAN_PROMPT"),
     "tier3.rule_draft": ("rules", "DRAFT_PROMPT"),
     "tier3.incident_narrative": ("tier3", "NARRATIVE_PROMPT"),
@@ -79,8 +78,9 @@ def prompt_set(hashes: dict[str, str]) -> str:
 def bump(manifest: dict, now: dict[str, str], reason: str, when: str) -> tuple[dict, list[str]]:
     """Versiune +1 pentru fiecare prompt schimbat; cele noi pornesc de la v1. Pur."""
     out = {"prompts": dict(manifest.get("prompts", {}))}
-    changed = diff(manifest, now)
-    for k in changed:
+    removed = sorted(k for k in out["prompts"] if k not in now)
+    changed = diff(manifest, now) + [f"{k} (sters)" for k in removed]
+    for k in diff(manifest, now):
         v = int((out["prompts"].get(k) or {}).get("version", 0)) + 1
         out["prompts"][k] = {"version": v, "sha256": now[k], "updated": when, "reason": reason[:300]}
     for k in list(out["prompts"]):
@@ -120,7 +120,8 @@ def main(argv=None) -> int:
     MANIFEST.write_text(json.dumps(new, indent=1, sort_keys=True) + "\n")
     with CHANGELOG.open("a", encoding="utf-8") as f:
         f.write(f"\n## {when} — prompt_set {new['prompt_set']}\n"
-                + "".join(f"- {k} -> v{new['prompts'][k]['version']}\n" for k in changed)
+                + "".join((f"- {k}\n" if k.endswith(" (sters)") else f"- {k} -> v{new['prompts'][k]['version']}\n")
+                          for k in changed)
                 + f"Motiv: {a.reason}\n")
     print(f"actualizat: {changed}; prompt_set={new['prompt_set']}")
     return 0

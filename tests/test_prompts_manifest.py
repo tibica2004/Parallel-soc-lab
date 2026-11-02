@@ -26,3 +26,9 @@ def test_bump_doar_ce_s_a_schimbat_si_set_nou():
 def test_setul_depinde_de_continut_nu_de_ordine():
     assert P.prompt_set({"a": "1", "b": "2"}) == P.prompt_set({"b": "2", "a": "1"})
     assert P.prompt_set({"a": "1"}) != P.prompt_set({"a": "2"})
+
+
+def test_stergerea_unui_prompt_e_o_schimbare():
+    old = {"prompts": {"a": {"version": 1, "sha256": "x"}, "vechi": {"version": 2, "sha256": "z"}}}
+    new, changed = P.bump(old, {"a": "x"}, "sters", "2026-11-02")
+    assert changed == ["vechi (sters)"] and "vechi" not in new["prompts"] and new["prompt_set"] == P.prompt_set({"a": "x"})
