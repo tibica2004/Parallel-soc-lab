@@ -15,6 +15,7 @@ Nu scriem teste si nu modificam teste (R1). Runner-ul doar:
 Fara chei pe web-prod (R16): fisierul NDJSON ajunge prin Fleet (Custom Logs, dataset
 soc.emulation) in logs-soc.emulation-*, de unde il citeste coverage.py pe es-node-1.
 
+  sudo /opt/soc/art_runner.py T1082 1 --show     # doar arata, nu ruleaza
   sudo /opt/soc/art_runner.py T1082 1
   sudo /opt/soc/art_runner.py T1105 3 --arg remote_host=192.168.10.160
 """
@@ -109,6 +110,7 @@ def main(argv=None) -> int:
     ap.add_argument("technique")
     ap.add_argument("number", type=int)
     ap.add_argument("--arg", action="append", default=[], help="nume=valoare (suprascrie implicitul)")
+    ap.add_argument("--show", action="store_true", help="doar afiseaza comanda, cleanup-ul si refuzul; nu ruleaza")
     a = ap.parse_args(argv)
     if not TECH_RE.match(a.technique):
         print("tehnica invalida", file=sys.stderr)
@@ -124,6 +126,10 @@ def main(argv=None) -> int:
     why = refusal(test, cmd, cleanup)
     print(f"{a.technique} #{a.number}: {test.get('name')}  (executor {ex.get('name')}, "
           f"elevation_required={ex.get('elevation_required', False)})")
+    if a.show:
+        print(f"--- COMANDA ---\n{cmd}\n--- CLEANUP ---\n{cleanup or '(fara cleanup)'}")
+        print(f"--- VERDICTUL CODULUI: {'REFUZAT: ' + why if why else 'permis'}")
+        return 3 if why else 0
     if why:
         print(f"REFUZAT: {why}")
         return 3
