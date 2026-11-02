@@ -17,3 +17,7 @@ Fiecare schimbare de prompt: `make regression` pe setul de aur, apoi `python pro
 - tier3.incident_narrative -> v1
 - tier3.rule_draft -> v1
 Motiv: linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)
+
+## 2026-11-02 — prompt_set f1d721739bf7
+- hunt.critic (sters)
+Motiv: plann S3: criticul sters din hunt_path (masurat daunator la 14B, oprit din faza 7)

@@ -17,7 +17,7 @@ def test_bump_doar_ce_s_a_schimbat_si_set_nou():
     old = {"prompts": {"a": {"version": 2, "sha256": "x"}, "b": {"version": 1, "sha256": "y"},
                        "vechi": {"version": 1, "sha256": "z"}}}
     new, changed = P.bump(old, {"a": "x", "b": "y2", "c": "w"}, "motiv", "2026-11-02")
-    assert changed == ["b", "c"]
+    assert changed == ["b", "c", "vechi (sters)"]
     assert new["prompts"]["a"]["version"] == 2 and new["prompts"]["b"]["version"] == 2
     assert new["prompts"]["c"]["version"] == 1 and "vechi" not in new["prompts"]
     assert new["prompt_set"] == P.prompt_set({"a": "x", "b": "y2", "c": "w"})
