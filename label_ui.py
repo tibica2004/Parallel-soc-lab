@@ -17,7 +17,7 @@ Securitate, pe scurt:
     concurenta (if_seq_no), deci doua etichetari simultane nu se calca
 
     source env.sh   # LABEL_UI_PASSWORD trebuie sa existe acolo
-    python3 label_ui.py                       # 172.20.99.220:8088
+    python3 label_ui.py                       # LABEL_UI_HOST:8088 (es-node-1)
     python3 label_ui.py --host 127.0.0.1      # doar local
 """
 
@@ -295,7 +295,7 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--host", default=os.environ.get("LABEL_UI_HOST", "172.20.99.220"))
+    ap.add_argument("--host", default=os.environ.get("LABEL_UI_HOST", "192.168.10.121"))
     ap.add_argument("--port", type=int, default=8088)
     args = ap.parse_args()
     import uvicorn

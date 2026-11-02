@@ -207,7 +207,7 @@ def main() -> int:
     ap.add_argument("--cu-istoric", action="store_true", help="porneste istoricul etichetat")
     ap.add_argument("--fereastra-corelare", type=int, default=30,
                     help="+- minute pentru alertele corelate (productie: 30)")
-    ap.add_argument("--web-prod-host", default=os.environ.get("WEB_PROD_HOST", "tiberiu@172.20.99.240"))
+    ap.add_argument("--web-prod-host", default=os.environ.get("WEB_PROD_HOST", "tiberiu@192.168.10.138"))
     ap.add_argument("--doar", help="ruleaza doar scenariul cu acest nume")
     args = ap.parse_args()
 

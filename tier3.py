@@ -516,9 +516,9 @@ EXPOSURE_WINDOW_H = 72
 # IP-uri "self/trusted" excluse din atingeri: un host nu se recunoaste pe el insusi
 # (trafic propriu: wp-cron, health check, loopback). Lista din env, constante, NU
 # din telemetrie. Implicit: IP-ul web-prod + loopback. In laborator atacurile vin de
-# pe alt IP (ex. 172.20.99.220), deci NU se exclud.
+# pe alt IP (atacatorul: 172.30.6.133 dupa SNAT), deci NU se exclud.
 WP_SELF_IPS = tuple(x.strip() for x in os.environ.get(
-    "WP_SELF_IPS", "172.20.99.240,127.0.0.1,::1").split(",") if x.strip())
+    "WP_SELF_IPS", "192.168.10.138,172.30.6.249,127.0.0.1,::1").split(",") if x.strip())
 
 # Atingeri de recon/atac pe suprafata WordPress, din Apache. url.path (telemetrie)
 # e doar ADUS, nu interpolat; filtrul foloseste prefixe/constante, host si IP-urile
