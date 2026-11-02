@@ -88,7 +88,13 @@ verificate = fals pozitive -> propunere: filtru pe checksum-urile oficiale WP (d
 Timer instalat de om (urmatoarea: dum 2026-11-08 05:01 UTC). REPARAT (aprobat): core identic
 cu checksum-urile oficiale -> upstream_core (77/77), fereastra = functia, prompt v2, modelul nu
 mai inchide nimic (3/3 FP verificate raman "TP conf 90" si in v2). 42 drafturi -> superseded.
-URMEAZA: PASUL 4 (benign-gen) — cere aprobare: VM OpenStack, victim-sg, cont WP, Fleet.
+## PASUL 4 (trafic benign) — IN CURS 2026-11-02 (detalii: docs/pasi/pas-04.md)
+VM benign-gen CREAT de Claude (aprobat): 192.168.10.150 / flotant 172.30.6.210, m1.small, benign-sg
+(22 doar admin), victim-sg +80 de la .150. Generator instalat (/opt/soc-benign, user soc-benign,
+Chromium testat), benign.env cu parola WP generata pe VM. Cod 288e170.
+RAMAS (om): benign-setup.sh (elastic), cheia pe VM prin pipe, wp user create, Fleet Custom Logs
+soc.benign_actions, soc-fp-rate.timer. Apoi Claude: sesiune de proba + start benign-gen.
+benign-gen se opreste in timpul harness-ului.
 
 ## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
 
