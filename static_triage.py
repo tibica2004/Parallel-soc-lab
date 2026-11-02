@@ -12,7 +12,11 @@ Fluxul:
   2. semgrep cu regulile din static/semgrep/ (testate cu `semgrep --test`), --metrics=off.
   3. finding_id = sha256(rule_id|path|linie|sha256(liniile potrivite)). Deja in
      static-findings si nu e de reluat -> sarit (idempotent).
-  4. Triaj: modelul (rol static_triage, temperatura 0) primeste regula si fragmentul de cod
+  4. (plann.md S1) Implicit FARA model (STATIC_USE_MODEL=0): rezultatele pe cod care nu e core
+     oficial merg brut la om (status reported); in plus, deriva fata de core: fisier de core
+     modificat sau fisier PHP necunoscut in wp-admin/wp-includes -> open. Cu STATIC_USE_MODEL=1:
+     triajul de mai jos.
+  4b. Triaj: modelul (rol static_triage, temperatura 0) primeste regula si fragmentul de cod
      (max 40 de linii, in <untrusted_code>) si intoarce StaticTriage (Pydantic, extra=forbid,
      FARA campuri exploit/poc/payload — E2). JSON invalid -> o reincercare, apoi esec.
   5. Starea o decide CODUL (decide_status): esec -> escalated (R9); confidence < 60 ->
@@ -75,6 +79,12 @@ HOST = os.environ.get("STATIC_HOST", "web-prod")
 MAX_FINDINGS = int(os.environ.get("STATIC_MAX_FINDINGS", "200"))
 MAX_MINUTES = float(os.environ.get("STATIC_MAX_MINUTES", "60"))
 MIN_CONFIDENCE = 60          # sub prag -> escalated, nu inchis si nu "open" sigur
+# plann.md S1 (2026-11-02): triajul cu modelul e OPRIT implicit. Masurat: 3/3 "adevarat pozitive"
+# verificate manual erau false. Ramane partea determinista: Semgrep raportat brut omului +
+# deriva fata de core-ul oficial (fisier de core modificat sau fisier necunoscut in directoarele
+# de core = semnal real de backdoor/webshell). STATIC_USE_MODEL=1 reactiveaza modelul.
+USE_MODEL = os.environ.get("STATIC_USE_MODEL", "0") == "1"
+CORE_DIRS = ("wp-admin/", "wp-includes/")      # plus fisierele PHP din radacina
 # Fereastra pentru model (v2): de la inceputul functiei (sau 40 de linii inainte, pentru cod in
 # afara functiilor) pana la 10 linii dupa potrivire. v1 avea +-12 linii si modelul nu vedea
 # validarea de mai sus (setup-config.php:338: whitelist la linia 308) -> fals pozitive.
@@ -133,6 +143,7 @@ class StaticTriage(BaseModel):
 
 class Status(str, Enum):
     open = "open"
+    reported = "reported"          # S1: raportat brut omului, fara parerea modelului
     upstream_core = "upstream_core"
     closed_fp = "closed_fp"
     escalated = "escalated"
@@ -141,6 +152,9 @@ class Status(str, Enum):
 
 class Reason(str, Enum):
     upstream_pristine = "upstream_pristine"
+    no_model = "no_model"
+    core_modified = "core_modified"      # fisier de core cu alt continut decat cel oficial
+    core_unknown = "core_unknown"        # fisier PHP in directoarele de core, necunoscut oficial
     model_says_fp = "model_says_fp"
     true_positive = "true_positive"
     false_positive = "false_positive"
@@ -258,6 +272,31 @@ def is_pristine(rel: str, md5: str, checksums: dict[str, str] | None) -> bool:
     return checksums.get(rel.lstrip("/")) == md5
 
 
+def is_core_path(rel: str) -> bool:
+    r = rel.lstrip("/")
+    return r.startswith(CORE_DIRS) or ("/" not in r and r.endswith(".php"))
+
+
+def core_drift(files: dict[str, str], checksums: dict[str, str] | None) -> list[tuple[str, str]]:
+    """files: cale relativa -> md5 (doar fisierele din snapshot). Intoarce (cale, motiv) pentru
+    fisierele de core MODIFICATE (alt md5) si pentru fisierele PHP NECUNOSCUTE in directoarele de
+    core (un webshell pus in wp-includes/ arata exact asa). Fara sume (API cazut) -> [] si se
+    noteaza in metrici, nu se inventeaza deriva. Pur."""
+    if not checksums:
+        return []
+    out = []
+    for rel, md5 in sorted(files.items()):
+        r = rel.lstrip("/")
+        if not is_core_path(r):
+            continue
+        official = checksums.get(r)
+        if official is None:
+            out.append(("/" + r, Reason.core_unknown.value))
+        elif official != md5:
+            out.append(("/" + r, Reason.core_modified.value))
+    return out
+
+
 def draft_id(fid: str) -> str:
     """_id fix pentru draft: re-triajul il inlocuieste, nu il dubleaza."""
     return sha256_text(f"draft_rule|static|{fid}")
@@ -314,7 +353,7 @@ def finding_doc(*, fid: str, rule_id: str, path: str, line: int, snip_hash: str,
         "path": path, "line": line, "snippet_hash": snip_hash, "severity_semgrep": severity,
         "triage": triage.model_dump(mode="json") if triage else None,
         "status": status.value, "reason": reason.value,
-        "escalate_human": status in (Status.open, Status.escalated),
+        "escalate_human": status in (Status.open, Status.escalated, Status.reported),
         "triage_failed": reason in (Reason.triage_failed, Reason.budget),
         "error": (error or "")[:500] or None,
         "prompt_version": PROMPT_VERSION, "prompt_hash": prompt_hash, "model_tag": model_tag,
@@ -484,13 +523,29 @@ def run(args) -> int:
     es_inc = _client("ES_INCIDENTS_WRITER_API_KEY")
     es_met = _client("ES_METRICS_WRITER_API_KEY", required=False)
     es_read = _client("ES_READER_API_KEY", required=False)
-    triage = Triager()
+    triage = Triager() if USE_MODEL else None
+    prompt_hash = triage.prompt_hash if triage else None
+    model_tag = triage.model_tag if triage else "none"
     version = wp_version((SNAPSHOT / "wp-includes" / "version.php").read_text(errors="replace"))
     checksums = load_core_checksums(version)
-    m.update({"wp_version": version, "checksums_available": bool(checksums),
-              "findings_upstream_core": 0, "drafts_superseded": 0})
+    m.update({"wp_version": version, "checksums_available": bool(checksums), "model_used": USE_MODEL,
+              "findings_upstream_core": 0, "findings_reported": 0, "drafts_superseded": 0,
+              "core_modified": 0, "core_unknown": 0})
     triaged = 0
     over_budget = False
+
+    # S1: deriva fata de core-ul oficial, independent de Semgrep (semnalul care conteaza).
+    md5s = {rel_path(str(f), SNAPSHOT): hashlib.md5(f.read_bytes()).hexdigest()  # noqa: S324
+            for f in SNAPSHOT.rglob("*.php") if is_core_path(rel_path(str(f), SNAPSHOT))}
+    for path, why in core_drift(md5s, checksums):
+        fid = finding_id(why, path, 0, md5s[path])
+        m[why] += 1
+        if known_status(es_f, fid) is not None and not args.retriage:
+            continue
+        es_f.index(index=FINDINGS_INDEX, id=fid, document=finding_doc(
+            fid=fid, rule_id=why, path=path, line=0, snip_hash=md5s[path], severity="ERROR",
+            triage=None, status=Status.open, reason=Reason(why), prompt_hash=None, model_tag="none"))
+        log.warning("CORE: %s %s", why, path)
 
     for r in results:
         rule_id = r["check_id"].rsplit(".", 1)[-1]
@@ -508,8 +563,7 @@ def run(args) -> int:
         m["findings_new"] += prev is None
 
         common = dict(fid=fid, rule_id=rule_id, path=path, line=start, snip_hash=snip_hash,
-                      severity=severity, prompt_hash=triage.prompt_hash,
-                      model_tag=triage.model_tag)
+                      severity=severity, prompt_hash=prompt_hash, model_tag=model_tag)
         if prev is not None:
             m["drafts_superseded"] += supersede_drafts(es_read, es_inc, fid)
 
@@ -518,6 +572,15 @@ def run(args) -> int:
             es_f.index(index=FINDINGS_INDEX, id=fid, document=finding_doc(
                 triage=None, status=Status.upstream_core, reason=Reason.upstream_pristine, **common))
             m["findings_upstream_core"] += 1
+            continue
+
+        if triage is None:
+            # S1: fara model. Rezultatul Semgrep pe cod care NU e core oficial (plugin, tema,
+            # core modificat) merge brut la om: nici inchis, nici "adevarat pozitiv".
+            es_f.index(index=FINDINGS_INDEX, id=fid, document=finding_doc(
+                triage=None, status=Status.reported, reason=Reason.no_model, **common))
+            m["findings_reported"] += 1
+            log.info("%s %s:%d -> reported (fara model)", rule_id, path, start)
             continue
 
         if over_budget or triaged >= MAX_FINDINGS or time.monotonic() > deadline:

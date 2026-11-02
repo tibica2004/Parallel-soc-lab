@@ -9,14 +9,20 @@ de timer (la 10 minute) si de soc-yara-scan.path (la orice creare in /var/www/ht
   soc-honey-wpconfig-read exclude /usr/bin/yara.
 - Doar potrivirile NOI (cale + sha256 + regula) se scriu, in jurnal, cu eticheta
   soc-yara, ca un rand JSON; integrarea System le duce in logs-system.syslog-*.
-- Fara retea, fara scriere in afara directorului de stare.
+- plann.md S6 (2026-11-02): o potrivire intr-un fisier de core IDENTIC cu cel oficial WordPress
+  (md5 din api.wordpress.org/core/checksums, cache local pe versiune) e fals pozitiv si NU se
+  raporteaza (60 de potriviri pe core la 26.10, toate false). Un fisier de core MODIFICAT sau un
+  fisier necunoscut in wp-admin/wp-includes se raporteaza ca pana acum. Singura iesire in retea:
+  descarcarea sumelor, o data per versiune (API public, fara secret).
 """
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import syslog
+import urllib.request
 
 RULES = "/etc/soc-yara/webshells.yar"
 ROOTS = ["/var/www"]
@@ -24,6 +30,61 @@ STATE = "/var/lib/soc-yara/seen.json"
 SKIP_NAMES = {".env.bak"}                  # momeli: vezi honeytokens.py
 SKIP_PATHS = {"/var/www/html/backup.sql"}  # momeala 3.C (dupa cale: alt backup.sql se scaneaza)
 MAX_SIZE = 5 * 1024 * 1024
+WEBROOT = "/var/www/html"
+CHECKSUMS_URL = "https://api.wordpress.org/core/checksums/1.0/?version={v}&locale=en_US"
+CORE_CACHE = "/var/lib/soc-yara/core-checksums-{v}.json"
+_WPVER_RE = re.compile(r"^\$wp_version\s*=\s*'([0-9][0-9A-Za-z.\-]{0,30})'", re.M)
+
+
+def wp_version(version_php_text):
+    m = _WPVER_RE.search(version_php_text or "")
+    return m.group(1) if m else None
+
+
+def is_pristine_core(path, md5, sums, webroot=WEBROOT):
+    """Fisier sub webroot, prezent in sumele oficiale, cu acelasi md5. Fara sume -> False
+    (nu se ascunde nimic). Pur."""
+    if not sums or not path.startswith(webroot + "/"):
+        return False
+    rel = path[len(webroot) + 1:]
+    return sums.get(rel) == md5
+
+
+def md5sum(p):
+    h = hashlib.md5()  # noqa: S324 - sumele oficiale WordPress sunt md5
+    with open(p, "rb") as f:
+        for b in iter(lambda: f.read(65536), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def core_checksums():
+    """Sumele oficiale pentru versiunea instalata, din cache; altfel descarcate o data.
+    Orice esec -> None (potrivirile pe core se raporteaza, ca inainte)."""
+    try:
+        with open(os.path.join(WEBROOT, "wp-includes", "version.php"), encoding="utf-8", errors="replace") as f:
+            v = wp_version(f.read())
+    except OSError:
+        return None
+    if not v:
+        return None
+    cache = CORE_CACHE.format(v=v)
+    try:
+        with open(cache) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        pass
+    try:
+        with urllib.request.urlopen(CHECKSUMS_URL.format(v=v), timeout=20) as r:  # noqa: S310 - URL fix
+            sums = json.load(r).get("checksums")
+        if not isinstance(sums, dict) or not sums:
+            return None
+        with open(cache + ".tmp", "w") as f:
+            json.dump(sums, f)
+        os.replace(cache + ".tmp", cache)
+        return sums
+    except Exception:  # noqa: BLE001 - fara retea: nu blocam scanarea
+        return None
 
 
 def files():
@@ -67,13 +128,18 @@ def main():
     except Exception:
         seen = set()
     syslog.openlog("soc-yara")
+    sums = core_checksums()
     current = set()
+    skipped_core = 0
     for line in r.stdout.splitlines():
         rule, _, path = line.partition(" ")
         if not path or "\n" in path or not os.path.isfile(path):
             continue
         try:
             h = sha256(path)
+            if is_pristine_core(path, md5sum(path), sums):
+                skipped_core += 1
+                continue
         except OSError:
             continue
         key = f"{path}|{h}|{rule}"
@@ -84,6 +150,9 @@ def main():
     with open(STATE + ".tmp", "w") as f:
         json.dump(sorted(current), f)
     os.replace(STATE + ".tmp", STATE)      # un fisier sters si replantat -> raportat din nou
+    if skipped_core:
+        syslog.syslog(syslog.LOG_INFO, json.dumps({"event": "yara_core_skipped", "count": skipped_core,
+                                                   "checksums": sums is not None}))
     return 0
 
 

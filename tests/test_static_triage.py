@@ -214,3 +214,37 @@ def test_acoperire_zero_fisiere_scanate_e_esec():
 
 def test_semgrep_nu_respecta_gitignore():
     assert "--no-git-ignore" in st.semgrep_argv(Path("/s"), Path("/o.json"))
+
+
+# --- plann.md S1: fara model implicit; deriva fata de core-ul oficial --------------------
+
+def test_modelul_e_oprit_implicit(monkeypatch):
+    monkeypatch.delenv("STATIC_USE_MODEL", raising=False)
+    import importlib
+    importlib.reload(st)
+    assert st.USE_MODEL is False
+
+
+def test_cai_de_core():
+    assert st.is_core_path("/wp-admin/users.php") and st.is_core_path("wp-includes/x.php")
+    assert st.is_core_path("/index.php") and st.is_core_path("/wp-login.php")
+    assert not st.is_core_path("/wp-content/plugins/akismet/akismet.php")
+    assert not st.is_core_path("/wp-content/mu-plugins/soc-honey.php")
+
+
+def test_deriva_core_modificat_si_necunoscut():
+    sums = {"wp-admin/users.php": "aaa", "wp-includes/load.php": "bbb", "index.php": "ccc"}
+    files = {"/wp-admin/users.php": "aaa",            # identic
+             "/wp-includes/load.php": "zzz",          # modificat
+             "/wp-includes/evil.php": "123",          # necunoscut in core
+             "/wp-content/plugins/x/x.php": "456"}    # plugin: nu e core
+    assert st.core_drift(files, sums) == [("/wp-includes/evil.php", "core_unknown"),
+                                          ("/wp-includes/load.php", "core_modified")]
+    assert st.core_drift(files, None) == []           # fara sume: nu se inventeaza deriva
+
+
+def test_reported_merge_la_om():
+    doc = st.finding_doc(fid=FID, rule_id="r", path="/wp-content/plugins/x/x.php", line=3,
+                         snip_hash="h", severity="ERROR", triage=None, status=st.Status.reported,
+                         reason=st.Reason.no_model, prompt_hash=None, model_tag="none")
+    assert doc["escalate_human"] is True and doc["triage_failed"] is False

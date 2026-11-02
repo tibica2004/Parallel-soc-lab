@@ -185,6 +185,7 @@ def main() -> int:
     by_band = defaultdict(lambda: {"correct": 0, "total": 0})
     results = []
     missed_attacks = []
+    gate_started = datetime.now(timezone.utc)
 
     for i, sc in enumerate(scenarios, 1):
         name = sc.get("name", f"scenariu-{i}")
@@ -261,6 +262,21 @@ def main() -> int:
         for m in missed_attacks:
             print(f"     - {m}")
         print("  Astea sunt cazurile de studiat. Adauga-le in setul de validare.")
+
+    # plann.md A5: rezultatul portii ca document (results/ + soc-metrics type=gate), ca teza sa
+    # aiba curbe; un esec aici nu schimba codul de iesire al harness-ului.
+    try:
+        import gate_metrics
+        doc = gate_metrics.gate_summary(SCENARIOS.stem, dict(confusion), results,
+                                        commit=gate_metrics.git_commit(),
+                                        prompt_set=gate_metrics.current_prompt_set(),
+                                        model_tag=os.environ.get("MODEL_FAST", "qwen3:14b"),
+                                        started=gate_started, finished=datetime.now(timezone.utc))
+        err = gate_metrics.persist(doc, Path(__file__).resolve().parent / "results")
+        print(f"\n[poarta] inregistrata: recall={doc['recall']} fp_rate={doc['fp_rate']} "
+              f"commit={doc['commit']} prompt_set={doc['prompt_set']}" + (f" ({err})" if err else ""))
+    except Exception as e:  # noqa: BLE001
+        print(f"\n[poarta] neinregistrata: {type(e).__name__}: {e}")
 
     return 0
 
