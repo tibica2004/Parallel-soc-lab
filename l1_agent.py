@@ -79,11 +79,16 @@ def strip_delimiters(v):
     return _FAKE_DELIMS.sub("[delimitator eliminat]", v) if isinstance(v, str) else v
 
 
-def wrap_execution(ex: dict) -> dict:
+# Tier 2 (hunt_path.execution_facts) numeste altfel campurile text din telemetrie.
+HUNT_EXEC_TEXT_FIELDS = ("ran_as_user", "executable", "working_directory", "command_line",
+                         "sudo_invoked_by", "parent", "process")
+
+
+def wrap_execution(ex: dict, fields: tuple[str, ...] = EXEC_TEXT_FIELDS) -> dict:
     """execution pentru model: entity_id ramane in clar (uneltele il cer exact si e validat cu
     ENTITY_ID_RE); textul din telemetrie trece ca bloc neincrezator."""
-    out = {k: v for k, v in (ex or {}).items() if k not in EXEC_TEXT_FIELDS}
-    text = {k: strip_delimiters((ex or {}).get(k)) for k in EXEC_TEXT_FIELDS if k in (ex or {})}
+    out = {k: v for k, v in (ex or {}).items() if k not in fields}
+    text = {k: strip_delimiters((ex or {}).get(k)) for k in fields if k in (ex or {})}
     out["telemetrie_neincrezatoare"] = wrap_untrusted(text)
     return out
 
