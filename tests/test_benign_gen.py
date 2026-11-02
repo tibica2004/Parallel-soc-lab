@@ -21,13 +21,15 @@ def iso(t: datetime) -> str:
 @pytest.mark.parametrize("p", ["/", "/?s=test", "/wp-json/wp/v2/posts?per_page=10", "/?p=12",
                                "/feed/", "/wp-login.php", "/wp-cron.php?doing_wp_cron=",
                                "/wp-json/wp/v2/posts?author=3&per_page=5&context=edit",
-                               "/wp-json/wp/v2/media", "/wp-login.php?action=logout"])
+                               "/wp-json/wp/v2/media", "/wp-login.php?action=logout",
+                               "/?rest_route=/wp/v2/posts&per_page=10", "/?feed=rss2"])
 def test_cai_normale_permise(p):
     assert bg.safe_path(p)
 
 
 @pytest.mark.parametrize("p", ["/../etc/passwd", "/?s=<script>", "/?s=a'b", "/a%20b", "//x",
-                               "/?id=1 OR 1=1", "/?p=1;id", "relative", "/?s=a|b", "/X.php"])
+                               "/?id=1 OR 1=1", "/?p=1;id", "relative", "/?s=a|b", "/X.php",
+                               "/?rest_route=/../x", "/?rest_route=//x"])
 def test_cai_suspecte_refuzate(p):
     assert not bg.safe_path(p)
 
@@ -133,3 +135,10 @@ def test_rata_per_regula_si_recalibrare():
 
 def test_ip_set_ignora_gunoiul():
     assert fr.ip_set("192.168.10.150, x 10.0.0.1") == frozenset({"192.168.10.150", "10.0.0.1"})
+
+
+def test_rute_rest_fara_permalinkuri_sunt_sigure():
+    assert bg.rest("/wp/v2/posts", per_page=10) == "/?rest_route=/wp/v2/posts&per_page=10"
+    for r in (bg.rest("/wp/v2/posts"), bg.rest("/wp/v2/users/me"), bg.rest("/wp/v2/media"),
+              bg.rest("/wp/v2/posts/12"), bg.rest("/wp/v2/posts", author=3, per_page=5, context="edit")):
+        assert bg.safe_path(r), r

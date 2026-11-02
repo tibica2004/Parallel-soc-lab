@@ -46,7 +46,14 @@ EDITOR_SESSION_P = 0.5                     # jumatate din sesiuni intra si in wp
 SEARCH_WORDS = ("test", "wordpress", "despre", "contact", "noutati")
 
 # Caile permise: litere mici, cifre, / . - _ ; interogari doar cheie=valoare alfanumerice.
-_SAFE_PATH = re.compile(r"^/[a-z0-9/._\-]*(\?[a-z_]+=[a-zA-Z0-9_]*(&[a-z_]+=[a-zA-Z0-9_]*)*)?$")
+# Valorile pot contine "/" (rest_route=/wp/v2/posts), dar nu "//" si nu "..".
+_SAFE_PATH = re.compile(r"^/[a-z0-9/._\-]*(\?[a-z_]+=[a-zA-Z0-9_/]*(&[a-z_]+=[a-zA-Z0-9_/]*)*)?$")
+
+
+def rest(route: str, **params) -> str:
+    """Cale REST fara permalink-uri (web-prod are permalink-uri "plain": /wp-json/ da 404)."""
+    q = "".join(f"&{k}={v}" for k, v in params.items())
+    return f"/?rest_route={route}{q}"
 
 
 class Action:
@@ -192,10 +199,10 @@ class Session:
             if r.ok:
                 ids.extend(int(p["id"]) for p in r.json() if isinstance(p.get("id"), int))
             return r.status_code
-        self.act(Action.BROWSE, "/wp-json/wp/v2/posts?per_page=10", posts)
+        self.act(Action.BROWSE, rest("/wp/v2/posts", per_page=10), posts)
         for pid in self.rnd.sample(ids, min(3, len(ids))):
             self.act(Action.BROWSE, f"/?p={pid}", self._get)
-        self.act(Action.BROWSE, "/feed/", self._get)
+        self.act(Action.BROWSE, "/?feed=rss2", self._get)
         self.act(Action.BROWSE, "/wp-login.php", self._get)
 
     def login(self, pw) -> None:
@@ -227,28 +234,28 @@ class Session:
         n = self.rnd.randint(1, 9999)
         body = {"title": f"Nota de lucru {n}", "status": "publish",
                 "content": f"<p>Paragraf de test benign numarul {n}.</p>"}
-        self.act(Action.CREATE_POST, "/wp-json/wp/v2/posts",
+        self.act(Action.CREATE_POST, rest("/wp/v2/posts"),
                  lambda u: self._rest("POST", u, data=body))
 
     def edit_post(self) -> None:
-        code = self.act(Action.EDIT_POST, "/wp-json/wp/v2/users/me", lambda u: self._rest("GET", u))
+        code = self.act(Action.EDIT_POST, rest("/wp/v2/users/me"), lambda u: self._rest("GET", u))
         me = self._last_json if code == 200 else None
         if not isinstance(me, dict) or not isinstance(me.get("id"), int):
             return None
-        code = self.act(Action.EDIT_POST, f"/wp-json/wp/v2/posts?author={me['id']}&per_page=5&context=edit",
+        code = self.act(Action.EDIT_POST, rest("/wp/v2/posts", author=me["id"], per_page=5, context="edit"),
                         lambda u: self._rest("GET", u))
         mine = self._last_json if code == 200 else None
         if not mine:
             return self.create_post()
         pid = int(mine[0]["id"])
         body = {"content": f"<p>Actualizat {datetime.now(timezone.utc):%Y-%m-%d %H:%M}.</p>"}
-        self.act(Action.EDIT_POST, f"/wp-json/wp/v2/posts/{pid}",
+        self.act(Action.EDIT_POST, rest(f"/wp/v2/posts/{pid}"),
                  lambda u: self._rest("POST", u, data=body))
 
     def upload_media(self) -> None:
         name = f"soc-benign-{self.rnd.randint(1, 99999)}.png"
         data = png_bytes(self.rnd)
-        self.act(Action.UPLOAD_MEDIA, "/wp-json/wp/v2/media", lambda u: self._rest(
+        self.act(Action.UPLOAD_MEDIA, rest("/wp/v2/media"), lambda u: self._rest(
             "POST", u, data=data, headers={"Content-Type": "image/png",
                                            "Content-Disposition": f'attachment; filename="{name}"'}))
 
