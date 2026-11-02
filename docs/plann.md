@@ -37,6 +37,27 @@ shadow permanent; ireversibilul la om.
 | A6 | **Propuneri de lista alba din benign-ground-truth** | recalibrarea FP e manuala si nu se va face | fp_rate.py propune (nu aplica) excluderi per regula din traficul benign dovedit; omul aproba in interfata; promovarea scrie in build_whitelists. |
 | A7 | **Determinism pe Tier 1** | cifrele tezei trebuie reproductibile | temperatura 0 + seed (deja) pe `fast`; explorare doar in Tier 3 (ipoteze). `make determinism` ca poarta la orice schimbare de prompt/model. |
 
+## 2b. Stare (2026-11-02, seara)
+
+| # | Stare |
+|---|---|
+| S1 | FACUT (90c3a72): STATIC_USE_MODEL=0 implicit; core_drift (modificat / necunoscut) -> open |
+| S2 | DE MASURAT (harness de ablatie: B pe RedSage vs fara B) — dupa pasul 8 |
+| S3 | FACUT: criticul sters; prompt_set nou |
+| S4 | FACUT prin decizie (doar readiness + garzi dry-run) |
+| S5 | FACUT (SecAuditEngine Off) |
+| S6 | FACUT (90c3a72): YARA sare fisierele identice cu sumele oficiale |
+| A1 | FACUT (74d7a70): cases.py + soc-cases + /cases in interfata; cere pas-a1-cases.sh (om) |
+| A2 | FACUT (74d7a70): playbook-ul executorului atasat cazului, afisat in /cases |
+| A3 | FACUT (8432e61): risk.py, sweep orar entity_risk -> Tier 2 |
+| A4 | FACUT (6de4b71): soc-status.ndjson (import de om, ca SOC Health) |
+| A5 | FACUT (90c3a72): harness scrie type=gate |
+| A6 | FACUT (6de4b71): propuneri de lista alba in soc-metrics + data/whitelist-proposals.json |
+| A7 | FACUT (pas 8): seed + top_p fix pe toate rolurile; `make determinism` |
+
+Toate sunt COD + teste, NEAPLICATE pe es-node-1 pana la o poarta (dev + val + injectie) dupa
+poarta podelei 4. Pe hosturi mai sunt de rulat de om: pas-a1-cases.sh, importul soc-status.ndjson.
+
 ## 3. Ordinea de executie
 
 1. (azi) poarta podelei 4 -> restart orchestrator -> HTTPS/SSH pe web-prod -> benign-gen pornit.
