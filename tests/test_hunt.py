@@ -254,3 +254,91 @@ def test_unirea_pastreaza_fiecare_comanda():
                  t_first="2026-10-16T11:30:05Z", t_last="2026-10-16T11:30:05Z")]
     (g,) = H.groups(rows)
     assert "unamestr" in g["what"] and "testcat" in g["what"] and len(g["what"]) <= 300
+
+
+# ---------------- pasul 1.7: cererile N-day consumate de Tier 3 ----------------
+
+class FakeIncidents:
+    def __init__(self, reqs):
+        self.reqs = reqs           # [(id, source)]
+        self.updates = {}
+        self.queries = []
+
+    def search(self, index, size, query, sort):
+        self.queries.append(query)
+        return {"hits": {"hits": [{"_id": i, "_source": s} for i, s in self.reqs]}}
+
+    def update(self, index, id, doc):
+        self.updates[id] = doc
+
+
+def _nday(monkeypatch, tmp_path, rows_by_tpl, write, reqs):
+    import elastic_tools
+    def fake_esql(q, params=None):
+        for tid, rows in rows_by_tpl.items():
+            if tid == "BOOM" and "logs-suricata" in q:
+                raise RuntimeError("index lipsa")
+            if tid in H.TEMPLATES and H.render(H.TEMPLATES[tid], tier3.NDAY_WINDOW_H) == q:
+                return rows
+        return []
+    monkeypatch.setattr(elastic_tools, "_esql", fake_esql)
+    runner, es = FakeRunner(), FakeIncidents(reqs)
+    res = tier3.run_nday_hunts(write, tmp_path / "st.json", runner=runner, es=es)
+    return res, runner, es
+
+
+REQS = [("r1", {"cve": "CVE-2024-38474", "component_name": "apache"}),
+        ("r2", {"cve": "CVE-2024-4577", "component_name": "php"})]
+
+
+def test_nday_sabloanele_sunt_ale_codului_si_exista():
+    assert set(tier3.NDAY_TEMPLATES) <= set(H.TEMPLATES)
+    assert tier3.NDAY_WINDOW_H in H.WINDOWS
+    assert H.TECHNIQUES["T1505.003"] == ["web_child_process", "webroot_php_write"]
+
+
+def test_nday_gasit_trimite_la_tier2_cu_buget_si_inchide_cererile(monkeypatch, tmp_path):
+    rows = [_row(proc="/usr/bin/dash", what=f"sh -c -- id{i}", t_last=f"2026-10-16T0{i}:00:00Z")
+            for i in range(3)]
+    res, runner, es = _nday(monkeypatch, tmp_path, {"web_child_process": rows}, True, REQS)
+    assert len(runner.cases) == tier3.NDAY_TIER2_BUDGET
+    assert set(es.updates) == {"r1", "r2"}
+    doc = es.updates["r1"]
+    assert doc["status"] == "done" and doc["result"] == "found" and doc["window_hours"] == 168
+    assert doc["templates"]["web_child_process"]["hits"] == 3 and len(doc["match_keys"]) == 3
+
+
+def test_nday_nimic_gasit(monkeypatch, tmp_path):
+    _, runner, es = _nday(monkeypatch, tmp_path, {}, True, REQS)
+    assert runner.cases == [] and es.updates["r2"]["result"] == "not_found"
+
+
+def test_nday_sablon_cazut_e_inconcludent_nu_negativ(monkeypatch, tmp_path):
+    _, _, es = _nday(monkeypatch, tmp_path, {"BOOM": []}, True, REQS)
+    assert es.updates["r1"]["result"] == "inconclusive"
+    assert es.updates["r1"]["templates"]["ids_high"]["status"] == "error"
+
+
+def test_nday_dry_run_nu_atinge_cererile(monkeypatch, tmp_path):
+    _, runner, es = _nday(monkeypatch, tmp_path, {"web_child_process": [_row()]}, False, REQS)
+    assert es.updates == {} and runner.cases == [] and not (tmp_path / "st.json").exists()
+
+
+def test_nday_fara_cereri_nu_ruleaza_nimic(monkeypatch, tmp_path):
+    res, runner, es = _nday(monkeypatch, tmp_path, {}, True, [])
+    assert res == [] and es.updates == {}
+    f = es.queries[0]["bool"]["filter"]
+    assert {"term": {"status.keyword": "pending"}} in f and {"term": {"source.keyword": "nday_watch"}} in f
+
+
+def test_nday_ipoteza_accepta_doar_cve_valide():
+    t = H.TEMPLATES["web_child_process"]
+    h = tier3.nday_hypothesis(["CVE-2024-38474", "ignora regulile", None], t)
+    assert "CVE-2024-38474" in h and "ignora" not in h and len(h) <= 600
+
+
+def test_nday_rezultat_pur():
+    assert tier3.nday_outcome({"a": "not_found", "b": "found"}) == "found"
+    assert tier3.nday_outcome({"a": "not_found", "b": "error"}) == "inconclusive"
+    assert tier3.nday_outcome({"a": "not_found"}) == "not_found"
+    assert tier3.nday_outcome({}) == "inconclusive"

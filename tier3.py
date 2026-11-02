@@ -23,6 +23,7 @@ Tier 3 deschide si uneste incidente; nu le inchide (principiul 6).
     python3 tier3.py --once --opreste-reguli --scrie-kibana    # oprire globala
     python3 tier3.py --once --vanatoare                # 2 tehnici, dry-run (fara Tier 2, fara scriere)
     python3 tier3.py --once --vanatoare --tehnica T1053.003 --scrie   # Tier 2 + soc-hunts
+    (--vanatoare fara --tehnica consuma si cererile N-day pending din soc-incidents, pasul 1.7)
     python3 tier3.py --once --expunere                 # expunere WordPress, dry-run (faza 18)
     python3 tier3.py --once --expunere --ore 72 --scrie   # Tier 2 + soc-hunts
 """
@@ -314,19 +315,79 @@ def hunt_plan(technique: str, last: dict | None, llm=None) -> tuple[HU.HuntPlan,
         return HU.default_plan(technique), "default", f"{type(e).__name__}: {str(e)[:200]}"
 
 
+def _hunt_template(plan: HU.HuntPlan, src: str, perr: str | None, write: bool, seen: dict,
+                   budget: dict, runner, label: str = "VANATOARE") -> tuple[dict, str, int]:
+    """Un sablon, o data: interogarea, potrivirile, Tier 2 in limita bugetului (budget["left"]),
+    inregistrarea de acoperire in soc-hunts. Folosit de vanatoarea pe tehnici si de cererile N-day.
+    Intoarce (inregistrare, status, potriviri)."""
+    from elastic_tools import _esql
+    import uuid
+    t = HU.TEMPLATES[plan.template_id]
+    q = HU.render(t, plan.window_hours)
+    print(f"\n[{label}] {plan.technique} · {t.name} · {plan.window_hours} h · plan: {src}"
+          + (f" ({perr})" if perr else ""), flush=True)
+    print(f"  ipoteza: {plan.hypothesis[:200]}", flush=True)
+    started = HU.now()
+    err = None
+    try:
+        gs = HU.groups(_esql(q))
+    except Exception as e:
+        gs, err = [], f"{type(e).__name__}: {str(e)[:250]}"
+    status = "error" if err else ("found" if gs else "not_found")
+    matches = []
+    for g in gs:
+        key = HU.match_key(t.id, g)
+        m = {"key": key, "what": g.get("what"), "proc": g.get("proc"), "who": g.get("who"),
+             "host": g.get("host"), "count": g.get("cnt"), "last_seen": g.get("t_last")}
+        if key in seen:
+            m["outcome"] = "deja_trimis"
+        else:
+            chain_id = str(uuid.uuid4())
+            try:
+                case = HU.make_case(plan, g, chain_id)
+            except ValueError as e:
+                m["outcome"] = f"respins_la_validare: {str(e)[:120]}"
+                matches.append(m)
+                continue
+            if write and budget["left"] > 0:
+                entity = f"{case.host} · vanatoare {t.id}"
+                runner.run({"case": case}, "VANATOARE", entity, case.host,
+                           case.evidence_refs, chain_id=chain_id)
+                budget["left"] -= 1
+                seen[key] = HU.now().timestamp()
+                m.update(outcome="tier2", chain_id=chain_id)
+            else:
+                m["outcome"] = "la_om" if write else "dry_run"
+                if write:
+                    seen[key] = HU.now().timestamp()
+        print(f"  potrivire: {(m['what'] or '')[:80]} · {m['proc']} · {m['who']} -> {m['outcome']}", flush=True)
+        matches.append(m)
+    finished = HU.now()
+    rec = HU.coverage_record(plan, status, len(gs), sum(m.get("outcome") == "tier2" for m in matches),
+                             q, started, finished, src, err) | {"matches": matches}
+    print(f"  rezultat: {status} ({len(gs)} potriviri)" + (f" — {err}" if err else ""), flush=True)
+    if write:
+        try:
+            import orchestrator
+            if orchestrator.WRITER is not None:
+                orchestrator.WRITER.index(index=HUNT_INDEX, document=rec)
+        except Exception as e:
+            # Acoperirea nu se pierde: ramane in fisierul de rezultate si in starea locala.
+            print(f"  [soc-hunts] nescris: {type(e).__name__}: {str(e)[:150]}", flush=True)
+    return rec, status, len(gs)
+
+
 def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = None,
               use_model: bool = True, tier2_budget: int = HU.TIER2_BUDGET, runner=None) -> list[dict]:
     """O rulare de vanatoare. Fara --scrie: nimic nu se scrie si Tier 2 nu ruleaza
     (dry-run: planuri, interogari, potriviri). Cu --scrie: primele `tier2_budget`
     potriviri noi trec prin Tier 2 (verdict + audit, shadow), restul raman in
     soc-hunts ca potriviri neinvestigate, pentru om; starea de planificare se salveaza."""
-    from elastic_tools import _esql
-    import uuid
     state = HU.load_state(state_path)
     tech_state = state.setdefault("techniques", {})
     seen = HU.prune_seen(state.get("seen", {}), HU.now())
     techs = [technique] if technique else HU.pick_techniques(tech_state, n)
-    budget = tier2_budget
+    budget = {"left": tier2_budget}
     if write and runner is None:
         import orchestrator
         runner = orchestrator.HuntRunner()
@@ -334,65 +395,97 @@ def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = Non
     for tech in techs:
         last = tech_state.get(tech)
         plan, src, perr = hunt_plan(tech, last) if use_model else (HU.default_plan(tech), "default", None)
-        t = HU.TEMPLATES[plan.template_id]
-        q = HU.render(t, plan.window_hours)
-        print(f"\n[VANATOARE] {tech} · {t.name} · {plan.window_hours} h · plan: {src}"
-              + (f" ({perr})" if perr else ""), flush=True)
-        print(f"  ipoteza: {plan.hypothesis[:200]}", flush=True)
-        started = HU.now()
-        err = None
-        try:
-            gs = HU.groups(_esql(q))
-        except Exception as e:
-            gs, err = [], f"{type(e).__name__}: {str(e)[:250]}"
-        status = "error" if err else ("found" if gs else "not_found")
-        matches = []
-        for g in gs:
-            key = HU.match_key(t.id, g)
-            m = {"key": key, "what": g.get("what"), "proc": g.get("proc"), "who": g.get("who"),
-                 "host": g.get("host"), "count": g.get("cnt"), "last_seen": g.get("t_last")}
-            if key in seen:
-                m["outcome"] = "deja_trimis"
-            else:
-                chain_id = str(uuid.uuid4())
-                try:
-                    case = HU.make_case(plan, g, chain_id)
-                except ValueError as e:
-                    m["outcome"] = f"respins_la_validare: {str(e)[:120]}"
-                    matches.append(m)
-                    continue
-                if write and budget > 0:
-                    entity = f"{case.host} · vanatoare {t.id}"
-                    runner.run({"case": case}, "VANATOARE", entity, case.host,
-                               case.evidence_refs, chain_id=chain_id)
-                    budget -= 1
-                    seen[key] = HU.now().timestamp()
-                    m.update(outcome="tier2", chain_id=chain_id)
-                else:
-                    m["outcome"] = "la_om" if write else "dry_run"
-                    if write:
-                        seen[key] = HU.now().timestamp()
-            print(f"  potrivire: {(m['what'] or '')[:80]} · {m['proc']} · {m['who']} -> {m['outcome']}", flush=True)
-            matches.append(m)
-        finished = HU.now()
-        rec = HU.coverage_record(plan, status, len(gs), sum(m.get("outcome") == "tier2" for m in matches),
-                                 q, started, finished, src, err) | {"matches": matches}
-        print(f"  rezultat: {status} ({len(gs)} potriviri)" + (f" — {err}" if err else ""), flush=True)
+        rec, status, hits = _hunt_template(plan, src, perr, write, seen, budget, runner)
         if write:
-            tech_state[tech] = {"last": finished.isoformat(), "status": status,
-                                "template_id": t.id, "hits": len(gs)}
-            try:
-                import orchestrator
-                if orchestrator.WRITER is not None:
-                    orchestrator.WRITER.index(index=HUNT_INDEX, document=rec)
-            except Exception as e:
-                # Acoperirea nu se pierde: ramane in fisierul de rezultate si in starea locala.
-                print(f"  [soc-hunts] nescris: {type(e).__name__}: {str(e)[:150]}", flush=True)
+            tech_state[tech] = {"last": rec["@timestamp"], "status": status,
+                                "template_id": plan.template_id, "hits": hits}
         results.append(rec)
     if write:
         state["seen"] = seen
         HU.save_state(state_path, state)
     return results
+
+
+# ------------------------------------------------------------------------------
+# Pasul 1.7: cererile de vanatoare N-day (nday_watch.py -> soc-incidents type=hunt_request,
+# status=pending). CODUL alege sabloanele (consecintele unei exploatari web) si fereastra;
+# fiecare sablon ruleaza O DATA pe rulare pentru toate cererile (interogarile nu depind de
+# componenta), iar fiecare cerere primeste rezultatul si status=done. Modelul nu e implicat.
+# Fereastra: maximul sabloanelor (168 h), nu cele 30 de zile din cerere (notat in document).
+# ------------------------------------------------------------------------------
+
+NDAY_TEMPLATES = ("web_child_process", "webroot_php_write", "shell_network", "tmp_exec", "ids_high")
+NDAY_WINDOW_H = max(HU.WINDOWS)
+NDAY_MAX_REQUESTS = 20
+NDAY_TIER2_BUDGET = 2
+INCIDENTS_IDX = "soc-incidents"
+_CVE_RE = re.compile(r"^CVE-\d{4}-\d{4,7}$")
+
+
+def nday_outcome(statuses: dict[str, str]) -> str:
+    """found daca un sablon a gasit ceva; inconclusive daca vreunul a esuat (nu putem spune
+    "nimic"); altfel not_found. Pur."""
+    vals = set(statuses.values())
+    if "found" in vals:
+        return "found"
+    if not vals or "error" in vals:
+        return "inconclusive"
+    return "not_found"
+
+
+def nday_hypothesis(cves: list[str], t: HU.Template) -> str:
+    ok = [c for c in cves if _CVE_RE.match(c or "")][:8]
+    return (f"N-day ({', '.join(ok) or 'fara CVE valid'}): " + t.hypothesis)[:600]
+
+
+def run_nday_hunts(write: bool, state_path: Path, runner=None, es=None) -> list[dict]:
+    if es is None:
+        import orchestrator
+        es = orchestrator.WRITER
+    if es is None:
+        print("[N-DAY] fara cheie ES (ES_WRITER_API_KEY): cererile raman pending", flush=True)
+        return []
+    r = es.search(index=INCIDENTS_IDX, size=NDAY_MAX_REQUESTS, query={"bool": {"filter": [
+        {"term": {"type.keyword": "hunt_request"}}, {"term": {"status.keyword": "pending"}},
+        {"term": {"source.keyword": "nday_watch"}}]}}, sort=[{"created": "asc"}])
+    reqs = [(h["_id"], h["_source"]) for h in r["hits"]["hits"]]
+    print(f"\n[N-DAY] {len(reqs)} cereri pending", flush=True)
+    if not reqs:
+        return []
+    if write and runner is None:
+        import orchestrator
+        runner = orchestrator.HuntRunner()
+    state = HU.load_state(state_path)
+    seen = HU.prune_seen(state.get("seen", {}), HU.now())
+    budget = {"left": NDAY_TIER2_BUDGET}
+    cves = sorted({src.get("cve") for _, src in reqs if src.get("cve")})
+    statuses, hits, recs = {}, {}, []
+    for tid in NDAY_TEMPLATES:
+        t = HU.TEMPLATES[tid]
+        plan = HU.HuntPlan(technique=t.technique, template_id=tid, window_hours=NDAY_WINDOW_H,
+                           hypothesis=nday_hypothesis(cves, t))
+        rec, status, n = _hunt_template(plan, "nday", None, write, seen, budget, runner, label="N-DAY")
+        statuses[tid], hits[tid] = status, n
+        recs.append(rec)
+    outcome = nday_outcome(statuses)
+    keys = [m["key"] for rec in recs for m in rec.get("matches", [])][:50]
+    print(f"[N-DAY] rezultat comun: {outcome} {hits}", flush=True)
+    if write:
+        doc = {"status": "done", "result": outcome, "hunted_at": HU.now().isoformat(),
+               "window_hours": NDAY_WINDOW_H, "templates": {k: {"status": statuses[k], "hits": hits[k]}
+                                                            for k in NDAY_TEMPLATES},
+               "match_keys": keys,
+               "hunt_note": f"fereastra maxima a sabloanelor: {NDAY_WINDOW_H} h (cererea cere "
+                            "lookback_days zile); potrivirile sunt in soc-hunts"}
+        for _id, _ in reqs:
+            try:
+                es.update(index=INCIDENTS_IDX, id=_id, doc=doc)
+            except Exception as e:
+                print(f"  [N-DAY] cererea {_id} neactualizata: {type(e).__name__}: {str(e)[:150]}",
+                      flush=True)
+        state["seen"] = seen
+        HU.save_state(state_path, state)
+    return recs + [{"nday_requests": [i for i, _ in reqs], "result": outcome, "hits": hits}]
 
 
 # ------------------------------------------------------------------------------
@@ -570,6 +663,9 @@ def main() -> int:
             return 1
         save("vanatoare", run_hunts(HU.PER_RUN, args.scrie, out_dir / "vanatoare-stare.json",
                                     technique=args.tehnica, use_model=not args.fara_model))
+        # Pasul 1.7: aceeasi rulare programata consuma si cererile N-day (fara unitate noua).
+        if not args.tehnica:
+            save("nday", run_nday_hunts(args.scrie, out_dir / "vanatoare-stare.json"))
         return 0
     if args.expunere:
         save("expunere", run_exposure(args.ore, args.scrie, out_dir / "expunere-stare.json"))

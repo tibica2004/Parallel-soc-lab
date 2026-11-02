@@ -148,6 +148,26 @@ TEMPLATES: dict[str, Template] = {t.id: t for t in [
              '\n| EVAL cl = TO_LOWER(process.command_line)'
              '\n| WHERE cl LIKE "*passw*" OR cl LIKE "*secret*" OR cl LIKE "*api_key*" OR cl LIKE "*private key*"'
              ' OR cl LIKE "*id_rsa*"' + _PROC_TAIL),
+    # T1505.003 (webshell / RCE web): CONSECINTA unei exploatari web, deci si a unui N-day sau
+    # 0-day in Apache/PHP/WordPress. Aceleasi tipare ca regulile comportamentale de la pasul 3,
+    # aici retrospectiv (pana la 168 h), pentru cazurile scapate in timp real.
+    Template("web_child_process", "T1505.003", "Proces pornit de serverul web (Defend)",
+             "Un webshell sau un RCE in aplicatia web: apache2/php porneste un proces (shell, "
+             "interpretor, unealta de retea). Pe web-prod (mod_php) asta nu se intampla legitim.",
+             # event.action e multi-valoare in Defend (fork, exec, end): comparatia directa in
+             # ES|QL intoarce null si pierde randul (masurat: 0 randuri vs 7 cu MV_EXPAND).
+             f"FROM {PROC_IDX}\n| WHERE {{w}}\n| MV_EXPAND event.action\n| WHERE event.action == \"exec\""
+             '\n| WHERE process.parent.name IN ("apache2", "php", "php8.3", "php-fpm", "php-fpm8.3")'
+             + _PROC_TAIL),
+    Template("webroot_php_write", "T1505.003", "Fisier PHP scris in webroot (Defend)",
+             "Persistenta prin webshell: un fisier PHP nou sau modificat sub /var/www, in afara "
+             "unui update aprobat.",
+             f"FROM {FILE_IDX}\n| WHERE {{w}} AND STARTS_WITH(file.path, \"/var/www/\")"
+             '\n| WHERE file.extension IN ("php", "phtml", "phar", "php5", "php7", "php8", "inc")'
+             ' AND event.action IN ("creation", "modification", "rename")'
+             "\n| STATS cnt = COUNT(*), t_first = MIN(@timestamp), t_last = MAX(@timestamp),"
+             "\n        entity = MAX(process.entity_id), who = MAX(user.name)"
+             "\n        BY host = host.name, what = file.path, proc = process.executable\n| LIMIT 200"),
     Template("ids_high", "T1071", "Alerte Suricata grave nepromovate (Suricata)",
              "Trafic C2 sau exploatare vazut de IDS: alerte de severitate 1-2 pe care nimic nu le-a urmarit.",
              f"FROM {SURICATA_IDX}\n| WHERE {{w}} AND event.kind == \"alert\" AND event.severity <= 2"
