@@ -100,6 +100,17 @@ curata dupa el. RAMAS: Fleet Custom Logs soc.benign_actions (om); acceptare 24 h
 benign-gen se opreste in timpul harness-ului: ssh ubuntu@172.30.6.210 'sudo systemctl stop benign-gen'.
 Acces VM: ssh ubuntu@172.30.6.210 (lab-key; cheie host verificata din consola OpenStack).
 
+## PASUL 7 (observabilitate) — FACUT 2026-11-02 (detalii: docs/pasi/pas-07.md)
+Cod c2d4c67. Deployat: type=cycle per ciclu, watchdog 900 s, MemoryMax 2G, ProtectSystem=strict
+(ExecStart neatins), soc-llm-probe.timer, absence_check (orchestrator blocat/lent, sonda tacuta),
+dashboard SOC Health. Poarta: fast 4/4; dev 12/14 recall 8/8 (FP php --version cunoscut + "Deploy
+legitim" re-rulat 3x = benign 3/3 -> variatie de model). Ramas: 24 h fara gol, test oprire aprobat.
+
+## PASUL 6 (securitatea SOC) — IN CURS
+6.1 suita injectie (prompt_injection.py, 48 cazuri) ruleaza; 6.4 deja satisfacut (timesyncd,
+offset max 2.5 ms, fara chrony); 6.3 pregatit (docker-compose + pas6-snapshot.sh), NEAPLICAT —
+cere aprobare (ES indisponibil 1-2 min) si decizie pentru copia off-host.
+
 ## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
 
 Cod 5c909df (detalii A-E: docs/pasi/pas-01b.md). web-prod: cont soc-reader (uid 995, parola
