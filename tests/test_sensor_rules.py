@@ -230,3 +230,13 @@ def test_modsec_mesaj_invalid_sau_ip_fals():
     assert _S.modsec_facts(_ms_alert("ModSecurity: Warning fara scor")) is None
     f = _S.modsec_facts(_ms_alert(_MS.replace("172.30.6.133", "not-an-ip")))
     assert f is not None and f["client_ip"] is None
+
+
+def test_modsec_formatul_real_crs_335():
+    # mesajul real de pe web-prod (2026-11-02), testul de detectie de pe es-node-1
+    real = ('[client 192.168.10.121:46068] [client 192.168.10.121] ModSecurity: Warning. Operator GE matched 20 '
+            'at TX:anomaly_score. [id "949110"] [msg "Inbound Anomaly Score Exceeded (Total Inbound Score: 73 - '
+            'SQLI=15,XSS=15,RFI=0,LFI=35,RCE=5,PHPI=0,HTTP=0,SESS=0): individual paranoia level scores: 73, 0, 0, 0"] '
+            '[uri "/index.php"]')
+    f = _S.modsec_facts(_ms_alert(real))
+    assert f["score"] == 73 and f["band"] == "critical" and f["client_ip"] == "192.168.10.121"

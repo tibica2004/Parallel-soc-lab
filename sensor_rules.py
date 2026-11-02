@@ -190,7 +190,8 @@ RULES["soc-modsec-anomaly"] = {
 }
 MODSEC_RULE_ID = "soc-modsec-anomaly"
 MODSEC_CRITICAL = 50
-_MODSEC_SCORE = re.compile(r"Inbound Anomaly Score Exceeded \(Total Score: (\d{1,4})\)")
+# CRS 3.3.x scrie "(Total Inbound Score: 73 - SQLI=15,XSS=15,...)"; variantele vechi "(Total Score: 23)".
+_MODSEC_SCORE = re.compile(r"Inbound Anomaly Score Exceeded \(Total (?:Inbound )?Score: (\d{1,4})")
 _MODSEC_URI = re.compile(r'\[uri "([^"]{1,300})"\]')
 _MODSEC_CLIENT = re.compile(r"\[client ([0-9a-fA-F:.]{3,52})\]")
 _MODSEC_IDS = re.compile(r'\[id "(\d{6})"\]')
