@@ -1,0 +1,18 @@
+[Unit]
+Description=Agentic SOC - sonda LLM (tunel + model), pasul 7
+After=network-online.target soc-llm-tunnel.service
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# GET /api/tags la minut, generare de 5 tokeni la 5 minute; scrie soc-metrics type=llm_probe;
+# 3 esecuri consecutive -> integrity_alert llm_tunnel_down + Discord. Nu atinge hosturi.
+ExecStart=/home/tiberiu/lab/venv/bin/python llm_probe.py
+TimeoutStartSec=120
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ReadWritePaths=/home/tiberiu/lab/data

@@ -29,6 +29,8 @@ import case_adapter
 import degraded
 import behavioral_rules
 import honeytokens
+import cycle_metrics
+import sdnotify
 import notify
 import sensor_rules
 import tracing
@@ -460,6 +462,7 @@ def process_findings(findings, seen, limit: int, model_ok: bool = True) -> None:
     done = 0
     over: list = []
     for f in findings:
+        sdnotify.watchdog()
         k = dedup_key_finding(f)
         if k in seen:
             continue
@@ -536,10 +539,14 @@ def run_positioned(args) -> int:
     intr-un ciclu (Elasticsearch cazut, model indisponibil) nu opreste bucla."""
     seen = BoundedSeen(entries=load_seen())
     print(f"[dedup] {len(seen)} chei incarcate din soc-state", flush=True)
+    sdnotify.ready()
+    tracing.take_llm_totals()        # porneste de la zero (verificarile de pornire pot fi apelat deja modelul)
     cycle = 0
     while True:
         cycle += 1
-        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        started = datetime.now(timezone.utc)
+        stamp = started.strftime("%Y-%m-%d %H:%M:%S")
+        alerts, stats, run_sweep, cycle_error = [], {}, False, None
         try:
             since, until = load_cursor(), window_end()
             alerts = fetch_alerts_between(since, until, args.limit)
@@ -571,7 +578,20 @@ def run_positioned(args) -> int:
                                  model_ok=degraded.llm_healthy("hunt"))
                 _save_seen(seen)
         except Exception as e:
+            cycle_error = f"{type(e).__name__}: {str(e)[:120]}"
             print(f"[{stamp}] EROARE in ciclul {cycle}: {e} — continui", flush=True)
+
+        # Pasul 7: un document type=cycle per ciclu (dashboard + absence_check). Nu arunca.
+        doc = cycle_metrics.build_cycle_doc(
+            cycle=cycle, cycle_id=f"{started:%Y%m%dT%H%M%S}-{cycle}", started=started,
+            ended=datetime.now(timezone.utc), alerts_fetched=len(alerts), stats=stats,
+            llm=tracing.take_llm_totals(), backlog=degraded.is_backlog(len(alerts)),
+            sweep_ran=bool(run_sweep), interval_s=args.interval)
+        doc["error"] = cycle_error
+        err = cycle_metrics.write(WRITER, doc)
+        if err:
+            print(f"  [metrici ciclu] nescrise: {err}", flush=True)
+        sdnotify.watchdog()
 
         if not args.loop:
             break
@@ -613,6 +633,7 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
         print("  MODEL CAZUT: alertele escaladeaza fara verdict de model", flush=True)
     fast = None
     for a in alerts:
+        sdnotify.watchdog()          # un lot lung (Tier 2) nu trebuie sa para blocaj
         k = dedup_key_alert(a)
         rule = _g(a, "kibana.alert.rule.name")
         host = _g(a, "host.name")
@@ -664,6 +685,12 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                 # si pe caile fara model (restanta, model cazut), unde should_escalate nu ruleaza.
                 # Momeala atinsa de pe un IP propriu/benign: motiv separat (config_error), fara paginare.
                 ht_reason = honeytokens.escalation_reason(a)
+                if stats is not None:
+                    if failure is not None:
+                        fk = f"fail_{failure.value}"
+                        stats[fk] = stats.get(fk, 0) + 1
+                    if ht_reason is EscalationReason.HONEYTOKEN:
+                        stats["honeytoken_hits"] = stats.get("honeytoken_hits", 0) + 1
                 for flag, reason in ((ht_reason is not None, ht_reason),
                                      (sensor_rules.is_sensor_alert(a), EscalationReason.SENSOR_DETECTION)):
                     if flag and reason not in esc.reasons:

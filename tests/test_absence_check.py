@@ -285,7 +285,8 @@ def test_main_hash_doar_la_10_minute_si_esecul_escaladeaza(monkeypatch, hashes):
     ref, _, out = hashes
     ref.write_text(_sums({"/usr/local/bin/soc-canary": H1}))
     out[A.reader.ReaderCommand.CANARY_HASH] = A.reader.ReaderError("DENIED de gate")
-    for fn in ("check_services", "check_fleet_server", "check_backup", "check_canary", "check_streams"):
+    for fn in ("check_services", "check_fleet_server", "check_backup", "check_canary", "check_streams",
+               "check_orchestrator_cycles", "check_llm_probe"):
         monkeypatch.setattr(A, fn, lambda *a, **k: None)
     monkeypatch.setattr(A, "_es", lambda: FakeES())
     monkeypatch.setattr(A, "write_heartbeat", lambda m, run: seen.append(run))
@@ -303,3 +304,47 @@ def test_main_hash_doar_la_10_minute_si_esecul_escaladeaza(monkeypatch, hashes):
     out[A.reader.ReaderCommand.CRON_HASH] = _sums({"/etc/crontab": H1})
     assert A.main() == 1
     assert "check_failed:check_canar_hash" in seen[-1].kinds and seen[-1].failed
+
+
+# --- pasul 7: orchestrator blocat / lent, sonda LLM tacuta ------------------------------
+
+class _MetricsES:
+    """Raspunde la _last_age_min (agregarea max) si la numararea ciclurilor lente."""
+    def __init__(self, last: str | None, slow: int = 0):
+        self.last, self.slow = last, slow
+
+    def search(self, index, size=0, query=None, aggs=None, **kw):
+        if aggs:
+            return {"aggregations": {"last": {"value_as_string": self.last}}}
+        return {"hits": {"total": {"value": self.slow}}}
+
+
+def test_orchestrator_blocat_cand_ultimul_ciclu_e_vechi():
+    run = _run()
+    old = (run.now - timedelta(minutes=A.CYCLE_MAX_AGE_MIN + 1)).isoformat()
+    A.check_orchestrator_cycles(_MetricsES(old), run)
+    assert run.kinds == ["orchestrator_stalled:soc-orchestrator"]
+
+
+def test_orchestrator_fara_niciun_ciclu_e_blocat():
+    run = _run()
+    A.check_orchestrator_cycles(_MetricsES(None), run)
+    assert run.kinds == ["orchestrator_stalled:soc-orchestrator"]
+
+
+def test_orchestrator_lent_si_normal():
+    run = _run()
+    A.check_orchestrator_cycles(_MetricsES(run.now.isoformat(), slow=A.SLOW_COUNT), run)
+    assert run.kinds == ["orchestrator_slow:soc-orchestrator"]
+    run = _run()
+    A.check_orchestrator_cycles(_MetricsES(run.now.isoformat(), slow=A.SLOW_COUNT - 1), run)
+    assert run.kinds == []
+
+
+def test_sonda_llm_tacuta():
+    run = _run()
+    A.check_llm_probe(_MetricsES((run.now - timedelta(minutes=9)).isoformat()), run)
+    assert run.kinds == ["probe_missing:soc-llm-probe"]
+    run = _run()
+    A.check_llm_probe(_MetricsES(run.now.isoformat()), run)
+    assert run.kinds == []

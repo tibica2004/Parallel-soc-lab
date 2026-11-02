@@ -33,6 +33,22 @@ MAX_ARGS_CHARS = 500
 
 _current: contextvars.ContextVar["CaseTrace | None"] = contextvars.ContextVar("case_trace", default=None)
 
+# Totaluri per ciclu (pasul 7): apeluri de model, tokeni, durata, adunate din TOATE apelurile
+# (si din cele fara caz deschis). Orchestratorul le ia si le reseteaza la sfarsitul ciclului.
+# Lacat: run_with_timeout ruleaza cazul pe alt fir.
+import threading as _threading
+_totals_lock = _threading.Lock()
+_totals = {"llm_calls": 0, "tokens": 0, "llm_ms": 0}
+
+
+def take_llm_totals() -> dict[str, int]:
+    """Totalurile de la ultimul apel si reset (pentru documentul type=cycle)."""
+    with _totals_lock:
+        out = dict(_totals)
+        for k in _totals:
+            _totals[k] = 0
+    return out
+
 
 class CaseTrace:
     def __init__(self):
@@ -154,6 +170,10 @@ def traced_tool(name: str, fn: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def record_llm(role: str, tokens: int | None, duration_ms: int, tool_calls: list[str] | None = None) -> None:
+    with _totals_lock:
+        _totals["llm_calls"] += 1
+        _totals["tokens"] += int(tokens or 0)
+        _totals["llm_ms"] += int(duration_ms or 0)
     tr = _current.get()
     if tr is not None:
         tr._add({"type": "llm", "role": role, "tokens": tokens or 0,

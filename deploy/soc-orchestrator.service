@@ -16,6 +16,19 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python orchestrator.py --loop --interval 120 --sweep-every 30 --hunt-limit 5 --limit 50
 Restart=on-failure
 RestartSec=30
+# Pasul 7 / G7. Watchdog: orchestratorul trimite WATCHDOG=1 (sdnotify.py) dupa fiecare alerta,
+# investigatie si ciclu; fara semnal 15 min -> systemd il omoara si Restart=on-failure il
+# reporneste. 900 s, nu 300: ciclurile masurate sub harness ajung la ~12 min.
+NotifyAccess=main
+WatchdogSec=900
+# Varf masurat: 119 MB. Plafonul opreste o scurgere sa sufoce ES-ul de pe acelasi host.
+MemoryMax=2G
+NoNewPrivileges=yes
+# Sistemul de fisiere read-only, cu exceptia data/ (singurul loc unde scrie: dedup-ul
+# notificarilor). Verificat: niciun subprocess/ssh in modulele importate.
+ProtectSystem=strict
+PrivateTmp=yes
+ReadWritePaths=/home/tiberiu/lab/data
 
 [Install]
 WantedBy=multi-user.target

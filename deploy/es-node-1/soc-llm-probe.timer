@@ -1,0 +1,9 @@
+[Unit]
+Description=Agentic SOC - sonda LLM la fiecare minut
+
+[Timer]
+OnCalendar=*-*-* *:*:30
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

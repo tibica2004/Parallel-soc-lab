@@ -28,6 +28,13 @@ soc-metrics; orchestratorul pagineaza daca pulsul lipseste (cine pazeste paznicu
      comparate cu ultima stare vazuta (CRON_STATE; prima rulare o invata, apoi fiecare
      schimbare se raporteaza o data, ca la AIDE).
 
+  7. ORCHESTRATOR (pasul 7): ultimul document soc-metrics type=cycle mai vechi de
+     CYCLE_MAX_AGE_MIN -> bucla e blocata chiar daca serviciul e "active"; >= SLOW_COUNT
+     cicluri cu duration_s > SLOW_CYCLE_S in ultimele 10 min -> lent.
+  8. SONDA LLM (pasul 7): ultimul type=llm_probe mai vechi de PROBE_MAX_AGE_MIN -> sonda e
+     moarta (tunelul cazut il raporteaza sonda insasi, llm_probe.py).
+     Citire cu ES_READER_API_KEY: ES_API_KEY nu are drept pe soc-metrics (403, masurat).
+
 Inca NU: starea agentului din Fleet API (cere o cheie Kibana cu fleet:read, creata de om).
 
 Iesire: 0 daca verificarile au rulat (chiar daca s-au gasit probleme), 1 daca o
@@ -63,6 +70,10 @@ FLEET_STATUS_URL = os.environ.get("FLEET_STATUS_URL", "http://localhost:8220/api
 INCIDENTS_IDX = "soc-incidents"
 METRICS_IDX = "soc-metrics"
 INCIDENT_DEDUP_MIN = 10
+CYCLE_MAX_AGE_MIN = float(os.environ.get("ABSENCE_CYCLE_MAX_AGE_MIN", "15"))
+SLOW_CYCLE_S = float(os.environ.get("ABSENCE_SLOW_CYCLE_S", "110"))
+SLOW_COUNT = int(os.environ.get("ABSENCE_SLOW_COUNT", "3"))
+PROBE_MAX_AGE_MIN = float(os.environ.get("ABSENCE_PROBE_MAX_AGE_MIN", "5"))
 HASH_EVERY_MIN = int(os.environ.get("INTEGRITY_HASH_EVERY_MIN", "10"))
 _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CANARY_REF = os.environ.get("INTEGRITY_CANARY_REF", os.path.join(_DATA, "canary.sha256"))
@@ -92,6 +103,10 @@ class IntegrityKind(str, Enum):
     CHECK_FAILED = "check_failed"
     CANARY_TAMPERED = "canary_tampered"
     CRON_CHANGED = "cron_changed"
+    ORCHESTRATOR_STALLED = "orchestrator_stalled"   # 7.5: procesul traieste, bucla nu
+    ORCHESTRATOR_SLOW = "orchestrator_slow"
+    LLM_TUNNEL_DOWN = "llm_tunnel_down"             # scris de llm_probe.py
+    PROBE_MISSING = "probe_missing"                 # llm_probe nu mai raporteaza
 
 
 class IntegrityAlert(BaseModel):
@@ -362,6 +377,48 @@ def check_cron_hash(run: Run) -> None:
     os.replace(tmp, CRON_STATE)
 
 
+def _last_age_min(es: Elasticsearch, type_: str, now: datetime) -> float | None:
+    r = es.search(index=METRICS_IDX, size=0, query={"term": {"type.keyword": type_}},
+                  aggs={"last": {"max": {"field": "@timestamp"}}})
+    last = r["aggregations"]["last"].get("value_as_string")
+    return None if not last else (now - _parse(last)).total_seconds() / 60
+
+
+def check_orchestrator_cycles(es: Elasticsearch, run: Run) -> None:
+    age = _last_age_min(es, "cycle", run.now)
+    run.ages["orchestrator_cycle"] = None if age is None else round(age, 1)
+    if age is None or age > CYCLE_MAX_AGE_MIN:
+        shown = "niciun ciclu inregistrat" if age is None else f"ultimul ciclu acum {age:.0f} min"
+        run.problem(IntegrityKind.ORCHESTRATOR_STALLED, "Orchestratorul nu mai termina cicluri",
+                    f"{shown} (prag {CYCLE_MAX_AGE_MIN:.0f} min; ciclurile lungi masurate: pana la "
+                    f"~12 min sub harness). Serviciul poate fi 'active' cu bucla blocata.",
+                    severity="critical", host="es-node-1", subject="soc-orchestrator",
+                    dedup_minutes=30, age_min=age, threshold_min=CYCLE_MAX_AGE_MIN)
+        return
+    r = es.search(index=METRICS_IDX, size=0, query={"bool": {"filter": [
+        {"term": {"type.keyword": "cycle"}},
+        {"range": {"@timestamp": {"gte": "now-10m"}}},
+        {"range": {"duration_s": {"gt": SLOW_CYCLE_S}}}]}}, track_total_hits=True)
+    slow = r["hits"]["total"]["value"]
+    if slow >= SLOW_COUNT:
+        run.problem(IntegrityKind.ORCHESTRATOR_SLOW, "Orchestratorul e lent",
+                    f"{slow} cicluri peste {SLOW_CYCLE_S:.0f} s in 10 min (intervalul e 120 s): "
+                    "restanta creste. Model lent? Prea multe investigatii Tier 2?",
+                    severity="high", host="es-node-1", subject="soc-orchestrator", dedup_minutes=60)
+    log.info("orchestrator: ultimul ciclu acum %.1f min, %d lente in 10 min", age, slow)
+
+
+def check_llm_probe(es: Elasticsearch, run: Run) -> None:
+    age = _last_age_min(es, "llm_probe", run.now)
+    run.ages["llm_probe"] = None if age is None else round(age, 1)
+    if age is None or age > PROBE_MAX_AGE_MIN:
+        shown = "nicio sonda" if age is None else f"ultima sonda acum {age:.0f} min"
+        run.problem(IntegrityKind.PROBE_MISSING, "Sonda LLM nu mai raporteaza",
+                    f"{shown} (prag {PROBE_MAX_AGE_MIN:.0f} min). Verifica soc-llm-probe.timer.",
+                    severity="high", host="es-node-1", subject="soc-llm-probe", dedup_minutes=60,
+                    age_min=age, threshold_min=PROBE_MAX_AGE_MIN)
+
+
 def write_heartbeat(metrics: Elasticsearch | None, run: Run) -> None:
     """Pulsul din soc-metrics: orchestratorul pagineaza daca lipseste (paznicul paznicului)."""
     if metrics is None:
@@ -410,6 +467,21 @@ def main() -> int:
                 run.problem(IntegrityKind.CHECK_FAILED, f"Absence-check: verificarea `{name}` a esuat",
                             f"soc-reader: {type(e).__name__}: {str(e)[:200]}", severity="high",
                             host="es-node-1", subject=f"check_{name}", dedup_minutes=30)
+                log.error("verificarea %s a esuat: %s", name, e)
+                run.failed = True
+    # Pasul 7: orchestratorul si sonda LLM, citite din soc-metrics (doar ES_READER are drept).
+    reader_es = _client("ES_READER_API_KEY", False)
+    if reader_es is None:
+        log.error("ES_READER_API_KEY lipsa: verificarile orchestrator/sonda sarite")
+        run.failed = True
+    else:
+        for name, fn in (("orchestrator", check_orchestrator_cycles), ("sonda_llm", check_llm_probe)):
+            try:
+                fn(reader_es, run)
+            except Exception as e:
+                run.problem(IntegrityKind.CHECK_FAILED, f"Absence-check: verificarea `{name}` a esuat",
+                            f"Interogare ES esuata: {e}", severity="high", host="es-node-1",
+                            subject=f"check_{name}", dedup_minutes=30)
                 log.error("verificarea %s a esuat: %s", name, e)
                 run.failed = True
     write_heartbeat(_client("ES_METRICS_WRITER_API_KEY", False), run)
