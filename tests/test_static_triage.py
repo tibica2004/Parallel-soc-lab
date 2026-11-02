@@ -157,3 +157,15 @@ def test_regulile_semgrep_au_test():
 def test_promptul_interzice_exploatarea_si_cere_romana():
     txt = st.PROMPT_FILE.read_text()
     assert "INTERZIS" in txt and "untrusted_code" in txt and "romana" in txt
+
+
+def test_acoperire_zero_fisiere_scanate_e_esec():
+    with pytest.raises(RuntimeError):
+        st.check_coverage(1487, 0)
+    with pytest.raises(RuntimeError):
+        st.check_coverage(0, 0)
+    st.check_coverage(1487, 1487)
+
+
+def test_semgrep_nu_respecta_gitignore():
+    assert "--no-git-ignore" in st.semgrep_argv(Path("/s"), Path("/o.json"))

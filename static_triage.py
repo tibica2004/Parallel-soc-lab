@@ -161,8 +161,17 @@ def rsync_argv(snapshot: Path, target: str = READER_TARGET, key: str = READER_KE
 
 def semgrep_argv(snapshot: Path, out_json: Path, semgrep: str = SEMGREP) -> list[str]:
     return [semgrep, "scan", "--config", str(RULES_DIR), "--json", "--metrics=off",
-            "--disable-version-check", "--timeout", "60", "--jobs", "2",
+            "--disable-version-check", "--no-git-ignore", "--timeout", "60", "--jobs", "2",
             "--max-memory", "2000", "--output", str(out_json), str(snapshot)]
+
+
+def check_coverage(php_files: int, scanned: int, min_ratio: float = 0.9) -> None:
+    """0 rezultate pe 0 fisiere scanate NU e "cod curat": e un esec tacut (R9). Ex. real:
+    snapshot-ul sta sub data/ (in .gitignore) si semgrep sarea tot fara eroare."""
+    if php_files == 0:
+        raise RuntimeError("snapshot fara fisiere PHP")
+    if scanned < php_files * min_ratio:
+        raise RuntimeError(f"semgrep a scanat {scanned} din {php_files} fisiere PHP")
 
 
 def rel_path(path: str, snapshot: Path) -> str:
@@ -357,6 +366,9 @@ def run(args) -> int:
         log.info("snapshot sincronizat: %s", SNAPSHOT)
     out_json = SNAPSHOT.parent / "semgrep-results.json"
     report = run_semgrep(out_json)
+    php_files = sum(1 for _ in SNAPSHOT.rglob("*.php"))
+    scanned = len(report.get("paths", {}).get("scanned", []))
+    check_coverage(php_files, scanned)
     results = order_results(report.get("results", []))
     sg_errors = len(report.get("errors", []))
     per_rule: dict[str, int] = {}
@@ -366,6 +378,7 @@ def run(args) -> int:
     log.info("semgrep: %d rezultate, %d erori, pe regula %s", len(results), sg_errors, per_rule)
 
     m = {"host": HOST, "findings_total": len(results), "semgrep_errors": sg_errors,
+         "php_files": php_files, "files_scanned": scanned,
          "findings_new": 0, "findings_known": 0, "findings_tp": 0, "findings_fp": 0,
          "findings_escalated": 0, "findings_failed": 0, "findings_pending_budget": 0,
          "rules_drafted": 0, "per_rule": per_rule, "dry_run": bool(args.dry_run)}
