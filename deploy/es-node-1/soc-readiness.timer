@@ -1,0 +1,9 @@
+[Unit]
+Description=Agentic SOC - readiness zilnic (06:15 UTC, dupa snapshot si fp_rate)
+
+[Timer]
+OnCalendar=*-*-* 06:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -24,6 +24,13 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import os
+from ipaddress import IPv4Address
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
 from policy import NEVER_BLOCK_PREFIXES, THRESHOLDS, Decision
 from schemas import ActionPlan, ActionType, PlanStep, Reversibility, Verdict
 
@@ -179,6 +186,49 @@ def plan(verdict: Verdict, decision: Decision, now: datetime, stats: LabelStats 
         steps=steps, rollback=rollback, expires_at=(now + c.ttl) if c.ttl else None,
         asset_criticality=criticality, graduated=grad, graduation_reason=grad_why[:300],
         requires_approval=bool(reasons), approval_reason="; ".join(reasons)[:300])
+
+
+# ------------------------------------------------------------------------------
+# Pasul 9.2 (decizia omului 2026-11-02: DOAR readiness + dry-run). Garzile block_ip_ttl in
+# ordinea din task; pasul de executie reala NU exista (not_implemented): principiul 4 neatins.
+# ------------------------------------------------------------------------------
+
+KILL_FILE = Path(os.environ.get("SOC_KILL_FILE", "/etc/soc/KILL"))
+BLOCK_MIN_CONFIDENCE = 90
+BLOCK_MAX_PER_HOUR = 10
+BLOCK_MAX_PER_DAY = 50
+
+
+class BlockIpTtl(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["block_ip_ttl"] = "block_ip_ttl"
+    ip: IPv4Address
+    ttl_s: int = Field(ge=60, le=3600)
+    reason: str = Field(max_length=300)
+    confidence: int = Field(ge=0, le=100)
+    case_id: str = Field(max_length=64)
+
+
+def block_guard(req: BlockIpTtl, *, shadow: bool, ready: bool | None, protected_ips: frozenset[str],
+                blocks_last_hour: int = 0, blocks_last_day: int = 0,
+                kill: bool | None = None) -> tuple[str, str]:
+    """(rezultat, motiv), fiecare ramura auditabila. Ordinea e contractul: oprirea de urgenta
+    bate tot, shadow-ul bate readiness-ul, protectia bate increderea. Pur (kill se poate injecta)."""
+    if kill if kill is not None else KILL_FILE.exists():
+        return "refused_kill", f"{KILL_FILE} exista: oprire de urgenta"
+    if shadow:
+        return "would_block", f"shadow: ar bloca {req.ip} {req.ttl_s} s"
+    if not ready:
+        return "refused_not_ready", "readiness de azi nu e ready (sau lipseste)"
+    ip = req.ip
+    if (str(ip) in protected_ips or ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_multicast or ip.is_reserved or str(ip).startswith(NEVER_BLOCK_PREFIXES)):
+        return "refused_internal", f"{ip} e protejat (never_block / privat / rezervat)"
+    if req.confidence < BLOCK_MIN_CONFIDENCE:
+        return "refused_confidence", f"incredere {req.confidence} < {BLOCK_MIN_CONFIDENCE}"
+    if blocks_last_hour >= BLOCK_MAX_PER_HOUR or blocks_last_day >= BLOCK_MAX_PER_DAY:
+        return "refused_rate", f"plafon: {blocks_last_hour}/h, {blocks_last_day}/zi"
+    return "not_implemented", "executia reala nu exista (pasul 9 = doar pregatire; principiul 4)"
 
 
 def summary(p: ActionPlan) -> str:

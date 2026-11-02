@@ -266,7 +266,18 @@ def make_plan(verdict, decision):
                                     if decision.chosen.value == "isolate_host" else None))
     except executor.PlanError as e:
         return None, f"dry-run: fara plan ({e}); ramane la om"[:500]
-    return p, executor.summary(p)
+    text = executor.summary(p)
+    if decision.chosen.value == "block_ip_ttl":
+        # 9.2: rezultatul garzilor (in shadow: would_block), in acelasi rand de audit.
+        try:
+            req = executor.BlockIpTtl(ip=p.target, ttl_s=3600, reason="verdict Tier 1/2",
+                                      confidence=verdict.confidence, case_id=(verdict.chain_id or "")[:64])
+            res, why = executor.block_guard(req, shadow=os.environ.get("SHADOW_MODE", "true").lower() == "true",
+                                            ready=None, protected_ips=frozenset())
+            text = f"{text}; garzi: {res} ({why})"
+        except Exception as e:  # noqa: BLE001 — garzile nu au voie sa piarda auditul
+            text = f"{text}; garzi: eroare {type(e).__name__}"
+    return p, text[:500]
 
 
 def _prompt_set() -> str | None:
