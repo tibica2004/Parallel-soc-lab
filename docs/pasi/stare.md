@@ -117,6 +117,11 @@ APLICAT: 11 ILM + soc-monitor, 12 suricata-update, 12b ModSecurity DetectionOnly
 cod orchestrator/Tier 2/8/10.2 pe es-node-1 (incarcat de orchestrator abia la urmatorul restart).
 Poarta completa (fast+dev+val+injectie) pornita 12:48 UTC; dupa ea: restart orchestrator (om).
 
+Decizii om (2026-11-02 ~13:00): pasul 9 = doar readiness + dry-run (principiul 4 neatins; c9
+imposibil cu SNAT-ul unic); lab-sink CREAT (192.168.10.160, m1.small: m1.tiny n-are disc pentru
+imaginea Noble; cheie host verificata din consola); igiena: regula es-sg 9300 STEARSA; SSH fara
+parole si HTTPS pe web-prod = dupa poarta (reload sshd/Apache nu in timpul harness-ului).
+
 ## COD SCRIS, NEAPLICAT (2026-11-02, dupa poarta 6) — o singura implementare + poarta completa
 10.2 grupare pe cazuri (a164c96), 10.1 CLAUDE.md (ea1ac05), 11 ILM + sanatate ES (920838f),
 12 suricata-update (920838f), 12b ModSecurity (4983971), 6.1 Tier 2 delimitat + scenarios_injection
