@@ -192,3 +192,41 @@ def test_drift_doar_campurile_de_detectie():
            "exceptions_list": [{"id": "x"}]}
     assert m.drift(cur, want) == {"query": want["query"]}
     assert m.drift(want, want) == {}
+
+
+# --- pasul 12b: ModSecurity CRS (DetectionOnly) -----------------------------------------
+import sensor_rules as _S
+
+_MS = ('[client 172.30.6.133:51234] [client 172.30.6.133] ModSecurity: Warning. Operator GE matched 20 '
+       'at TX:anomaly_score. [file "/usr/share/modsecurity-crs/rules/REQUEST-949-BLOCKING-EVALUATION.conf"] '
+       '[line "80"] [id "949110"] [msg "Inbound Anomaly Score Exceeded (Total Score: 23)"] '
+       '[severity "CRITICAL"] [ver "OWASP_CRS/3.3.5"] [hostname "192.168.10.138"] '
+       '[uri "/index.php"] [unique_id "ZX"]')
+
+
+def _ms_alert(msg, **kw):
+    return {"kibana.alert.rule.parameters": {"rule_id": "soc-modsec-anomaly"},
+            "kibana.alert.rule.rule_id": "soc-modsec-anomaly", "message": msg, **kw}
+
+
+def test_modsec_e_senzor_si_payload_kibana():
+    a = _ms_alert(_MS)
+    assert _S.is_sensor_alert(a)
+    p = _S.kibana_payload("soc-modsec-anomaly")
+    assert p["index"] == ["logs-apache.error-*"] and "Inbound Anomaly Score Exceeded" in p["query"]
+    assert p["threat"][0]["tactic"]["id"] == "TA0001"
+
+
+def test_modsec_fapte_si_benzi():
+    f = _S.modsec_facts(_ms_alert(_MS))
+    assert f == {"sensor": "modsecurity", "score": 23, "band": "high", "uri": "/index.php",
+                 "client_ip": "172.30.6.133", "rule_ids": ["949110"]}
+    f = _S.modsec_facts(_ms_alert(_MS.replace("Total Score: 23", "Total Score: 55")))
+    assert f["band"] == "critical"
+    assert _S.sensor_facts(_ms_alert(_MS))["sensor"] == "modsecurity"
+
+
+def test_modsec_mesaj_invalid_sau_ip_fals():
+    assert _S.modsec_facts(_ms_alert("ModSecurity: Warning fara scor")) is None
+    f = _S.modsec_facts(_ms_alert(_MS.replace("172.30.6.133", "not-an-ip")))
+    assert f is not None and f["client_ip"] is None

@@ -171,6 +171,30 @@ RULES["soc-reader-denied"] = {
     "threat_technique": ("T1021.004", "SSH"),
 }
 
+# Pasul 12b: ModSecurity + OWASP CRS in DetectionOnly (senzor, NU blocheaza nimic) pe web-prod.
+# Pragul CRS e pus la 20 in configuratie, deci "Inbound Anomaly Score Exceeded" apare doar de la
+# 20 in sus; scorul exact il extrage codul (>= 50 -> banda critical). Avertismentele ajung in
+# error.log-ul Apache, deja colectat (logs-apache.error); fara jurnal de audit cu corpul
+# cererilor: site-ul n-are HTTPS, iar corpurile de login contin parole in clar.
+RULES["soc-modsec-anomaly"] = {
+    "name": "ModSecurity: cerere web anormala (CRS, scor >= 20)",
+    "description": "ModSecurity cu OWASP CRS (DetectionOnly, paranoia 1) a dat unei cereri un scor de "
+                   "anomalie >= 20: tipare de injectie, traversare, executie etc., independent de CVE "
+                   "(prinde si intrari 0-day cu payload de tip cunoscut). Scorul, URI-ul si clientul sunt "
+                   "in mesaj (date). Senzor: poate fi fals pozitiv; nimic nu e blocat.",
+    "type": "query",
+    "language": "kuery",
+    "index": ["logs-apache.error-*"],
+    "query": 'message : "ModSecurity" and message : "Inbound Anomaly Score Exceeded"',
+    "threat_technique": ("T1190", "Exploit Public-Facing Application"),
+}
+MODSEC_RULE_ID = "soc-modsec-anomaly"
+MODSEC_CRITICAL = 50
+_MODSEC_SCORE = re.compile(r"Inbound Anomaly Score Exceeded \(Total Score: (\d{1,4})\)")
+_MODSEC_URI = re.compile(r'\[uri "([^"]{1,300})"\]')
+_MODSEC_CLIENT = re.compile(r"\[client ([0-9a-fA-F:.]{3,52})\]")
+_MODSEC_IDS = re.compile(r'\[id "(\d{6})"\]')
+
 SURICATA_RULE_ID = "soc-suricata-webattack"
 AIDE_RULE_ID = "soc-aide-change"
 # Categoriile ET considerate atac web; si poarta de validare a faptelor (multime inchisa).
@@ -264,11 +288,43 @@ def aide_facts(alert: dict) -> dict | None:
             "unexplained": [p[:200] for p in paths[:20]]}
 
 
+def modsec_facts(alert: dict) -> dict | None:
+    """{sensor, score, band, uri, client_ip, rule_ids} din avertismentul ModSecurity, sau None.
+    Scorul il calculeaza CRS (nu atacatorul); URI-ul e ales de atacator: DATE, scurtat."""
+    if honeytokens.rule_id_of(alert) != MODSEC_RULE_ID:
+        return None
+    msg = alert.get("message")
+    if isinstance(msg, list):
+        msg = " ".join(m for m in msg if isinstance(m, str))
+    if not isinstance(msg, str):
+        return None
+    m = _MODSEC_SCORE.search(msg)
+    if not m:
+        return None
+    score = int(m.group(1))
+    uri = _MODSEC_URI.search(msg)
+    cli = _field(alert, "source.ip")
+    if not _is_ip(cli):
+        cli = None
+        for c in _MODSEC_CLIENT.findall(msg):          # "[client IP:port]" sau "[client IP]"
+            for cand in (c, c.rsplit(":", 1)[0]):
+                if _is_ip(cand):
+                    cli = cand
+                    break
+            if cli:
+                break
+    return {"sensor": "modsecurity", "score": score,
+            "band": "critical" if score >= MODSEC_CRITICAL else "high",
+            "uri": uri.group(1)[:200] if uri else None,
+            "client_ip": cli if _is_ip(cli) else None,
+            "rule_ids": sorted(set(_MODSEC_IDS.findall(msg)))[:20]}
+
+
 def sensor_facts(alert: dict) -> dict | None:
     """Faptele senzorului care a produs alerta: YARA (fisier din webroot), Suricata
     (semnatura de atac web pe retea) sau AIDE (integritatea fisierelor). Fiecare se
     recunoaste dupa rule_id-ul propriu."""
-    return yara_facts(alert) or suricata_facts(alert) or aide_facts(alert)
+    return yara_facts(alert) or suricata_facts(alert) or aide_facts(alert) or modsec_facts(alert)
 
 
 def kibana_payload(rule_id: str) -> dict:
