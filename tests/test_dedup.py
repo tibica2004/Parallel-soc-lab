@@ -125,3 +125,32 @@ def test_finding_esuat_nu_e_marcat(monkeypatch):
     orchestrator.process_findings([f_bad, f_ok], seen, limit=5)
     assert orchestrator.dedup_key_finding(f_bad) not in seen
     assert orchestrator.dedup_key_finding(f_ok) in seen
+
+
+# --- pasul 10.2: alertele lotului grupate in cazuri --------------------------------------
+import orchestrator as _o
+
+
+def _web(ip, rule="Suricata: tentativa de atac web (IDS)", ts="2026-11-02T10:00:00Z"):
+    return {"kibana.alert.rule.name": rule, "host": {"name": "web-prod"}, "source": {"ip": ip},
+            "@timestamp": ts}
+
+
+def test_rafala_de_la_un_ip_e_un_caz():
+    alerts = [_web("172.30.6.133", ts=f"2026-11-02T10:00:{i:02d}Z") for i in range(30)] + [_web("9.9.9.9")]
+    g = _o.group_alerts(alerts)
+    assert [len(m) for _, m in g] == [30, 1]
+    ex = _o.case_extra(g[0][1])
+    assert ex["case_alert_count"] == 30 and ex["case_first_ts"] < ex["case_last_ts"]
+    assert _o.case_extra(g[1][1]) == {}
+
+
+def test_reguli_diferite_raman_cazuri_separate():
+    g = _o.group_alerts([_web("172.30.6.133"), _web("172.30.6.133", rule="Alta regula")])
+    assert len(g) == 2
+
+
+def test_alertele_de_jurnal_diferite_nu_se_unesc():
+    a = {"kibana.alert.rule.name": "YARA", "host": {"name": "web-prod"}, "message": "fisier A"}
+    b = {"kibana.alert.rule.name": "YARA", "host": {"name": "web-prod"}, "message": "fisier B"}
+    assert len(_o.group_alerts([a, b])) == 2

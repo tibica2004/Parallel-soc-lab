@@ -28,6 +28,7 @@ def build_cycle_doc(*, cycle: int, cycle_id: str, started: datetime, ended: date
         "escalated_t2": int(stats.get("tier2", 0)),
         "escalated_human_only": int(stats.get("tier2_skipped", 0)),
         "no_model": int(stats.get("no_model", 0)),
+        "alerts_in_cases": int(stats.get("alerts_in_cases", 0)),   # 10.2: judecate prin caz
         "honeytoken_hits": int(stats.get("honeytoken_hits", 0)),
         "model_timeouts": failures.get("case_timeout", 0),
         "model_errors": failures.get("model_unavailable", 0) + failures.get("processing_error", 0),

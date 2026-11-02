@@ -119,6 +119,30 @@ def dedup_key_alert(a: dict) -> str:
     ])
 
 
+CASE_MAX_REFS = 50
+
+
+def group_alerts(alerts: list[dict]) -> list[tuple[str, list[dict]]]:
+    """Pasul 10.2: alertele lotului grupate dupa cheia de deduplicare (aceeasi regula, acelasi
+    host, acelasi proces / fisier / IP sursa), in ordinea primei aparitii. Un grup = un caz:
+    se judeca o data (prima alerta), iar ID-urile celorlalte devin dovezi ale aceluiasi verdict.
+    Alertele de host fara proces/fisier/IP raman separate (cheia lor include hash-ul mesajului).
+    Pur."""
+    groups: dict[str, list[dict]] = {}
+    for a in alerts:
+        groups.setdefault(dedup_key_alert(a), []).append(a)
+    return list(groups.items())
+
+
+def case_extra(members: list[dict]) -> dict:
+    """Ce se adauga in audit/verdict cand un caz are mai multe alerte. Pur."""
+    if len(members) < 2:
+        return {}
+    ts = sorted(t for t in (_g(a, "@timestamp") for a in members) if t)
+    return {"case_alert_count": len(members), "case_first_ts": ts[0] if ts else None,
+            "case_last_ts": ts[-1] if ts else None}
+
+
 # Ce identifica un finding, pe tip (fara contoare, care cresc de la un sweep la altul).
 FINDING_KEY = {
     "new_webroot_write": ("path", "written_by"),
@@ -258,6 +282,8 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     vdoc["@timestamp"] = finished.isoformat()
     vdoc["ground_truth"] = None            # NICIODATA setat automat
     vdoc["rule_name"] = (extra or {}).get("rule_name")
+    if (extra or {}).get("case_alert_count"):
+        vdoc["case_alert_count"] = extra["case_alert_count"]   # 10.2: alerte judecate ca un caz
     WRITER.index(index=VERDICTS_IDX, document=vdoc)
 
     audit = AuditRecord(
@@ -585,7 +611,7 @@ def run_positioned(args) -> int:
         doc = cycle_metrics.build_cycle_doc(
             cycle=cycle, cycle_id=f"{started:%Y%m%dT%H%M%S}-{cycle}", started=started,
             ended=datetime.now(timezone.utc), alerts_fetched=len(alerts), stats=stats,
-            llm=tracing.take_llm_totals(), backlog=degraded.is_backlog(len(alerts)),
+            llm=tracing.take_llm_totals(), backlog=bool(stats.get("backlog")),
             sweep_ran=bool(run_sweep), interval_s=args.interval)
         doc["error"] = cycle_error
         err = cycle_metrics.write(WRITER, doc)
@@ -618,7 +644,15 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
     hunt = hunt or HuntRunner()
     t2_used = 0
     last_ts = max((_g(a, "@timestamp") or "" for a in alerts), default="") or None
-    backlog = degraded.is_backlog(len(alerts))
+    # 10.2: restanta se masoara in CAZURI noi, nu in alerte brute (o rafala de la un IP pe o
+    # regula e un singur caz; inainte, 100 de duplicate treceau tot SOC-ul pe modul fara model).
+    groups = group_alerts(alerts)
+    new_cases = sum(1 for k, _ in groups if k not in seen)
+    if stats is not None:
+        stats["alerts_in_cases"] = stats.get("alerts_in_cases", 0) + sum(len(m) - 1 for _, m in groups)
+    backlog = degraded.is_backlog(new_cases)
+    if stats is not None:
+        stats["backlog"] = stats.get("backlog", False) or backlog
     if backlog:
         from fast_path import lookup_asset
         crit: dict[str, str | None] = {}
@@ -626,18 +660,19 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
             if host not in crit:
                 crit[host] = lookup_asset(host).get("criticality")
             return crit[host]
-        alerts = degraded.order_backlog(alerts, crit_of)
-        print(f"  RESTANTA: {len(alerts)} alerte > {degraded.BACKLOG_THRESHOLD}; "
+        by_lead = {id(m[0]): (k, m) for k, m in groups}
+        groups = [by_lead[id(a)] for a in degraded.order_backlog([m[0] for _, m in groups], crit_of)]
+        print(f"  RESTANTA: {new_cases} cazuri noi ({len(alerts)} alerte) > {degraded.BACKLOG_THRESHOLD}; "
               f"coada ordonata, alertele critical escaladeaza fara model", flush=True)
     if not model_ok:
         print("  MODEL CAZUT: alertele escaladeaza fara verdict de model", flush=True)
     fast = None
-    for a in alerts:
+    for k, members in groups:
         sdnotify.watchdog()          # un lot lung (Tier 2) nu trebuie sa para blocaj
-        k = dedup_key_alert(a)
+        a = members[0]
         rule = _g(a, "kibana.alert.rule.name")
         host = _g(a, "host.name")
-        entity = f"{host} · {rule}"
+        entity = f"{host} · {rule}" + (f" ({len(members)} alerte)" if len(members) > 1 else "")
         if k in seen:
             print(f"  [duplicat, sarit] {entity}")
             continue
@@ -698,9 +733,10 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                 tier2 = None
                 if esc.escalate:
                     tier2 = "investigated" if t2_used < t2_limit else "skipped_budget"
-                v = _record("RAPID", entity, v, narrative, t0, {"rule_name": rule},
-                            escalation=esc, failure=failure, trace=tr, refs=[alert_ref(a)],
-                            tier2=tier2)
+                v = _record("RAPID", entity, v, narrative, t0,
+                            {"rule_name": rule, **case_extra(members)},
+                            escalation=esc, failure=failure, trace=tr,
+                            refs=[alert_ref(x) for x in members[:CASE_MAX_REFS]], tier2=tier2)
                 # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
                 seen.add(k)
                 if stats is not None:
