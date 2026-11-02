@@ -112,6 +112,11 @@ legitim" re-rulat 3x = benign 3/3 -> variatie de model). Ramas: 24 h fara gol, t
 6.3: snapshot SLM soc-daily aplicat, restore 2051 = 2051; off-host sarit. 6.4: deja satisfacut.
 Orchestratorul trebuie repornit de om ca sa incarce fixul.
 
+## LOT 2026-11-02 dupa-amiaza (detalii: docs/pasi/pas-10-12.md)
+APLICAT: 11 ILM + soc-monitor, 12 suricata-update, 12b ModSecurity DetectionOnly + regula Kibana,
+cod orchestrator/Tier 2/8/10.2 pe es-node-1 (incarcat de orchestrator abia la urmatorul restart).
+Poarta completa (fast+dev+val+injectie) pornita 12:48 UTC; dupa ea: restart orchestrator (om).
+
 ## COD SCRIS, NEAPLICAT (2026-11-02, dupa poarta 6) — o singura implementare + poarta completa
 10.2 grupare pe cazuri (a164c96), 10.1 CLAUDE.md (ea1ac05), 11 ILM + sanatate ES (920838f),
 12 suricata-update (920838f), 12b ModSecurity (4983971), 6.1 Tier 2 delimitat + scenarios_injection
