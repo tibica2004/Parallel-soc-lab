@@ -54,7 +54,7 @@
 
 {% else %}
   <header>
-    <h1><a href="/">SOC · etichetare</a></h1>
+    <h1><a href="/">SOC · etichetare</a> <span class="mut">·</span> <a href="/cases">cazuri</a></h1>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit">Iesire</button></form>
   </header>
@@ -94,6 +94,38 @@
       {% if page > 0 %}<a href="/?status={{ status }}&source={{ source }}&page={{ page - 1 }}">← mai noi</a>{% endif %}
       {% if (page + 1) * page_size < total %}<a href="/?status={{ status }}&source={{ source }}&page={{ page + 1 }}">mai vechi →</a>{% endif %}
     </p>
+
+  {% elif view == "cases" %}
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <p class="filters">
+      {% for s, n in [("escalated","la om"),("open","deschise"),("investigating","in investigare"),("closed","inchise"),("all","toate")] %}
+        <a class="{{ 'on' if state == s else '' }}" href="/cases?state={{ s }}">{{ n }}</a>{% endfor %}
+    </p>
+    <p class="mut">{{ total }} cazuri · inchiderea e DOAR a omului; verdictele raman in istoric</p>
+    <div class="wrap"><table class="tbl">
+      <tr><th>Actualizat (UTC)</th><th>Host · reguli</th><th>Stare / tier</th><th>Verdicte</th><th>Playbook</th><th>Inchide</th></tr>
+      {% for r in rows %}
+      <tr>
+        <td>{{ (r.updated_at or "")[:19] }}<br><span class="mut">{{ r.case_id[:8] }}</span></td>
+        <td>{{ r.host }}<br><span class="mut">{{ r.rule_names | join(", ") }}</span></td>
+        <td><span class="pill">{{ r.state }}</span> T{{ r.current_tier }} · {{ r.severity }}
+            {% if r.escalation_reasons %}<br><span class="mut">{{ r.escalation_reasons | join(", ") }}</span>{% endif %}</td>
+        <td>{% for v in r.verdicts %}<span class="{{ v.classification }}">T{{ v.tier }} {{ v.classification }}/{{ v.confidence }}</span><br>{% endfor %}</td>
+        <td>{% if r.playbook %}<details><summary>{{ r.playbook.action }} pe {{ r.playbook.target }}</summary>
+            <ol>{% for st in r.playbook.steps %}<li><code>{{ st.argv | join(" ") if st.argv else st }}</code></li>{% endfor %}</ol>
+            {% if r.playbook.rollback %}<p class="mut">anulare:</p><ol>{% for st in r.playbook.rollback %}<li><code>{{ st.argv | join(" ") if st.argv else st }}</code></li>{% endfor %}</ol>{% endif %}
+            </details>{% else %}<span class="mut">—</span>{% endif %}</td>
+        <td>{% if r.state != "closed" %}
+          <form method="post" action="/cases/{{ r.case_id }}/close">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <select name="reason">{% for x in reasons %}<option value="{{ x }}">{{ x }}</option>{% endfor %}</select>
+            <input name="notes" placeholder="nota (optional)" maxlength="1000">
+            <button type="submit">Inchide</button>
+          </form>
+          {% else %}<span class="mut">{{ r.close_reason }} · {{ (r.closed_at or "")[:16] }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </table></div>
 
   {% elif view == "detail" %}
     <p><a href="/">← lista</a></p>

@@ -330,6 +330,12 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     adoc["@timestamp"] = finished.isoformat()
     WRITER.index(index=AUDIT_IDX, document=adoc)
 
+    # plann.md A1/A2: cazul (soc-cases) = vederea de lucru a omului; esecul lui nu atinge auditul.
+    try:
+        _upsert_case(verdict, finished, extra or {}, escalation, plan)
+    except Exception as e:  # noqa: BLE001
+        print(f"    [caz nescris, audit scris] {type(e).__name__}: {e}", flush=True)
+
     # 0.4: pagineaza omul DOAR pentru escaladarile critice (momeala/senzor/detectie
     # nativa). Merge si in shadow (vrei sa stii ca s-a atins momeala, chiar fara actiune).
     # Garda: o eroare de notificare nu are voie sa strice calea de audit.
@@ -339,6 +345,32 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
                                        shadow=decision.shadow_mode)
     except Exception as e:
         print(f"    [notificare esuata, audit scris] {e}", flush=True)
+
+
+_CASES_ES = None
+_cases_warned = False
+_ORIGIN = {"RAPID": "tier1_alert", "TIER2": "tier1_alert", "LENT": "rarity_sweep",
+           "VANATOARE": "tier3_hunt", "N-DAY": "tier3_hunt"}
+
+
+def _upsert_case(verdict, now, extra: dict, escalation, plan) -> None:
+    global _CASES_ES, _cases_warned
+    import cases
+    if _CASES_ES is None:
+        _CASES_ES = cases.client()
+        if _CASES_ES is None:
+            if not _cases_warned:
+                print("    [cazuri] fara ES_CASES_WRITER_API_KEY: soc-cases nu se scrie", flush=True)
+                _cases_warned = True
+            return
+    if verdict.entity_type.value != "host":
+        return
+    alert_ids = [r.doc_id for r in verdict.evidence_refs if str(r.index).startswith(".alerts")][:cases.MAX_ALERTS]
+    cases.upsert_from_verdict(
+        _CASES_ES, verdict, 1 if verdict.source_path == "fast" else 2, now, host=verdict.entity_id,
+        origin=_ORIGIN.get(extra.get("origin"), "tier1_alert"), rule_name=extra.get("rule_name"),
+        alert_ids=alert_ids, reasons=list(escalation.reasons) if escalation else None,
+        escalate=escalation.escalate if escalation else None, plan=plan)
 
 
 def show(kind: str, entity: str, verdict, narrative: str, decision=None,
@@ -435,7 +467,7 @@ def _record(kind: str, entity: str, v, narrative: str, t0, extra=None, escalatio
     show(kind, entity, v, narrative, d, escalation)
     if plan is not None or (result or "").startswith("dry-run"):
         print(f"    executor: {result}", flush=True)
-    persist(v, narrative, d, t0, datetime.now(timezone.utc), extra,
+    persist(v, narrative, d, t0, datetime.now(timezone.utc), {**(extra or {}), "origin": kind},
             escalation=escalation, failure=failure, tier2=tier2, plan=plan, action_result=result)
     if trace is not None:
         persist_trace(trace.document(chain_id=v.chain_id, investigation_id=v.investigation_id,

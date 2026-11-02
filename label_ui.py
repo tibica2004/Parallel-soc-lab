@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import hmac
 import os
+import re
 import secrets
 import time
 from collections import defaultdict, deque
@@ -40,6 +41,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
+import cases as C
 from labeling import DOC_ID_RE, LabelInput, build_label_update, outcome
 
 VERDICTS_IDX = "verdicts-history"
@@ -247,6 +249,46 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
         nxt = es.search(index=VERDICTS_IDX, size=1, sort=[{"@timestamp": "desc"}],
                         query=_list_query("unlabeled", source))["hits"]["hits"]
         return RedirectResponse(f"/v/{nxt[0]['_id']}" if nxt else "/", status_code=303)
+
+    # ---------------- cazuri (plann.md A1): coada omului; inchiderea doar de aici ----------------
+
+    def _cases_es():
+        return C.client() or es
+
+    @app.get("/cases", response_class=HTMLResponse)
+    def case_list(request: Request, state: str = "escalated"):
+        if not _authed(request):
+            return _to_login()
+        state = state if state in {s.value for s in C.CaseState} | {"all"} else "escalated"
+        q = {"match_all": {}} if state == "all" else {"term": {"state": state}}
+        try:
+            r = _cases_es().search(index=C.INDEX, size=PAGE_SIZE, query=q,
+                                   sort=[{"updated_at": "desc"}], track_total_hits=True)
+        except Exception:
+            return _render(request, "cases", rows=[], total=0, state=state, error="indexul soc-cases lipseste")
+        rows = [dict(h["_source"], _id=h["_id"]) for h in r["hits"]["hits"]]
+        return _render(request, "cases", rows=rows, total=r["hits"]["total"]["value"], state=state,
+                       reasons=[x.value for x in C.CloseReason], error=None)
+
+    @app.post("/cases/{case_id}/close")
+    def case_close(request: Request, case_id: str, reason: str = Form(""), notes: str = Form(""),
+                   csrf: str = Form("")):
+        if not _authed(request):
+            return _to_login()
+        if not _csrf_ok(request, csrf):
+            return Response("CSRF invalid", status_code=403)
+        if not re.match(C.CHAIN_ID_RE, case_id):
+            return Response("caz invalid", status_code=400)
+        try:
+            why = C.CloseReason(reason)
+        except ValueError:
+            return Response("motiv invalid", status_code=400)
+        ces = _cases_es()
+        rec = C.load(ces, case_id)
+        if rec is None:
+            return _render(request, "notfound", status_code=404)
+        C.save(ces, C.close_by_human(rec, why, notes, datetime.now(timezone.utc)))
+        return RedirectResponse("/cases", status_code=303)
 
     return app
 
