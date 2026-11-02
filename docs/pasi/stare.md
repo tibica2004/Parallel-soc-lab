@@ -106,10 +106,18 @@ Cod c2d4c67. Deployat: type=cycle per ciclu, watchdog 900 s, MemoryMax 2G, Prote
 dashboard SOC Health. Poarta: fast 4/4; dev 12/14 recall 8/8 (FP php --version cunoscut + "Deploy
 legitim" re-rulat 3x = benign 3/3 -> variatie de model). Ramas: 24 h fara gol, test oprire aprobat.
 
-## PASUL 6 (securitatea SOC) — IN CURS
-6.1 suita injectie (prompt_injection.py, 48 cazuri) ruleaza; 6.4 deja satisfacut (timesyncd,
-offset max 2.5 ms, fara chrony); 6.3 pregatit (docker-compose + pas6-snapshot.sh), NEAPLICAT —
-cere aprobare (ES indisponibil 1-2 min) si decizie pentru copia off-host.
+## PASUL 6 (securitatea SOC) — FACUT 2026-11-02 (detalii: docs/pasi/pas-06.md)
+6.1: prima rulare ESEC (caz 06, engleza in command_line: malicious -> suspicious) -> fix 765a0c8
+(telemetrie delimitata in Tier 1) -> 48/48. Poarta fast 4/4, dev recall 8/8 (FP 2/6, acceptat).
+6.3: snapshot SLM soc-daily aplicat, restore 2051 = 2051; off-host sarit. 6.4: deja satisfacut.
+Orchestratorul trebuie repornit de om ca sa incarce fixul.
+
+## COD SCRIS, NEAPLICAT (2026-11-02, dupa poarta 6) — o singura implementare + poarta completa
+10.2 grupare pe cazuri (a164c96), 10.1 CLAUDE.md (ea1ac05), 11 ILM + sanatate ES (920838f),
+12 suricata-update (920838f), 12b ModSecurity (4983971), 6.1 Tier 2 delimitat + scenarios_injection
+(f94b109), 5 art_runner + coverage (1114ed6), 8 prompturi versionate + regresie (5a718b6).
+Tier 3 N-day (fde568b) DEPLOYAT pe es-node-1 (prima rulare reala 13:06 UTC).
+Ramase decizii: pasul 9 (principiul 4 + IP-ul SNAT unic), VM lab-sink (pasul 5).
 
 ## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
 
