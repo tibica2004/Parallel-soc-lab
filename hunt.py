@@ -257,10 +257,24 @@ def parse_plan(raw: dict, technique: str) -> HuntPlan:
 # Alegerea tehnicilor (cod): cele vanate cel mai demult, nevanatele primele
 # ------------------------------------------------------------------------------
 
-def pick_techniques(state: dict, n: int = PER_RUN) -> list[str]:
-    """state: {technique: {"last": iso, ...}}. Ordine stabila la egalitate (ordinea din TEMPLATES)."""
+def pick_techniques(state: dict, n: int = PER_RUN, priority: tuple[str, ...] = (),
+                    now: datetime | None = None) -> list[str]:
+    """state: {technique: {"last": iso, ...}}. Ordine stabila la egalitate (ordinea din TEMPLATES).
+    priority (pasul 5.4): tehnicile din gap_list (emulate, dar fara alerta) care au sablon si n-au
+    fost vanate in ultimele 24 h trec primele."""
     order = list(TECHNIQUES)
-    return sorted(order, key=lambda t: ((state.get(t) or {}).get("last") or "", order.index(t)))[:n]
+    now = now or datetime.now(timezone.utc)
+
+    def stale(t: str) -> bool:
+        last = (state.get(t) or {}).get("last")
+        try:
+            return not last or (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).total_seconds() > 86400
+        except ValueError:
+            return True
+    first = [t for t in order if t in set(priority) and stale(t)]
+    rest = sorted((t for t in order if t not in first),
+                  key=lambda t: ((state.get(t) or {}).get("last") or "", order.index(t)))
+    return (first + rest)[:n]
 
 
 def load_state(path: Path) -> dict:

@@ -377,6 +377,21 @@ def _hunt_template(plan: HU.HuntPlan, src: str, perr: str | None, write: bool, s
     return rec, status, len(gs)
 
 
+GAP_LIST = Path(os.environ.get("COVERAGE_GAP_LIST", str(Path(__file__).resolve().parent
+                                                       / "data" / "coverage" / "gap_list.json")))
+
+
+def gap_techniques(path: Path = GAP_LIST) -> tuple[str, ...]:
+    """Pasul 5.4: tehnicile emulate fara alerta (coverage.py), doar cele cu sablon de vanatoare.
+    Fisier lipsa/invalid -> nicio prioritate (vanatoarea ruleaza ca inainte)."""
+    try:
+        gaps = json.loads(path.read_text())
+    except Exception:  # noqa: BLE001
+        return ()
+    return tuple(g["technique_id"] for g in gaps
+                 if isinstance(g, dict) and g.get("technique_id") in HU.TECHNIQUES)
+
+
 def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = None,
               use_model: bool = True, tier2_budget: int = HU.TIER2_BUDGET, runner=None) -> list[dict]:
     """O rulare de vanatoare. Fara --scrie: nimic nu se scrie si Tier 2 nu ruleaza
@@ -386,7 +401,7 @@ def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = Non
     state = HU.load_state(state_path)
     tech_state = state.setdefault("techniques", {})
     seen = HU.prune_seen(state.get("seen", {}), HU.now())
-    techs = [technique] if technique else HU.pick_techniques(tech_state, n)
+    techs = [technique] if technique else HU.pick_techniques(tech_state, n, priority=gap_techniques())
     budget = {"left": tier2_budget}
     if write and runner is None:
         import orchestrator
