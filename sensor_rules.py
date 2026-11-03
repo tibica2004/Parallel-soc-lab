@@ -137,6 +137,25 @@ RULES: dict[str, dict] = {
                   'or *UPDATEXML* or *%20AND%201%3D1* or *%20OR%201%3D1* or *%27%20OR%20%27*)'),
         "threat_technique": ("T1190", "Exploit Public-Facing Application"),
     },
+    # Tentativa de XSS: payload-urile apar in url.original (encodate URL). Suricata ET Open NU are
+    # semnaturi XSS fiabile (gasit la auto-atac: 0 alerte IDS pe onmouseover/alert), deci golul il
+    # acoperim aici, paralel cu SQLi. Multime inchisa de tokeni puternici (constante in regula, nu
+    # din telemetrie). Poate fi fals pozitiv -> doar escaladeaza (SENSOR_DETECTION), fara podea.
+    "soc-web-xss-attempt": {
+        "name": "Tentativa de XSS (web)",
+        "description": "Cereri catre serverul web cu tokeni tipici de cross-site scripting in URL "
+                       "(alert(, onerror=, onmouseover=, <script, <svg, javascript:) - tipic dalfox "
+                       "sau injectie manuala. Poate fi fals pozitiv; source.ip e originea.",
+        "type": "query",
+        "language": "kuery",
+        "index": [APACHE_IDX],
+        # Tokenii apar encodati URL in url.original (%28=(  %3D==  %3C=<  %3A=:). alert%28 prinde
+        # payload-urile dalfox; restul acopera handlere de eveniment si taguri de injectie uzuale.
+        "query": ('url.original : (*alert%28* or *onerror%3D* or *onmouseover%3D* or *onload%3D* '
+                  'or *onfocus%3D* or *%3Cscript* or *%3Csvg* or *%3Cimg* or *javascript%3A* '
+                  'or *%3Ciframe* or *document.cookie* or *prompt%28*)'),
+        "threat_technique": ("T1190", "Exploit Public-Facing Application"),
+    },
 }
 
 # AIDE (pasul 3.E, G9): integritatea fisierelor de sistem si a webroot-ului, zilnic. Doar

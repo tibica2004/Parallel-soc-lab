@@ -136,6 +136,17 @@ def test_payload_suricata():
     assert t["tactic"]["id"] == "TA0001" and t["technique"][0]["id"] == "T1190"
 
 
+def test_payload_xss():
+    # golul XSS-IDS gasit la auto-atac: Suricata nu prinde onmouseover/alert, deci regula proprie
+    p = S.kibana_payload("soc-web-xss-attempt")
+    assert p["severity"] == "high" and p["tags"] == [S.TAG]
+    assert p["index"] == [S.APACHE_IDX]
+    assert "alert%28" in p["query"] and "onmouseover%3D" in p["query"] and "%3Cscript" in p["query"]
+    assert p["threat"][0]["technique"][0]["id"] == "T1190"
+    # recunoscuta ca senzor (acelasi mecanism ca SQLi)
+    assert "soc-web-xss-attempt" in S.RULES
+
+
 def test_orchestrator_model_cazut_pastreaza_motivul(rec):
     hunt = FakeHunt()
     orchestrator.process_alerts([Y()], orchestrator.BoundedSeen(), model_ok=False, t2_limit=1, hunt=hunt)
