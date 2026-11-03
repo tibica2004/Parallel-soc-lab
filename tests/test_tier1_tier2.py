@@ -60,6 +60,18 @@ def test_from_alert_host_invalid_respins():
         case_adapter.from_alert(_alert(host={"name": "web; rm -rf /"}), ESC, CID)
 
 
+def test_from_alert_senzor_retea_fara_host_name():
+    """Alerta de senzor (Suricata): fara host.name, dar cu observer.hostname / agent.name.
+    Fara fallback, orice scan escaladat la Tier 2 crapa pe host gol (gasit la auto-atac)."""
+    a = {"@timestamp": "2026-11-03T08:15:00Z", "kibana.alert.rule.name": "Suricata: tentativa de atac web (IDS)",
+         "observer": {"hostname": "web-prod"}, "agent": {"name": "web-prod"}, "source": {"ip": "172.30.6.133"}}
+    c = case_adapter.from_alert(a, EscalationDecision(escalate=True, reasons=[R.SENSOR_DETECTION]), CID)
+    assert c.host == "web-prod" and c.entity_id is None and c.parent is None
+    # daca lipseste si observer si agent, cade pe agent.name; daca lipsesc toate -> crapa (degradare controlata)
+    c2 = case_adapter.from_alert({"observer": {"hostname": "web-prod"}}, ESC, CID)
+    assert c2.host == "web-prod"
+
+
 def test_from_alert_fara_motive_respins():
     with pytest.raises(ValidationError):
         case_adapter.from_alert(_alert(), EscalationDecision(escalate=False, reasons=[]), CID)

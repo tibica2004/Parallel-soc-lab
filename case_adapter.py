@@ -61,7 +61,10 @@ def from_alert(alert: dict, escalation: EscalationDecision, chain_id: str,
     return Case(
         chain_id=chain_id,
         origin="tier1_alert",
-        host=_g(alert, "host.name") or "",
+        # Senzorii de retea (Suricata) nu pun host.name; hostul e observer.hostname /
+        # agent.name (acelasi COALESCE ca in sweep-urile din elastic_tools). Fara fallback,
+        # orice alerta de senzor escaladata la Tier 2 crapa pe host gol.
+        host=_g(alert, "host.name") or _g(alert, "observer.hostname") or _g(alert, "agent.name") or "",
         entity_id=_entity(ex.get("entity_id") or _g(alert, "process.entity_id")),
         parent=_clean(ex.get("parent") or _g(alert, "process.parent.name"), 255),
         child=_clean(ex.get("process") or _g(alert, "process.name"), 255),
