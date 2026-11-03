@@ -434,3 +434,10 @@ aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
   soc-web-spawns-shell cu exceptia sendmail. Doar aceasta regula are drift.
 - benign-gen: REPORNIT (active) dupa sesiunea de masurare.
 - Investigatie RCE web-prod (prioritate): ce a permis apache2 -> sh -c id/whoami.
+- Ghidurile lipsa scrise (89adbbc): detections/webshell-webroot.md + temp-exec.md + tests/test_guides.py
+  (1076 teste). Deployate pe es-node-1 (scp, sha256 identice; lookup_guide citeste fisierul la fiecare
+  alerta, fara restart). POARTA (benign-gen oprit, 09:02-11:44 UTC): fast 4/4 (recall 3/3, FP 0);
+  dev recall 8/8, FP 2/6 = cele doua cunoscute (php --version, Deploy legitim) -> identic cu referinta.
+  Scenariul fast "webshell scris in webroot" (regula cu ghid nou): malicious/95 TP. Nota: poarta s-a
+  inregistrat doar in fisier (results/ghiduri-*), nu in soc-metrics: shell-ul omului a avut env.sh fara
+  soc.env (ES_METRICS_WRITER_API_KEY lipsa). benign-gen de pornit la loc (om).
