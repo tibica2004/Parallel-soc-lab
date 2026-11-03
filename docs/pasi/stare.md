@@ -393,3 +393,4 @@ HEAD (hash-uri identice, 0 restarturi, jurnal fara avertismente); ES yellow cu 7
 replici = 1 -> de pus replicas 0 prin template/ILM, contul elastic); 1073 teste verzi local. Cele 80 de alerte
 "soc-reader refuzat" din 2026-11-02 12-16 UTC sunt testele de gate/injectie ale portii finale (bash -i, sh -c id).
 web-prod si benign-gen nu au fost verificate din sesiunea asta (SSH refuzat de clasificator).
+- Documente noi (5581aa5): docs/standard-investigatie.md (criteriul 3 din articol + ghid de etichetare) si docs/detectii-oprite.md (criteriul 7). Goluri notate: ghidurile webshell-webroot.md / temp-exec.md lipsesc din detections/.
