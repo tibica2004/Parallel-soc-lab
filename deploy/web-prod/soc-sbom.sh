@@ -62,7 +62,9 @@ collect() {
 
     # Module Apache; fallback (A12) daca apache2ctl -M nu merge ca neprivilegiat.
     local mods
-    mods="$(apache2ctl -M 2>/dev/null | awk '{print $1}' | sed 's/_module$//' || true)"
+    # Doar liniile "<nume>_module (static|shared)": antetul "Loaded Modules:" nu e un modul
+    # (bug gasit la 3.B: "Loaded" aparea ca modul Apache in SBOM).
+    mods="$(apache2ctl -M 2>/dev/null | awk '$1 ~ /_module$/ {print $1}' | sed 's/_module$//' || true)"
     if [ -z "$mods" ]; then
         mods="$(ls /etc/apache2/mods-enabled/*.load 2>/dev/null | xargs -r -n1 basename | sed 's/\.load$//' || true)"
     fi

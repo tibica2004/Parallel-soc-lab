@@ -5,9 +5,11 @@ webroot, www-data executa ceva nevazut, web-prod deschide o conexiune noua), nu
 continutul payload-ului. Un 0-day care evadeaza YARA/Suricata tot trebuie, la un
 moment dat, sa execute o comanda sau sa scrie un fisier — aici il prindem.
 
-Acopera DOAR golurile web-centrice pe care Defend native + hunt.py NU le prind in
-timp real. Restul tehnicilor (cron, ssh_key, identity, tmp_exec, setuid, shell_network,
-shadow_read generic, credential_grep) raman vanatori Tier-2 in hunt.py — nu le dublam.
+Acopera golurile web-centrice pe care Defend native + hunt.py NU le prind in timp real
+(regulile a-f, pasul 3.A) si, din 2026-11-03, cele trei de persistenta/escaladare din
+planul 3.1 e/f/g (fisier sensibil schimbat, cont/cron manipulat, SUID/capabilitate):
+hunt.py le vaneaza doar orar in Tier 3, deci persistenta se vedea cu pana la o ora
+intarziere. Restul (tmp_exec, shell_network, credential_grep) raman vanatori in hunt.py.
 
 Ca honeytokens/sensor: reguli obisnuite in Kibana (spatiul default), importate de om cu
 deploy/kibana/honeytoken_rules.py; recunoastere dupa rule_id (multime INCHISA), nu dupa
@@ -75,7 +77,30 @@ SEVERITY = {
     "soc-wwwdata-unexpected-exec": ("high", 75),
     "soc-webprod-new-outbound": ("high", 75),
     "soc-wwwdata-writes-outside-webroot": ("high", 75),
+    # 3.1 e/f/g: persistenta si escaladare de privilegii, in timp real
+    "soc-sensitive-file-change": ("critical", 90),
+    "soc-account-or-cron-manipulation": ("high", 75),
+    "soc-suid-or-capability-set": ("critical", 90),
 }
+
+# Regula e: fisierele a caror schimbare in afara unui update de pachet e persistenta sau
+# furt de acces. Cai statice (nu vin din telemetrie): egalitate pentru cele exacte,
+# like~ cu literal pentru directoarele cu nume variabil.
+SENSITIVE_FILES = ("/var/www/html/wp-config.php", "/var/www/html/.htaccess", "/etc/passwd",
+                   "/etc/shadow", "/etc/sudoers", "/etc/ssh/sshd_config", "/etc/ld.so.preload",
+                   "/etc/crontab")
+SENSITIVE_GLOBS = ("/etc/cron.d/*", "/etc/sudoers.d/*", "/root/.ssh/*", "/home/*/.ssh/authorized_keys",
+                   "/var/spool/cron/crontabs/*", "/etc/ssh/sshd_config.d/*")
+# Procesele care au voie sa atinga fisierele de mai sus: managerul de pachete (unattended-upgrades
+# ruleaza dpkg), uneltele de conturi (schimba passwd/shadow legitim; regula f le vede separat),
+# soc-wp-update (wp-config in fereastra de update, pe lista benign) si AIDE nu scrie nimic.
+SENSITIVE_WRITERS_OK = ("apt", "apt-get", "dpkg", "unattended-upgr", "useradd", "usermod", "userdel",
+                        "passwd", "chpasswd", "sshd", "systemd")
+# Regula f: unelte de manipulare a conturilor / planificatorului (T1136.001, T1053.003).
+ACCOUNT_CRON_TOOLS = ("useradd", "usermod", "adduser", "deluser", "userdel", "visudo", "crontab",
+                      "chpasswd", "passwd", "groupadd", "gpasswd")
+# Regula g: argumentele chmod care pun bitul setuid/setgid (T1548.001).
+SUID_ARGS = ("+s", "u+s", "g+s", "ug+s", "a+s", "4755", "4777", "2755", "6755", "4711", "6777")
 
 
 def _load_whitelists() -> dict:
@@ -186,6 +211,53 @@ def build_rules() -> dict[str, dict]:
             # cheia auditd devine tag; excludem agentul Elastic ca la honeytoken-read
             "query": f'tags : "{SHADOW_READ_KEY}" and not process.executable : /opt/Elastic/*',
             "threat_technique": ("T1003.008", "/etc/passwd and /etc/shadow"),
+        },
+        "soc-sensitive-file-change": {
+            "name": "Comportament: fisier sensibil modificat in afara unui update",
+            "description": "wp-config.php, .htaccess, passwd/shadow/sudoers, sshd_config, "
+                           "ld.so.preload, cron sau authorized_keys s-au schimbat printr-un proces "
+                           "care nu e managerul de pachete sau o unealta de conturi. Tipic persistenta "
+                           "(cron, cheie SSH), escaladare (sudoers) sau furt de acces. Update-urile "
+                           "legitime au fereastra in benign-ground-truth (soc-wp-update, dpkg).",
+            "type": "eql", "language": "eql", "index": FILE_IDX,
+            "query": (
+                'file where host.os.type == "linux" and\n'
+                '  event.type in ("creation", "change", "rename", "deletion") and\n'
+                f'  (file.path in {_eql_list(SENSITIVE_FILES)} or\n'
+                f'   file.path like~ {_eql_list(SENSITIVE_GLOBS)}) and\n'
+                f'  not process.name in {_eql_list(SENSITIVE_WRITERS_OK)}'
+            ),
+            "threat_technique": ("T1098", "Account Manipulation"),
+        },
+        "soc-account-or-cron-manipulation": {
+            "name": "Comportament: cont sau cron manipulat",
+            "description": "A rulat o unealta de conturi (useradd/usermod/passwd/visudo...) sau "
+                           "crontab. Pe un server web fara administrare zilnica e persistenta "
+                           "(T1136.001 cont local, T1053.003 cron) sau pregatire de escaladare. "
+                           "Un admin legitim produce acelasi eveniment: se eticheteaza benign, nu "
+                           "se exclude (nu exista un user admin fix de exclus pe web-prod).",
+            "type": "eql", "language": "eql", "index": PROC_IDX,
+            "query": (
+                'process where host.os.type == "linux" and event.type == "start" and\n'
+                f'  process.name in {_eql_list(ACCOUNT_CRON_TOOLS)} and\n'
+                '  not process.parent.name in ("dpkg", "apt", "apt-get", "unattended-upgr", "dpkg-preconfigu")\n'
+                '  and not process.args == "-l"'       # crontab -l: doar citire
+            ),
+            "threat_technique": ("T1136.001", "Local Account"),
+        },
+        "soc-suid-or-capability-set": {
+            "name": "Comportament: bit SUID/SGID sau capabilitate setata",
+            "description": "chmod cu +s / 4755 / 2755 / 6755 sau setcap: un binar a primit "
+                           "privilegii persistente (T1548.001). Nicio operare web normala nu face "
+                           "asta; managerul de pachete e exclus (postinst-urile dpkg seteaza SUID legitim).",
+            "type": "eql", "language": "eql", "index": PROC_IDX,
+            "query": (
+                'process where host.os.type == "linux" and event.type == "start" and\n'
+                f'  ((process.name == "chmod" and process.args in {_eql_list(SUID_ARGS)}) or\n'
+                '   process.name == "setcap") and\n'
+                '  not process.parent.name in ("dpkg", "apt", "apt-get", "unattended-upgr")'
+            ),
+            "threat_technique": ("T1548.001", "Setuid and Setgid"),
         },
     }
     return rules

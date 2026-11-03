@@ -504,3 +504,16 @@ Propuneri (asteapta aprobarea omului):
   SSH spre es-node-1/web-prod/atacator (punct unic de esec).
 - atacator: 1.4 GB RAM folositi din 16, load 0.02 -> m1.large ar elibera 4 vCPU (cota plina).
 - Fara copie off-host: snapshot OpenStack (server image create) pentru es-node-1 si web-prod.
+
+## 2026-11-03 13:00: verificarea completitudinii planului + completari (docs/pasi/pas-13-completari.md)
+
+Gasit: restanta cozii 2 h 40 min (duplicatele consumau plafonul 50/ciclu), 3.1 e/f/g neimplementate
+(doar vanatoare orara), 3.4 check_agent amanat, G8 inexistent, B1 fara timer lunar, bug SBOM "Loaded",
+ES_READER 403 pe benign-ground-truth, ES galben (70 shard-uri, replici 1), es-sg 9200/8220 deschise
+spre tot es-net (inclusiv lab-sink), victim-sg 22 de la atacator. Criterii nemasurate inca: etichete
+2/100, ART 1/20, determinism nerulat, benign_actions 0 docs, honeytoken 0/48h (resetat de auto-atac).
+COD scris + 1099 teste verzi: take_until_cap (plafon pe cazuri noi), reguli e/f/g, absence_check
+(key_rotation/restore_test/agent), timer restore lunar, SBOM fix, new_url_path sare momelile.
+NEAPLICAT: cere poarta fast+dev (atinge bucla) + comenzile omului din pas-13 (B.1-B.9).
+Abateri documentate, nu lipsuri: timesyncd, fara off-host, pasul 9 doar readiness, fara
+disable_functions, WP update in mod raport, Discord, conturi honeytoken inexistente, watchdog 900 s.

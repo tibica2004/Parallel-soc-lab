@@ -43,4 +43,6 @@ if [ "$tables" -lt "$MIN_TABLES" ]; then
     exit 1
 fi
 logger -t soc-backup-restore "OK tables=$tables db=$(basename "$db") web=$(basename "$web")"
+# Stamp citit de absence_check (restore_test_stale > 35 zile): un backup netestat nu e un backup.
+date -u +%Y-%m-%dT%H:%M:%SZ > "${SOC_RESTORE_STAMP:-$DIR/.restore-test-ok}"
 echo "OK: $(basename "$db") -> $tables tabele in wp; $(basename "$web") are wp-config.php si version.php"

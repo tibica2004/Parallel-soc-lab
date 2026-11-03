@@ -21,6 +21,7 @@ from typing import Any
 from elasticsearch import Elasticsearch
 from langchain_core.tools import tool
 
+import honeytokens
 from schemas import ContextPack, EntityType, EvidenceRef, RarityFinding
 from tracing import traced_tool
 
@@ -326,6 +327,14 @@ def _url_path(p) -> str:
     return str(p)[:200]
 
 
+def is_robots_trap(path) -> bool:
+    """Caile-capcana din robots.txt (honeytokens.ROBOTS_TRAPS) au regula lor Kibana
+    (soc-honey-robots-trap); ca noutate de sweep ar fi aceeasi alerta de doua ori si ar
+    parea "expunere" (gasit la auto-atacul din 2026-11-03). Pur."""
+    p = str(path or "")
+    return any(p == t or p.startswith(t + "/") for t in honeytokens.ROBOTS_TRAPS)
+
+
 def sweep_new_url_paths(window_hours: int = 1) -> list[RarityFinding]:
     """Cai web servite cu succes (< 400) pentru prima data in 30 de zile. Un webshell
     nou raspunde 200 pe o cale noua; scanarea (404) ramane in seama honeytokens."""
@@ -338,6 +347,7 @@ def sweep_new_url_paths(window_hours: int = 1) -> list[RarityFinding]:
         """
     keys = ("host.name", "url.path")
     rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    rows = [r for r in rows if not is_robots_trap(r.get("url.path"))]
     return [
         RarityFinding(
             kind="new_url_path", entity_type=EntityType.HOST, entity_id=r["host.name"],

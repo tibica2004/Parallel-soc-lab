@@ -409,3 +409,48 @@ def test_reguli_suricata_vechi_sau_lipsa(monkeypatch):
     run = _run()
     A.check_suricata_rules(_EsqlES([[(run.now - timedelta(hours=3)).isoformat()]]), run)
     assert run.kinds == []
+
+
+# ---------------- G8 rotatia cheilor, B1 testul de restore, 3.4 agentul (2026-11-03) ----------------
+
+@pytest.mark.parametrize("s,days", [("2026-10-29", 1.375), ("2026-10-30T09:00:00Z", 0.0), ("", None),
+                                    ("nu-e-data", None)])
+def test_days_since(s, days):
+    got = A.days_since(s, NOW)
+    assert got == days if days is None else abs(got - days) < 1e-6
+
+
+def test_rotatia_cheilor_ok_restanta_si_necunoscuta(monkeypatch):
+    monkeypatch.setattr(A, "KEYS_ROTATED_ON", "2026-10-01")
+    run = _run(); A.check_key_rotation(run); assert run.kinds == []
+    monkeypatch.setattr(A, "KEYS_ROTATED_ON", "2026-07-01")
+    run = _run(); A.check_key_rotation(run); assert run.kinds == ["key_rotation_overdue:keys"]
+    monkeypatch.setattr(A, "KEYS_ROTATED_ON", "")        # necunoscut = raportat, nu tacut (R9)
+    run = _run(); A.check_key_rotation(run); assert run.kinds == ["key_rotation_overdue:keys"]
+
+
+def test_restore_stamp(monkeypatch, tmp_path):
+    st = tmp_path / "stamp"
+    monkeypatch.setattr(A, "RESTORE_STAMP", str(st))
+    run = _run(); A.check_restore_test(run); assert run.kinds == ["restore_test_stale:restore_test"]
+    st.write_text("2026-10-20T03:00:00Z\n"); run = _run(); A.check_restore_test(run); assert run.kinds == []
+    st.write_text("2026-09-01T03:00:00Z\n"); run = _run(); A.check_restore_test(run)
+    assert run.kinds == ["restore_test_stale:restore_test"]
+
+
+def test_agent_problems():
+    ok = {"status": "online", "last_checkin": (NOW - timedelta(minutes=1)).isoformat()}
+    assert A.agent_problems([ok], NOW) == []
+    assert A.agent_problems([], NOW) == ["niciun agent inrolat cu acest nume"]
+    bad = A.agent_problems([{"status": "offline", "last_checkin": (NOW - timedelta(minutes=30)).isoformat()}], NOW)
+    assert bad == ["status=offline", "ultimul check-in acum 30 min"]
+    assert A.agent_problems([{"status": "online"}], NOW) == ["fara check-in"]
+
+
+def test_agent_sarit_fara_cheie_si_critic_cand_e_offline(monkeypatch):
+    monkeypatch.setattr(A, "KIBANA_FLEET_API_KEY", "")
+    run = _run(); A.check_agent(run); assert run.kinds == [] and "agent_ok" not in run.ages
+    monkeypatch.setattr(A, "KIBANA_FLEET_API_KEY", "k")
+    monkeypatch.setattr(A.requests, "get", lambda *a, **k: R(body={"items": [{"status": "offline"}]}))
+    run = _run(); A.check_agent(run)
+    assert run.kinds == ["agent_unhealthy:elastic-agent"] and run.ages["agent_ok"] == 0.0

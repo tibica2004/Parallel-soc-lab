@@ -135,6 +135,26 @@ def group_alerts(alerts: list[dict]) -> list[tuple[str, list[dict]]]:
     return list(groups.items())
 
 
+def take_until_cap(alerts: list[dict], seen, cap: int) -> list[dict]:
+    """Prefixul lotului (in ordinea timpului) care contine cel mult `cap` cazuri NOI.
+    Duplicatele (cheie deja in `seen`) nu costa nimic si nu consuma plafonul: un flood de
+    alerte identice se dreneaza intr-un ciclu, nu in ore. Masurat 2026-11-03: 1797 de alerte
+    din auto-atac, cele mai multe duplicate, tineau cursorul 2 h 40 min in urma cu plafonul
+    pe alerte brute -> un atac real ar fi fost vazut abia dupa. Pur."""
+    if cap <= 0:
+        return list(alerts)
+    new_keys: set[str] = set()
+    out: list[dict] = []
+    for a in alerts:
+        k = dedup_key_alert(a)
+        if k not in seen and k not in new_keys:
+            if len(new_keys) >= cap:
+                break
+            new_keys.add(k)
+        out.append(a)
+    return out
+
+
 def case_extra(members: list[dict]) -> dict:
     """Ce se adauga in audit/verdict cand un caz are mai multe alerte. Pur."""
     if len(members) < 2:
@@ -640,9 +660,14 @@ def run_positioned(args) -> int:
         alerts, stats, run_sweep, cycle_error = [], {}, False, None
         try:
             since, until = load_cursor(), window_end()
-            alerts = fetch_alerts_between(since, until, args.limit)
+            # Citim mai mult decat judecam: plafonul --limit e pe CAZURI NOI (judecate cu
+            # model), nu pe alerte brute; duplicatele se dreneaza gratis (take_until_cap).
+            fetched = fetch_alerts_between(since, until, max(args.fetch_limit, args.limit))
+            alerts = take_until_cap(fetched, seen, args.limit)
+            left = len(fetched) - len(alerts)
             print(f"[{stamp}] ciclu {cycle}: {len(alerts)} alerte in "
-                  f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]", flush=True)
+                  f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]"
+                  + (f" (+{left} ramase pentru ciclul urmator)" if left else ""), flush=True)
             stats = {"total": 0, "escalated": 0, "no_model": 0}
             fast_ok = degraded.llm_healthy("fast") if alerts else True
             last_ts = process_alerts(alerts, seen, stats, model_ok=fast_ok, t2_limit=args.t2_limit)
@@ -651,8 +676,8 @@ def run_positioned(args) -> int:
                 print(f"  escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']}"
                       f" (fara model: {stats['no_model']}; Tier 2: {stats.get('tier2', 0)} investigate, "
                       f"{stats.get('tier2_skipped', 0)} peste buget)", flush=True)
-            if len(alerts) >= args.limit and last_ts:
-                # fereastra nu s-a golit: continuam exact de la ultima alerta
+            if (left or len(fetched) >= max(args.fetch_limit, args.limit)) and last_ts:
+                # fereastra nu s-a golit: continuam exact de la ultima alerta consumata
                 save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
             else:
                 save_cursor(until)   # fereastra golita (sau goala): avansam
@@ -834,7 +859,10 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--minutes", type=int, default=60, help="rulare manuala: ultimele N min")
-    ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--limit", type=int, default=20,
+                    help="cazuri NOI judecate per ciclu (duplicatele nu se numara)")
+    ap.add_argument("--fetch-limit", type=int, default=int(os.environ.get("FETCH_LIMIT", "500")),
+                    help="alerte citite per ciclu din care se aleg cazurile noi (drenarea duplicatelor)")
     ap.add_argument("--sweep", action="store_true")
     ap.add_argument("--once", action="store_true", help="un ciclu folosind pozitia, apoi iesi")
     ap.add_argument("--loop", action="store_true", help="cicluri la interval, folosind pozitia")

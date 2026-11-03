@@ -195,7 +195,9 @@ RULES: dict[str, dict] = {
 PARENT_NAME = {"T1552": "Unsecured Credentials", "T1505": "Server Software Component",
                # folosite si de behavioral_rules (pasul 3.A), acelasi builder
                "T1059": "Command and Scripting Interpreter", "T1003": "OS Credential Dumping",
-               "T1021": "Remote Services"}
+               "T1021": "Remote Services",
+               # regulile e/f/g (behavioral_rules, 2026-11-03)
+               "T1136": "Create Account", "T1548": "Abuse Elevation Control Mechanism"}
 TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Discovery"),
           "T1078": ("TA0001", "Initial Access"), "T1505.003": ("TA0003", "Persistence"),
           "T1190": ("TA0001", "Initial Access"), "T1595": ("TA0043", "Reconnaissance"),
@@ -204,6 +206,8 @@ TACTIC = {"T1552.001": ("TA0006", "Credential Access"), "T1083": ("TA0007", "Dis
           "T1059.004": ("TA0002", "Execution"), "T1059": ("TA0002", "Execution"),
           "T1071": ("TA0011", "Command and Control"), "T1105": ("TA0011", "Command and Control"),
           "T1003.008": ("TA0006", "Credential Access"),
+          "T1098": ("TA0003", "Persistence"), "T1136.001": ("TA0003", "Persistence"),
+          "T1548.001": ("TA0004", "Privilege Escalation"),
           # AIDE (sensor_rules, pasul 3.E)
           "T1554": ("TA0003", "Persistence"),
           # gate-ul soc-reader (sensor_rules, pasul 1b)

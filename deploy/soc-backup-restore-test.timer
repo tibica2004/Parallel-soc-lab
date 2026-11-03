@@ -1,0 +1,10 @@
+[Unit]
+Description=Agentic SOC - test de restore lunar (ziua 1, 03:00, dupa pull-ul de la 02:15)
+
+[Timer]
+OnCalendar=*-*-01 03:00:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

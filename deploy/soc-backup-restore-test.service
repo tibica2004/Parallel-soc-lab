@@ -1,0 +1,18 @@
+[Unit]
+Description=Agentic SOC - test lunar de restore al backup-ului web-prod (MariaDB temporar fara retea)
+After=network-online.target docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Acelasi user ca soc-backup-pull (proprietarul /var/backups/web-prod, in grupul docker).
+User=tiberiu
+ExecStart=/usr/local/bin/soc-backup-restore-test.sh
+# Scrie doar stamp-ul .restore-test-ok in directorul de backup; containerul e efemer (--rm).
+ProtectSystem=strict
+ReadWritePaths=/var/backups/web-prod
+ProtectHome=read-only
+PrivateTmp=yes
+NoNewPrivileges=yes
+Nice=10
+TimeoutStartSec=20min

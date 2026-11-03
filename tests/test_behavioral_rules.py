@@ -127,3 +127,35 @@ def test_whitelist_filtreaza_valori_periculoase(monkeypatch, tmp_path):
     assert "bad" not in q and "relative/path" not in q  # valorile periculoase eliminate
     assert "/usr/sbin/apache2" in q                     # a cazut pe implicite (lista a ramas goala)
     assert "drop" not in rules["soc-webprod-new-outbound"]["query"]
+
+
+# ---------------- 3.1 e/f/g: persistenta si escaladare (2026-11-03) ----------------
+
+def test_reguli_efg_exista_si_sunt_eql():
+    r = B.RULES
+    for rid in ("soc-sensitive-file-change", "soc-account-or-cron-manipulation",
+                "soc-suid-or-capability-set"):
+        assert r[rid]["type"] == "eql" and rid in B.SEVERITY
+        q = r[rid]["query"]
+        assert q.count("(") == q.count(")") and q.count('"') % 2 == 0
+    assert r["soc-sensitive-file-change"]["index"] == B.FILE_IDX
+    assert r["soc-account-or-cron-manipulation"]["index"] == B.PROC_IDX
+
+
+def test_continut_efg():
+    e = B.RULES["soc-sensitive-file-change"]["query"]
+    assert "/etc/sudoers" in e and "/etc/cron.d/*" in e and "authorized_keys" in e
+    assert '"dpkg"' in e and "not process.name in" in e      # update-urile de pachete excluse
+    f = B.RULES["soc-account-or-cron-manipulation"]["query"]
+    assert '"useradd"' in f and '"crontab"' in f and '"visudo"' in f
+    assert 'process.args == "-l"' in f                       # crontab -l nu e persistenta
+    g = B.RULES["soc-suid-or-capability-set"]["query"]
+    assert '"4755"' in g and '"u+s"' in g and '"setcap"' in g
+
+
+def test_tactici_efg_rezolva():
+    assert B.kibana_payload("soc-sensitive-file-change")["threat"][0]["tactic"]["id"] == "TA0003"
+    t = B.kibana_payload("soc-suid-or-capability-set")["threat"][0]
+    assert t["tactic"]["id"] == "TA0004" and t["technique"][0]["subtechnique"][0]["id"] == "T1548.001"
+    assert (B.kibana_payload("soc-account-or-cron-manipulation")["threat"][0]["technique"][0]
+            ["subtechnique"][0]["name"] == "Local Account")

@@ -154,3 +154,30 @@ def test_alertele_de_jurnal_diferite_nu_se_unesc():
     a = {"kibana.alert.rule.name": "YARA", "host": {"name": "web-prod"}, "message": "fisier A"}
     b = {"kibana.alert.rule.name": "YARA", "host": {"name": "web-prod"}, "message": "fisier B"}
     assert len(_o.group_alerts([a, b])) == 2
+
+
+# --- plafonul pe cazuri NOI: duplicatele nu consuma bugetul ciclului --------------------
+
+def test_duplicatele_nu_consuma_plafonul():
+    seen = {_o.dedup_key_alert(_web("172.30.6.133"))}          # IP-ul atacatorului e deja un caz
+    flood = [_web("172.30.6.133", ts=f"2026-11-03T10:{i // 60:02d}:{i % 60:02d}Z") for i in range(300)]
+    nou = [_web(f"203.0.113.{i}", ts=f"2026-11-03T11:00:{i:02d}Z") for i in range(5)]
+    out = _o.take_until_cap(flood + nou, seen, cap=3)
+    # tot flood-ul (duplicat) e consumat gratis; primele 3 cazuri noi intra, celelalte 2 asteapta
+    assert len(out) == 303 and out[-1] is nou[2]
+
+
+def test_plafonul_numara_cazuri_nu_alerte():
+    seen = set()
+    rafala = [_web("172.30.6.133", ts=f"2026-11-03T10:00:{i:02d}Z") for i in range(40)]
+    alt = _web("9.9.9.9", ts="2026-11-03T10:01:00Z")
+    out = _o.take_until_cap(rafala + [alt], seen, cap=2)
+    assert len(out) == 41          # o rafala = un caz; cap 2 incape si al doilea
+
+
+def test_ordinea_timpului_se_pastreaza_si_taierea_e_prefix():
+    seen = set()
+    alerts = [_web(f"198.51.100.{i}", ts=f"2026-11-03T10:00:{i:02d}Z") for i in range(10)]
+    out = _o.take_until_cap(alerts, seen, cap=4)
+    assert out == alerts[:4]
+    assert _o.take_until_cap(alerts, seen, cap=0) == alerts     # 0 = fara plafon

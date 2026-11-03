@@ -196,3 +196,9 @@ def test_sweep_exec_path(monkeypatch):
     k = orchestrator.dedup_key_finding
     assert k(F("suspicious_exec_path", exec="/dev/shm/p", process="p", count=1)) == \
         k(F("suspicious_exec_path", exec="/dev/shm/p", process="p", count=9))
+
+
+def test_caile_capcana_nu_sunt_noutati():
+    # momelile din robots.txt au regula lor honeytoken; ca "new_url_path" ar fi dublura si "expunere"
+    assert E.is_robots_trap("/db-backup") and E.is_robots_trap("/wp-admin-old/index.html")
+    assert not E.is_robots_trap("/db-backups") and not E.is_robots_trap("/") and not E.is_robots_trap(None)

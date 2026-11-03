@@ -80,6 +80,18 @@ ES_DISK_MAX_PCT = float(os.environ.get("ABSENCE_ES_DISK_MAX_PCT", "80"))
 ES_HEAP_MAX_PCT = float(os.environ.get("ABSENCE_ES_HEAP_MAX_PCT", "90"))
 PROBE_MAX_AGE_MIN = float(os.environ.get("ABSENCE_PROBE_MAX_AGE_MIN", "5"))
 HASH_EVERY_MIN = int(os.environ.get("INTEGRITY_HASH_EVERY_MIN", "10"))
+# G8: data ultimei rotatii a cheilor (API ES + SSH soc-reader/soc-backup), scrisa de om in
+# soc.env (ISO, ex. 2026-10-29) la fiecare rotatie; prag 90 de zile + 5 toleranta.
+KEYS_ROTATED_ON = os.environ.get("SOC_KEYS_ROTATED_ON", "")
+KEY_ROTATION_MAX_DAYS = float(os.environ.get("ABSENCE_KEY_ROTATION_MAX_DAYS", "95"))
+# B1: testul lunar de restore lasa un stamp (soc-backup-restore-test.sh); mai vechi de 35 z = restant.
+RESTORE_STAMP = os.environ.get("SOC_RESTORE_STAMP", "/var/backups/web-prod/.restore-test-ok")
+RESTORE_MAX_DAYS = float(os.environ.get("ABSENCE_RESTORE_MAX_DAYS", "35"))
+# 3.4 check_agent: starea agentului web-prod din Fleet (cheie Kibana DOAR cu fleet:read, optionala:
+# lipsa -> verificarea e sarita, nu esec, ca sa nu pagineze pana o creeaza omul).
+KIBANA_URL = os.environ.get("KIBANA_URL", "http://localhost:5601")
+KIBANA_FLEET_API_KEY = os.environ.get("KIBANA_FLEET_API_KEY", "")
+AGENT_CHECKIN_MAX_MIN = float(os.environ.get("ABSENCE_AGENT_CHECKIN_MAX_MIN", "5"))
 _DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 CANARY_REF = os.environ.get("INTEGRITY_CANARY_REF", os.path.join(_DATA, "canary.sha256"))
 CRON_STATE = os.environ.get("INTEGRITY_CRON_STATE", os.path.join(_DATA, "cron.sha256"))
@@ -116,6 +128,9 @@ class IntegrityKind(str, Enum):
     ES_DISK = "es_disk"                             # disc peste prag
     ES_HEAP = "es_heap"                             # heap JVM peste prag
     SURICATA_RULES_STALE = "suricata_rules_stale"   # pasul 12: reguli IDS neactualizate
+    KEY_ROTATION_OVERDUE = "key_rotation_overdue"   # G8: chei nerotite la 90 de zile
+    RESTORE_TEST_STALE = "restore_test_stale"       # B1: testul lunar de restore lipseste
+    AGENT_UNHEALTHY = "agent_unhealthy"             # 3.4: agentul web-prod nu e online in Fleet
 
 
 class IntegrityAlert(BaseModel):
@@ -481,6 +496,105 @@ def check_es_health(es: Elasticsearch, run: Run) -> None:
     log.info("es: status=%s", health.get("status"))
 
 
+def days_since(iso_date: str, now: datetime) -> float | None:
+    """Zile de la o data ISO (YYYY-MM-DD sau cu ora); None daca nu se poate parsa. Pur."""
+    s = (iso_date or "").strip()
+    if not s:
+        return None
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return (now - d).total_seconds() / 86400
+
+
+def check_key_rotation(run: Run) -> None:
+    """G8: cheile API ES si cheile SSH se rotesc la 90 de zile. Data vine din soc.env
+    (SOC_KEYS_ROTATED_ON); lipsa = nu pot verifica, deci raportez (R9), nu tac."""
+    age = days_since(KEYS_ROTATED_ON, run.now)
+    run.ages["key_rotation_days"] = None if age is None else round(age, 1)
+    if age is None:
+        run.problem(IntegrityKind.KEY_ROTATION_OVERDUE, "Rotatia cheilor: data necunoscuta",
+                    "SOC_KEYS_ROTATED_ON lipseste sau nu e o data ISO in soc.env: nu pot verifica "
+                    "rotatia la 90 de zile (G8). Scrie data ultimei rotatii.",
+                    severity="high", host="es-node-1", subject="keys", dedup_minutes=1440)
+        return
+    if age > KEY_ROTATION_MAX_DAYS:
+        run.problem(IntegrityKind.KEY_ROTATION_OVERDUE, "Rotatia cheilor e restanta",
+                    f"Ultima rotatie acum {age:.0f} zile (prag {KEY_ROTATION_MAX_DAYS:.0f}). Roteste "
+                    "cheile API ES si cheile SSH soc-reader/soc-backup, apoi actualizeaza "
+                    "SOC_KEYS_ROTATED_ON.", severity="high", host="es-node-1", subject="keys",
+                    dedup_minutes=1440, age_min=age * 1440, threshold_min=KEY_ROTATION_MAX_DAYS * 1440)
+    else:
+        log.info("chei: rotite acum %.0f zile", age)
+
+
+def check_restore_test(run: Run) -> None:
+    """B1: testul lunar de restore (soc-backup-restore-test.timer) scrie un stamp la succes.
+    Un backup netestat nu e un backup."""
+    try:
+        with open(RESTORE_STAMP, encoding="utf-8") as f:
+            stamp = f.read()
+    except OSError:
+        stamp = ""
+    age = days_since(stamp, run.now)
+    run.ages["restore_test_days"] = None if age is None else round(age, 1)
+    if age is None or age > RESTORE_MAX_DAYS:
+        shown = "niciun test de restore inregistrat" if age is None else f"ultimul test acum {age:.0f} zile"
+        run.problem(IntegrityKind.RESTORE_TEST_STALE, "Testul de restore al backup-ului lipseste",
+                    f"{shown} (prag {RESTORE_MAX_DAYS:.0f} zile; stamp {RESTORE_STAMP}). Verifica "
+                    "soc-backup-restore-test.timer pe es-node-1.", severity="high", host="es-node-1",
+                    subject="restore_test", dedup_minutes=1440)
+    else:
+        log.info("restore test: acum %.0f zile", age)
+
+
+def agent_problems(items: list[dict], now: datetime, max_min: float = AGENT_CHECKIN_MAX_MIN) -> list[str]:
+    """Ce e in neregula cu agentii din raspunsul Fleet (/api/fleet/agents). Pur."""
+    if not items:
+        return ["niciun agent inrolat cu acest nume"]
+    out = []
+    for a in items:
+        st = a.get("status")
+        if st != "online":
+            out.append(f"status={st}")
+        age = None
+        last = a.get("last_checkin")
+        if isinstance(last, str):
+            try:
+                age = (now - _parse(last)).total_seconds() / 60
+            except ValueError:
+                age = None
+        if age is None or age > max_min:
+            out.append("fara check-in" if age is None else f"ultimul check-in acum {age:.0f} min")
+    return out
+
+
+def check_agent(run: Run, host: str = CANARY_HOST) -> None:
+    """3.4: agentul de pe web-prod e online in Fleet si a raportat recent. Fara cheie ->
+    sarit (omul o creeaza cu fleet:read, nimic altceva)."""
+    if not KIBANA_FLEET_API_KEY:
+        log.info("fleet agent: KIBANA_FLEET_API_KEY lipsa, verificare sarita")
+        return
+    r = requests.get(f"{KIBANA_URL}/api/fleet/agents",
+                     params={"kuery": f"local_metadata.host.name:{host}", "perPage": 5},
+                     headers={"Authorization": f"ApiKey {KIBANA_FLEET_API_KEY}", "kbn-xsrf": "soc"},
+                     timeout=10)
+    if not r.ok:
+        raise RuntimeError(f"Fleet API HTTP {r.status_code}")
+    bad = agent_problems(list(r.json().get("items") or []), run.now)
+    run.ages["agent_ok"] = 0.0 if bad else 1.0
+    if bad:
+        run.problem(IntegrityKind.AGENT_UNHEALTHY, f"Agentul Elastic de pe {host} nu e sanatos",
+                    f"Fleet: {'; '.join(bad)[:300]}. Telemetria poate lipsi sau fi incompleta.",
+                    severity="critical", host=host, subject="elastic-agent", dedup_minutes=30)
+        log.warning("fleet agent %s: %s", host, bad)
+    else:
+        log.info("fleet agent %s: online", host)
+
+
 def write_heartbeat(metrics: Elasticsearch | None, run: Run) -> None:
     """Pulsul din soc-metrics: orchestratorul pagineaza daca lipseste (paznicul paznicului)."""
     if metrics is None:
@@ -502,6 +616,18 @@ def main() -> int:
     # Verificarile locale ruleaza mereu, chiar daca ES e cazut.
     check_services(run)
     check_fleet_server(run)
+    try:
+        check_agent(run)
+    except Exception as e:
+        run.problem(IntegrityKind.CHECK_FAILED, "Absence-check: verificarea `agent` a esuat",
+                    f"Fleet API: {type(e).__name__}: {str(e)[:200]}", severity="high",
+                    host="es-node-1", subject="check_agent", dedup_minutes=30)
+        log.error("verificarea agent a esuat: %s", e)
+        run.failed = True
+    # Verificarile lente (zile): o data la HASH_EVERY_MIN minute, ca hash-urile.
+    if HASH_EVERY_MIN > 0 and run.now.minute % HASH_EVERY_MIN == 0:
+        check_key_rotation(run)
+        check_restore_test(run)
     try:
         es = _es()
     except Exception as e:
