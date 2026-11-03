@@ -472,3 +472,11 @@ reala sau FP hydra; nu am verificat prin login). RCE real (apache -> sh -c id/wh
   404 rest_no_route; ?author=1: scurgea slug -> 301 spre /.
 - Honeytokens PASTRATE: backup.sql inca 200 (capcana), .env.bak, /db-backup/, /wp-admin-old/ neatinse.
 Toate verificate prin curl pe web-prod. Golul XSS-IDS si cele doua expuneri reale: INCHISE.
+
+### Rulare de verificare (2026-11-03 10:13): fix XSS-IDS confirmat inainte/dupa
+dalfox + nuclei (xss/sqli/lfi/rce) pe web-prod (intaririle lasate la cererea omului). 1797 .alerts:
+- Tentativa de XSS (web) NOUA: 753 (INAINTE de regula: 0 alerte IDS pe XSS). Orchestratorul le
+  judeca malicious/95/escalate_human -> Tier 2; un isolate_host la 85 tinut corect de prag (95).
+- ModSecurity 623, Suricata web-attack 395, SQLi 23, enumerare 3.
+- Mod degradat sub flood: la 32 cazuri > prag 20, alertele critice escaladeaza direct fara model (R9).
+Concluzie: golul XSS-IDS inchis si demonstrat cu trafic real. benign-gen repornit.
