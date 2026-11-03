@@ -358,12 +358,38 @@ atacator 172.30.6.133 -> web-prod IP flotant 172.30.6.249:80 (intern blocat de v
 - Sweep complet (dupa restart) a produs 8 findings, toate din atac:
   - web_enumeration 172.30.6.133 -> suspicious/70/enrich_only (a numit feroxbuster, 4790 cai)
   - entity_risk source_ip 172.30.6.133 -> suspicious/65 (A3: scorul pe IP-ul atacatorului)
-  - new_url_path /db-backup, /wp-admin-old -> suspicious (EXPUNERI REALE: cai care raspund 200)
+  - new_url_path /db-backup, /wp-admin-old -> suspicious. CORECTIE 2026-11-03: NU sunt expuneri,
+    sunt momelile ROBOTS_TRAPS (honeytokens.py, Disallow in robots.txt); regula soc-honey-robots-trap
+    a tras pentru ambele (08:24 UTC, de la 172.30.6.133), grupate intr-un verdict suspicious cu honeytoken.
   - wp_recon_path /xmlrpc.php -> suspicious/75; /readme.html, /license.txt, akismet readme
   - 3 peste buget -> escaladate la om fara model (R9, nepierdute)
 - Cazuri deschise corect, inclusiv cazul pe source_ip 172.30.6.133 (fix-ul de entitate de azi).
 
 ### De urmarit (intariri propuse)
-- Expunerile /db-backup si /wp-admin-old (feroxbuster le-a gasit 200): de verificat pe web-prod.
+- (scos: /db-backup si /wp-admin-old sunt momeli, nu expuneri; NU le sterge de pe web-prod.)
+- new_url_path sa sara caile din honeytokens.ROBOTS_TRAPS (dublura cu regula honeytoken): de decis.
 - Enrich_only pe recon agresiv e decizia modelului; de discutat daca enumerarea sustinuta
   ar trebui sa ridice un prag de cod (nu doar enrich). Momentan corect: recon != incident.
+
+## 2026-11-03: verificare fata de articolul THN "Is Your SOC Ready for AI Agents?" (Prophet Security)
+
+Cele 8 criterii de pregatire din articol, pe laborator (detalii in raportul sesiunii):
+- acces API la surse (SIEM/EDR/retea): DA (ES|QL parametrizat, Defend, Suricata, auditd, ModSecurity).
+- context citibil de masina (criticitate, admini, activitate benigna cunoscuta): DA (asset-inventory cu
+  asset_criticality/normal_admins/ferestre, liste albe, benign-ground-truth, kb/threat_intel.yml).
+- standard scris pentru o investigatie completa: PARTIAL (podelele/should_escalate/FACT_RULES in cod si
+  prompturi versionate, dar nu exista un document "ce inchide o alerta" pentru clasele cu volum mare).
+- actiuni care raman la om + cine largeste permisiunile: DA (policy.THRESHOLDS 101, shadow, executor.graduation
+  >= 50 etichete / precizie >= 0.95 / 0 FN; readiness c1-c9; omul decide).
+- monitorizarea surselor de log (pipeline health): DA (absence_check 7 fluxuri + fleet + canar + cron hash).
+- ponderea alertelor investigate si timpul mediu: DA pentru latenta/escaladare (soc-metrics cycle + metrics.py);
+  LIPSESTE "reopened" si timpul pana la prima privire a omului.
+- lista detectiilor oprite din lipsa de capacitate: NU exista; Tier 3 dezactiveaza doar regulile proprii.
+- plan cu responsabil pentru orele castigate (vanatoare, reguli): DA (soc-tier3 orar, hunt.py, rules.py).
+GOLUL PRINCIPAL (si al articolului: "run in parallel, record baseline, every override is data"): doar 2 din 2668
+verdicte au eticheta umana -> c1/c7 readiness pica, regresia pe setul de aur nu exista, graduation imposibila.
+Stare host (read-only): 11/11 servicii/timere active pe es-node-1; orchestrator repornit 08:34 UTC pe codul
+HEAD (hash-uri identice, 0 restarturi, jurnal fara avertismente); ES yellow cu 70 shard-uri neasignate (nod unic,
+replici = 1 -> de pus replicas 0 prin template/ILM, contul elastic); 1073 teste verzi local. Cele 80 de alerte
+"soc-reader refuzat" din 2026-11-02 12-16 UTC sunt testele de gate/injectie ale portii finale (bash -i, sh -c id).
+web-prod si benign-gen nu au fost verificate din sesiunea asta (SSH refuzat de clasificator).
