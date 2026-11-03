@@ -394,3 +394,27 @@ replici = 1 -> de pus replicas 0 prin template/ILM, contul elastic); 1073 teste 
 "soc-reader refuzat" din 2026-11-02 12-16 UTC sunt testele de gate/injectie ale portii finale (bash -i, sh -c id).
 web-prod si benign-gen nu au fost verificate din sesiunea asta (SSH refuzat de clasificator).
 - Documente noi (5581aa5): docs/standard-investigatie.md (criteriul 3 din articol + ghid de etichetare) si docs/detectii-oprite.md (criteriul 7). Goluri notate: ghidurile webshell-webroot.md / temp-exec.md lipsesc din detections/.
+
+### Etapa 3 — tentativa de exploit (nuclei, tag-uri sqli,xss,lfi,rce,wordpress)
+10329 cereri, 4532 sabloane, 11 potriviri nuclei (akismet invechit 5.7.2, directory listing
+/wp-content/uploads + /wp-includes, enumerare utilizatori REST: admin + soc-benign-admin,
+dezvaluire versiune). TOATE straturile tinta s-au aprins:
+- Suricata web-attack (faza 17): 3366 alerte (Grafana traversal, log4j, Struts, ColdFusion,
+  OFBiz RCE, Shellshock, SQL discovery) -> .alert "tentativa de atac web" 415x + "SQL injection" 60x.
+- ModSecurity CRS (12b, DetectionOnly): 592x .alert "cerere web anormala (scor >= 20)".
+- Enumerare continut web 5x; brute-force login WordPress 1x.
+- Honeytoken backup.sql: citit (auditd) + descarcat (HTTP) -> detectie corecta (momeala lovita de scanner).
+- Orchestrator: coada plafonata 50/ciclu (1080 alerte drenate ~22 cicluri, prioritizat); IP atacator
+  -> malicious/95/block_ip_ttl (shadow, would-block corect).
+
+### CALIBRARE gasita (fals pozitiv): sendmail WordPress
+"Comportament: serverul web a nascut un shell" (malicious/95, escaladat Tier 2) era de fapt
+`apache2 -> dash -> sh -c /usr/sbin/sendmail -t -i`: WordPress trimite mail cand nuclei loveste
+formularele. Nu e shell de atacator; web-prod NU a fost compromis. De calibrat: sendmail din apache
+e mail legitim WP. Optiuni: exceptie in regula soc-web-spawns-shell sau in baseline-ul wwwdata_exec.
+Atinge logica de verdict -> cere harness + decizia omului. NEDECIS inca.
+
+### Expuneri reale de raportat (cumulat recon+enum+exploit)
+/db-backup, /wp-admin-old (200); directory listing /wp-content/uploads + /wp-includes; enumerare
+utilizatori prin REST (/wp-json, ?rest_route=/wp/v2/users): admin + soc-benign-admin; akismet 5.7.2
+invechit; honeytoken backup.sql accesibil (intentionat). Astea sunt tinte de intarire pe web-prod.
