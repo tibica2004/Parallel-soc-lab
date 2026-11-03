@@ -53,6 +53,19 @@ DEFAULT_WWWDATA_EXEC = (
 
 WHITELIST_FILE = Path(__file__).resolve().parent / "data" / "behavioral-whitelists.json"
 
+# WordPress/PHP trimite mail prin `sh -c -- /usr/sbin/sendmail -t -i`: shell legitim, nu webshell.
+# Il excludem DOAR cand e strict apelul MTA, fara metacaractere de inlantuire (; | & backtick $(),
+# prin care un atacator ar lipi comenzi dupa sendmail — atunci regula declanseaza din nou. Gasit la
+# auto-atacul de masurare (nuclei a lovit formularele WP -> WordPress a trimis mail). Sirurile sunt
+# statice (nu vin din telemetrie), deci like~ cu literal e permis (principiul 3).
+SENDMAIL_EXCEPTION = (
+    '\n  and not (\n'
+    '    process.name in ("sh", "dash", "bash") and\n'
+    '    process.command_line like~ "*/usr/sbin/sendmail *" and\n'
+    '    not process.command_line like~ ("*;*", "*|*", "*&*", "*`*", "*$*")\n'
+    '  )'
+)
+
 # Severitate per regula: a/b/f sunt de incredere mare (web->shell, PHP in webroot, citire
 # shadow); c/d/e sunt mai predispuse la fals pozitiv pana la calibrare -> high, nu critical.
 SEVERITY = {
@@ -101,6 +114,7 @@ def build_rules() -> dict[str, dict]:
                 'process where host.os.type == "linux" and event.type == "start" and\n'
                 f'  process.parent.name in {_eql_list(WEB_PARENTS)} and\n'
                 f'  process.name in {_eql_list(SHELL_CHILDREN)}'
+                + SENDMAIL_EXCEPTION
             ),
             "threat_technique": ("T1059.004", "Unix Shell"),
         },

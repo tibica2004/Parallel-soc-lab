@@ -85,6 +85,9 @@ def test_continut_reguli():
     a = r["soc-web-spawns-shell"]["query"]
     assert "apache2" in a and "php-fpm8.3" in a and '"sh"' in a and "bash" in a
     assert a.count("(") == a.count(")")                # paranteze echilibrate
+    # exceptia sendmail: apelul MTA exclus, dar metacaracterele de inlantuire o anuleaza
+    assert "/usr/sbin/sendmail " in a and "and not" in a
+    assert '"*;*"' in a and '"*|*"' in a and '"*`*"' in a and '"*$*"' in a
     d = r["soc-webprod-new-outbound"]["query"]
     assert 'cidrmatch(destination.ip, "192.168.10.0/24")' in d and "web-prod" in d
     assert "53, 123" in d
