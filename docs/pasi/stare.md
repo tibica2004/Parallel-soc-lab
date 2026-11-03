@@ -419,7 +419,17 @@ Atinge logica de verdict -> cere harness + decizia omului. NEDECIS inca.
 utilizatori prin REST (/wp-json, ?rest_route=/wp/v2/users): admin + soc-benign-admin; akismet 5.7.2
 invechit; honeytoken backup.sql accesibil (intentionat). Astea sunt tinte de intarire pe web-prod.
 
-### CORECTIE + descoperire critica: RCE REAL pe web-prod
+### INFIRMAT 2026-11-03 12:50: NU exista RCE pe web-prod (sectiunea de mai jos e gresita)
+Corelare pe telemetrie (logs-endpoint.events.process + logs-apache.access + events.file): toate cele
+5 executii www-data din apache2 (id 09:02:38 si 09:28:17, whoami 09:29:20, cat /etc/passwd 09:30:27,
+wget -q http://127.0.0.1/ 09:33:21) sunt scenariile harness-ului din poarta de ghiduri (09:02-11:44):
+cereri de la ::1 spre /a.php?c=id (fast) si /h.php?c=... (dev), webshell-uri temporare create si
+STERSE de scenariu (h.php 4 creari / 4 stergeri, a.php 1/1). Nuclei nu a obtinut executie. Restul
+executiilor din 03.11 = sendmail WordPress (FP calibrat in 434da9f). Detectia a mers corect.
+Hydra admin:0 = FALS POZITIV hydra: 394 POST wp-login de la 172.30.6.133, 392x200 + 2x400,
+0x302 (benign-gen: 46x302 = login reusit). Investigatia RCE de mai jos se INCHIDE.
+
+### (istoric, gresit) CORECTIE + descoperire critica: RCE REAL pe web-prod
 La calibrarea FP-ului sendmail (validare EQL pe telemetria atacului) au iesit la iveala, pe
 langa cele 2 apeluri sendmail (FP WordPress mail), DOUA executii reale nascute de apache2:
 `sh -c -- id` si `sh -c -- whoami`. Nuclei a gasit o vulnerabilitate de executie de cod pe
@@ -433,7 +443,7 @@ aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
 - Kibana: `python3 deploy/kibana/honeytoken_rules.py actualizeaza` (cont Kibana) -> patch
   soc-web-spawns-shell cu exceptia sendmail. Doar aceasta regula are drift.
 - benign-gen: REPORNIT (active) dupa sesiunea de masurare.
-- Investigatie RCE web-prod (prioritate): ce a permis apache2 -> sh -c id/whoami.
+- ~~Investigatie RCE web-prod~~ INCHISA: nu e RCE, sunt scenariile harness-ului (vezi INFIRMAT).
 - Ghidurile lipsa scrise (89adbbc): detections/webshell-webroot.md + temp-exec.md + tests/test_guides.py
   (1076 teste). Deployate pe es-node-1 (scp, sha256 identice; lookup_guide citeste fisierul la fiecare
   alerta, fara restart). POARTA (benign-gen oprit, 09:02-11:44 UTC): fast 4/4 (recall 3/3, FP 0);
@@ -461,7 +471,7 @@ aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
 /.env.bak (HIGH, nuclei), /backup.sql, directory listing /wp-content/uploads + /wp-includes,
 enumerare utilizatori REST (admin, soc-benign-admin), akismet 5.7.2 invechit, XSS reflectat pe
 ?s= (probabil encodat de WP), si hydra a raportat admin:0 ca valid (DE VERIFICAT: parola slaba
-reala sau FP hydra; nu am verificat prin login). RCE real (apache -> sh -c id/whoami) confirmat.
+reala sau FP hydra; nu am verificat prin login). [INFIRMAT: hydra FP (0x302), RCE = harness; vezi INFIRMAT]
 
 ### APLICAT (2026-11-03): fix XSS-IDS + intarire expuneri reale
 - Kibana (om, cont elastic): regula soc-web-xss-attempt CREATA si pornita (id 3a8a6767...);
@@ -480,3 +490,17 @@ dalfox + nuclei (xss/sqli/lfi/rce) pe web-prod (intaririle lasate la cererea omu
 - ModSecurity 623, Suricata web-attack 395, SQLi 23, enumerare 3.
 - Mod degradat sub flood: la 32 cazuri > prag 20, alertele critice escaladeaza direct fara model (R9).
 Concluzie: golul XSS-IDS inchis si demonstrat cu trafic real. benign-gen repornit.
+
+## 2026-11-03 12:50: audit OpenStack (citire, nimic modificat)
+
+Inventar: 5 VM ACTIVE (es-node-1 m1.xlarge, atacator m1.xlarge, web-prod m1.medium, benign-gen si
+lab-sink m1.small), cota vCPU 20/20 (plina), RAM 40/50 GB, 0 volume, 0 snapshot-uri, 4 flotante.
+Porturile DOWN 192.168.10.2 / 10.10.0.2 = porturi OVN network:distributed (normal).
+Propuneri (asteapta aprobarea omului):
+- victim-sg: regula 22 de la 172.30.6.133 (atacator) - de sters (nft o blocheaza, dar SG-ul o permite).
+- es-sg: 9200 de la 172.20.99.220 inutila (forward_guard o taie); 9200 si 8220 pe tot 192.168.10.0/24
+  includ lab-sink (tinta ART) -> de restrans la .138 + .150 (9200) si .138 (8220).
+- Laptopul 192.168.62.206 e in admin_v4 (nft) dar doar in benign-sg; boxa veche ramane singura cale
+  SSH spre es-node-1/web-prod/atacator (punct unic de esec).
+- atacator: 1.4 GB RAM folositi din 16, load 0.02 -> m1.large ar elibera 4 vCPU (cota plina).
+- Fara copie off-host: snapshot OpenStack (server image create) pentru es-node-1 si web-prod.
