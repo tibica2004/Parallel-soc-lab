@@ -338,3 +338,32 @@ backup tras de es-node-1 (web-prod fara chei spre SOC); atacatorul fara SSH pe w
 - Nota: ES_READER_API_KEY nu are read pe soc-cases (indexul e nou); codul nu are nevoie (cases.py citeste cu
   cheia proprie, Kibana cu utilizatorul ei). De extins de om la urmatoarea atingere a cheilor.
 - De aplicat: sincronizare arbore pe es-node-1 (facuta) + restart soc-orchestrator (om).
+
+## 2026-11-03: auto-atac de masurare (OpenCyber din atacator -> web-prod)
+
+Scop: atac controlat pe propriul laborator ca sa masor si sa intaresc SOC-ul. Engagement
+OpenCyber eng_20261103 (scoped pe 172.30.6.249). Benign-gen oprit, harness oprit. Calea:
+atacator 172.30.6.133 -> web-prod IP flotant 172.30.6.249:80 (intern blocat de victim-sg).
+
+### Etapa 1 — recon (nmap -sS -sV --top-ports 100)
+- Suricata a prins: 4x ET SCAN Possible Nmap User-Agent; -> .alert "Suricata: tentativa de atac
+  web (IDS)"; Tier 1 suspicious/60/escalate_human, dedup a grupat 4->1, escaladat Tier 2.
+- BUG gasit si reparat (commit 97a37cd): case_adapter.from_alert crapa pe alertele de senzor
+  (Suricata nu pune host.name). Fallback la observer.hostname/agent.name. 1073 teste.
+
+### Etapa 2 — enumerare (whatweb + feroxbuster common.txt)
+- whatweb: Apache + WordPress 7.1.3. feroxbuster: 9634 cereri, 9535x 404, 4867 cai distincte.
+- Suricata a RATAT forta bruta (doar 1 alerta, lovitura /.env). Gol IDS asumat: setul de
+  semnaturi nu prinde flood de 404; controlul compensator e sweep-ul propriu.
+- Sweep complet (dupa restart) a produs 8 findings, toate din atac:
+  - web_enumeration 172.30.6.133 -> suspicious/70/enrich_only (a numit feroxbuster, 4790 cai)
+  - entity_risk source_ip 172.30.6.133 -> suspicious/65 (A3: scorul pe IP-ul atacatorului)
+  - new_url_path /db-backup, /wp-admin-old -> suspicious (EXPUNERI REALE: cai care raspund 200)
+  - wp_recon_path /xmlrpc.php -> suspicious/75; /readme.html, /license.txt, akismet readme
+  - 3 peste buget -> escaladate la om fara model (R9, nepierdute)
+- Cazuri deschise corect, inclusiv cazul pe source_ip 172.30.6.133 (fix-ul de entitate de azi).
+
+### De urmarit (intariri propuse)
+- Expunerile /db-backup si /wp-admin-old (feroxbuster le-a gasit 200): de verificat pe web-prod.
+- Enrich_only pe recon agresiv e decizia modelului; de discutat daca enumerarea sustinuta
+  ar trebui sa ridice un prag de cod (nu doar enrich). Momentan corect: recon != incident.
