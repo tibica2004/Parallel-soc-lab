@@ -441,3 +441,24 @@ aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
   Scenariul fast "webshell scris in webroot" (regula cu ghid nou): malicious/95 TP. Nota: poarta s-a
   inregistrat doar in fisier (results/ghiduri-*), nu in soc-metrics: shell-ul omului a avut env.sh fara
   soc.env (ES_METRICS_WRITER_API_KEY lipsa). benign-gen de pornit la loc (om).
+
+### Etapa 4 — avalansa multi-vector (nuclei full, nikto, sqlmap, hydra, dalfox, wpscan)
+6 unelte in paralel, 09:39-09:52. Raspunsul SOC: 1713 .alerts.
+- ModSecurity CRS 970; Suricata web-attack 512 (4609 evenimente IDS); SQLi 151; honeytoken
+  cale-capcana robots.txt 52 (/db-backup/, /wp-admin-old/); enumerare 11; brute-force 3 (din
+  2611 cereri wp-login, hydra 499 incercari); honeytoken backup.sql 6; RCE/web-spawns-shell 4.
+- Suricata semnatura noua: GraphQL Introspection (125), log4j, Grafana traversal.
+- Orchestrator: a intensificat corect enrich -> escalate -> isolate_host malicious/95 (shadow)
+  cu honeytoken+RCE+sustinut; dedup 50/ciclu -> ~3 cazuri unice; dezacord Tier 2 A/B (A susp,
+  B mal -> escaladat). Backlog: cursor ~25 min in urma sub flood (dedup salveaza criticul).
+
+### GOLURI de detectie (ce NU prinde / slab)
+- XSS la nivel IDS: 0 semnaturi Suricata pentru onmouseover/alert (acoperit doar de ModSecurity CRS).
+- Backlog latency: 1713 alerte deodata intarzie cursorul ~25 min; de luat in calcul un plafon
+  adaptiv sau o coada separata pe severitate la flood.
+
+### EXPUNERI REALE gasite de scanere (hardening web-prod, nu detectie)
+/.env.bak (HIGH, nuclei), /backup.sql, directory listing /wp-content/uploads + /wp-includes,
+enumerare utilizatori REST (admin, soc-benign-admin), akismet 5.7.2 invechit, XSS reflectat pe
+?s= (probabil encodat de WP), si hydra a raportat admin:0 ca valid (DE VERIFICAT: parola slaba
+reala sau FP hydra; nu am verificat prin login). RCE real (apache -> sh -c id/whoami) confirmat.
