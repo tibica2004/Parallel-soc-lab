@@ -107,7 +107,7 @@
       {% for r in rows %}
       <tr>
         <td>{{ (r.updated_at or "")[:19] }}<br><span class="mut">{{ r.case_id[:8] }}</span></td>
-        <td>{{ r.host }}<br><span class="mut">{{ r.rule_names | join(", ") }}</span></td>
+        <td>{{ r.host }}{% if r.entity %} · {{ r.entity_type }} <b>{{ r.entity }}</b>{% endif %}<br><span class="mut">{{ r.rule_names | join(", ") }}</span></td>
         <td><span class="pill">{{ r.state }}</span> T{{ r.current_tier }} · {{ r.severity }}
             {% if r.escalation_reasons %}<br><span class="mut">{{ r.escalation_reasons | join(", ") }}</span>{% endif %}</td>
         <td>{% for v in r.verdicts %}<span class="{{ v.classification }}">T{{ v.tier }} {{ v.classification }}/{{ v.confidence }}</span><br>{% endfor %}</td>

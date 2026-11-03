@@ -322,3 +322,19 @@ Decizii deja luate (implicite, schimbabile): cod in ~/lab cu o ramura per pas; f
 disable_functions si fara schimbarea proprietarului webroot (altfel pica portile
 harness: scenarios_fast.yml:13 si :25); update-uri WordPress doar in mod raport;
 backup tras de es-node-1 (web-prod fara chei spre SOC); atacatorul fara SSH pe web-prod.
+
+## 2026-11-03 dimineata: pasii omului dupa poarta finala + golul cazurilor pe entitati
+
+- Rulate de om pe es-node-1: pas-a1-cases.sh (soc-cases creat, ES_CASES_WRITER_API_KEY in soc.env,
+  200/403 corect), pas-a4-status.sh (SOC Status importat, 11 obiecte), soc-readiness.timer activat
+  (urmatoarea rulare 2026-11-04 06:15 UTC), soc-orchestrator repornit: prompt_set f1d721739bf7, 683 chei dedup.
+- Primul finding entity_risk (A3) a aparut in ciclul 1 dupa restart: user tiberiu (alertele harness-ului
+  din ultimele 24 h), Tier 2 -> malicious/95, isolate_host [SHADOW], executor fara plan (entitatea nu e host).
+  Comportament corect pentru atacurile reale ale harness-ului; dupa 24 h fara harness scorul decade sub prag.
+- GOL gasit si inchis: `_upsert_case` scria caz doar pentru verdicte pe host, deci entity_risk (user /
+  source_ip) nu deschidea caz. Acum CaseRecord are entity_type + entity; verdictele pe user / source_ip
+  deschid caz pe hostul monitorizat (MONITORED_HOST, implicit web-prod); procesele/serviciile nu deschid caz.
+  Interfata /cases arata entitatea. Test nou in tests/test_cases.py (1072 teste verzi). Nu atinge verdictele.
+- Nota: ES_READER_API_KEY nu are read pe soc-cases (indexul e nou); codul nu are nevoie (cases.py citeste cu
+  cheia proprie, Kibana cu utilizatorul ei). De extins de om la urmatoarea atingere a cheilor.
+- De aplicat: sincronizare arbore pe es-node-1 (facuta) + restart soc-orchestrator (om).

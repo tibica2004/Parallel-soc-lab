@@ -364,11 +364,17 @@ def _upsert_case(verdict, now, extra: dict, escalation, plan) -> None:
                 print("    [cazuri] fara ES_CASES_WRITER_API_KEY: soc-cases nu se scrie", flush=True)
                 _cases_warned = True
             return
-    if verdict.entity_type.value != "host":
+    # Verdict pe host -> cazul e al hostului; pe user / IP sursa (entity_risk, A3) -> cazul se
+    # leaga de hostul monitorizat, cu entitatea pastrata in caz. Procesele/serviciile nu deschid caz.
+    if verdict.entity_type.value == "host":
+        host = verdict.entity_id
+    elif verdict.entity_type.value in ("user", "source_ip"):
+        host = cases.MONITORED_HOST
+    else:
         return
     alert_ids = [r.doc_id for r in verdict.evidence_refs if str(r.index).startswith(".alerts")][:cases.MAX_ALERTS]
     cases.upsert_from_verdict(
-        _CASES_ES, verdict, 1 if verdict.source_path == "fast" else 2, now, host=verdict.entity_id,
+        _CASES_ES, verdict, 1 if verdict.source_path == "fast" else 2, now, host=host,
         origin=_ORIGIN.get(extra.get("origin"), "tier1_alert"), rule_name=extra.get("rule_name"),
         alert_ids=alert_ids, reasons=list(escalation.reasons) if escalation else None,
         escalate=escalation.escalate if escalation else None, plan=plan)

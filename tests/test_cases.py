@@ -84,3 +84,28 @@ def test_upsert_cu_es_fals():
     assert r.alert_ids == ["a1", "a2"] and r.rule_names == ["RCE"] and len(r.verdicts) == 2
     assert C.upsert_from_verdict(None, _v(), 1, T0, host="h", origin="o", rule_name=None, alert_ids=[],
                                  reasons=None, escalate=None, plan=None) is None
+
+
+def test_caz_pe_entitate_user_entity_risk():
+    """A3: un verdict pe user (entity_risk) deschide caz pe hostul monitorizat, cu entitatea pastrata."""
+    store = {}
+    class ES:
+        def get(self, index, id):
+            if id not in store:
+                raise KeyError(id)
+            return {"_source": store[id]}
+        def index(self, index, id, document):
+            store[id] = document
+    v = Verdict(investigation_id="inv-9", source_path="hunt", chain_id=CID, entity_type=EntityType.USER,
+                entity_id="tiberiu", classification="malicious", confidence=95, rarity_score=0.8,
+                mitre_techniques=[], proposed_action=ActionType("isolate_host"), model_id="m")
+    r = C.upsert_from_verdict(ES(), v, 2, T0, host=C.MONITORED_HOST, origin="rarity_sweep", rule_name=None,
+                              alert_ids=["a1"], reasons=None, escalate=True, plan=None)
+    assert r.host == C.MONITORED_HOST and r.entity_type is EntityType.USER and r.entity == "tiberiu"
+    assert r.state is C.CaseState.escalated and r.severity == "critical"
+    # verdict pe host: entitatea ramane goala (hostul insusi)
+    r2 = C.open_case(CID, "web-prod", "tier1_alert", T0, entity_type=EntityType.HOST, entity="web-prod")
+    assert r2.entity == "" and r2.entity_type is EntityType.HOST
+    # documentele vechi (fara campurile noi) se incarca cu implicitele
+    old = {k: val for k, val in store[CID].items() if k not in ("entity_type", "entity")}
+    assert C.CaseRecord.model_validate(old).entity_type is EntityType.HOST

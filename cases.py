@@ -20,11 +20,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from schemas import CHAIN_ID_RE, ActionPlan, EscalationReason, Verdict
+from schemas import CHAIN_ID_RE, ActionPlan, EntityType, EscalationReason, Verdict
 
 INDEX = "soc-cases"
 MAX_VERDICTS = 20
 MAX_ALERTS = 50
+# Hostul monitorizat: cazurile pe entitati non-host (user, IP sursa din entity_risk, A3) se
+# leaga de hostul pe care au fost observate alertele (laboratorul are un singur host monitorizat).
+MONITORED_HOST = os.environ.get("MONITORED_HOST", "web-prod")
 
 
 class CaseState(str, Enum):
@@ -56,6 +59,8 @@ class CaseRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
     case_id: str = Field(pattern=CHAIN_ID_RE)
     host: str = Field(max_length=253)
+    entity_type: EntityType = EntityType.HOST   # A3: user / source_ip pentru cazurile entity_risk
+    entity: str = Field(default="", max_length=128)   # gol = hostul insusi
     state: CaseState = CaseState.open
     origin: str = Field(max_length=32)
     opened_at: datetime
@@ -88,8 +93,10 @@ def severity_of(classification: str, reasons: list[EscalationReason]) -> str:
 
 
 def open_case(chain_id: str, host: str, origin: str, now: datetime, rule_name: str | None = None,
-              alert_ids: list[str] | None = None) -> CaseRecord:
+              alert_ids: list[str] | None = None, entity_type: EntityType = EntityType.HOST,
+              entity: str = "") -> CaseRecord:
     return CaseRecord(case_id=chain_id, host=host, origin=origin, opened_at=now, updated_at=now,
+                      entity_type=entity_type, entity="" if entity_type is EntityType.HOST else entity[:128],
                       rule_names=[rule_name] if rule_name else [],
                       alert_ids=list(alert_ids or [])[:MAX_ALERTS])
 
@@ -157,7 +164,9 @@ def upsert_from_verdict(es, verdict: Verdict, tier: Literal[1, 2, 3], now: datet
                         plan: ActionPlan | None) -> CaseRecord | None:
     if es is None or not verdict.chain_id:
         return None
-    rec = load(es, verdict.chain_id) or open_case(verdict.chain_id, host, origin, now, rule_name, alert_ids)
+    # Entitatea cazului vine din verdict (host, user, source_ip); hostul e cel observat.
+    rec = load(es, verdict.chain_id) or open_case(verdict.chain_id, host, origin, now, rule_name, alert_ids,
+                                                  entity_type=verdict.entity_type, entity=verdict.entity_id)
     for a in alert_ids:
         if a not in rec.alert_ids and len(rec.alert_ids) < MAX_ALERTS:
             rec.alert_ids.append(a)

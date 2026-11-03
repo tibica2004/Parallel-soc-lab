@@ -56,7 +56,7 @@ shadow permanent; ireversibilul la om.
 | A7 | FACUT (pas 8): seed + top_p fix pe toate rolurile; `make determinism` |
 
 Toate sunt COD + teste, NEAPLICATE pe es-node-1 pana la o poarta (dev + val + injectie) dupa
-poarta podelei 4. Pe hosturi mai sunt de rulat de om: pas-a1-cases.sh, importul soc-status.ndjson.
+poarta podelei 4. Pe hosturi: pas-a1-cases.sh si importul soc-status.ndjson rulate de om pe 2026-11-03 (FACUT).
 
 ## 3. Ordinea de executie
 
