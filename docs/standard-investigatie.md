@@ -112,8 +112,7 @@ verifica omul, cum se eticheteaza.
   precursoare (upload prin plugin?).
 - Eticheta: attack daca scriitorul e www-data in afara unei ferestre si fisierul nu e in
   checksum-urile oficiale. benign pentru update-uri in fereastra si plantari documentate.
-- GOL: RULE_TO_GUIDE trimite la detections/webshell-webroot.md, care NU exista (ghid
-  "indisponibil"). De scris, cu poarta fast + dev (schimba promptul Tier 1).
+- Ghid: detections/webshell-webroot.md (scris 2026-11-03).
 
 ### 1.3 "Comportament: www-data a executat un binar nevazut"
 
@@ -212,9 +211,10 @@ Lipsesc fata de articol: timpul pana la prima privire a OMULUI (de calculat din 
 
 ## 4. Goluri gasite la scrierea documentului
 
-1. detections/webshell-webroot.md si detections/temp-exec.md lipsesc, desi RULE_TO_GUIDE le
-   asteapta: "Webshell: Executable written to webroot" (63 alerte/24 h) si "Suspicious execution
-   from temp directory" ruleaza cu ghid "indisponibil". De scris, cu poarta fast + dev.
+1. REZOLVAT 2026-11-03: detections/webshell-webroot.md si detections/temp-exec.md scrise (lipseau,
+   desi RULE_TO_GUIDE le astepta; "Webshell: Executable written to webroot" avea 63 alerte/24 h cu
+   ghid "indisponibil"). tests/test_guides.py verifica ca toate ghidurile din harta exista si incap
+   in 1500 de caractere. Poarta fast + dev de rulat dupa deploy (schimba promptul Tier 1).
 2. Regulile comportamentale, Suricata/ModSecurity, enumerarea si brute-force nu au ghid; au in
    schimb contextul de senzor (sensor_facts) si FACT_RULES. De decis daca merita ghid.
 3. new_url_path raporteaza si momelile ROBOTS_TRAPS (dublura cu regula honeytoken).
