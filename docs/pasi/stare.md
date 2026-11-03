@@ -418,3 +418,19 @@ Atinge logica de verdict -> cere harness + decizia omului. NEDECIS inca.
 /db-backup, /wp-admin-old (200); directory listing /wp-content/uploads + /wp-includes; enumerare
 utilizatori prin REST (/wp-json, ?rest_route=/wp/v2/users): admin + soc-benign-admin; akismet 5.7.2
 invechit; honeytoken backup.sql accesibil (intentionat). Astea sunt tinte de intarire pe web-prod.
+
+### CORECTIE + descoperire critica: RCE REAL pe web-prod
+La calibrarea FP-ului sendmail (validare EQL pe telemetria atacului) au iesit la iveala, pe
+langa cele 2 apeluri sendmail (FP WordPress mail), DOUA executii reale nascute de apache2:
+`sh -c -- id` si `sh -c -- whoami`. Nuclei a gasit o vulnerabilitate de executie de cod pe
+web-prod si a rulat comenzile de verificare (benigne, nedistructive). Deci web-prod ARE un RCE
+exploatabil; concluzia anterioara "nu a fost compromis" se refera DOAR la sendmail. SOC-ul a
+prins corect executia (soc-web-spawns-shell -> malicious/95 -> Tier 2). De investigat de om CARE
+sablon nuclei / ce plugin-tema vulnerabila a permis-o. Fix-ul sendmail (434da9f) pastreaza
+aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
+
+### De aplicat de om
+- Kibana: `python3 deploy/kibana/honeytoken_rules.py actualizeaza` (cont Kibana) -> patch
+  soc-web-spawns-shell cu exceptia sendmail. Doar aceasta regula are drift.
+- benign-gen: REPORNIT (active) dupa sesiunea de masurare.
+- Investigatie RCE web-prod (prioritate): ce a permis apache2 -> sh -c id/whoami.
