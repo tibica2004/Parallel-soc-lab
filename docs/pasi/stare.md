@@ -462,3 +462,13 @@ aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
 enumerare utilizatori REST (admin, soc-benign-admin), akismet 5.7.2 invechit, XSS reflectat pe
 ?s= (probabil encodat de WP), si hydra a raportat admin:0 ca valid (DE VERIFICAT: parola slaba
 reala sau FP hydra; nu am verificat prin login). RCE real (apache -> sh -c id/whoami) confirmat.
+
+### APLICAT (2026-11-03): fix XSS-IDS + intarire expuneri reale
+- Kibana (om, cont elastic): regula soc-web-xss-attempt CREATA si pornita (id 3a8a6767...);
+  soc-web-spawns-shell ACTUALIZATA cu exceptia sendmail. Restul regulilor la zi.
+- web-prod (om): Options Indexes scos din apache2.conf (backup /root/apache2.conf.pre-hardening-*),
+  configtest OK, reload. Listing /wp-content/uploads + /wp-includes: 200 -> 403.
+- web-prod (om): mu-plugin disable-user-enum.php instalat. REST /wp/v2/users: scurgea admin ->
+  404 rest_no_route; ?author=1: scurgea slug -> 301 spre /.
+- Honeytokens PASTRATE: backup.sql inca 200 (capcana), .env.bak, /db-backup/, /wp-admin-old/ neatinse.
+Toate verificate prin curl pe web-prod. Golul XSS-IDS si cele doua expuneri reale: INCHISE.
