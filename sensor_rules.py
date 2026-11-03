@@ -156,6 +156,28 @@ RULES: dict[str, dict] = {
                   'or *%3Ciframe* or *document.cookie* or *prompt%28*)'),
         "threat_technique": ("T1190", "Exploit Public-Facing Application"),
     },
+    # Tentativa de path traversal / LFI: segmente "../" si tintele uzuale apar in url.original,
+    # in forme multiple (brut, encodat, dublu-encodat, UTF-8 overlong). Gasit la auto-atac: 10971
+    # de cereri dotdotpwn -> doar ~1.3% au ridicat alerta (Suricata/ModSec nu acopera formele
+    # evazive), deci golul il inchidem aici, paralel cu SQLi/XSS. Multime inchisa de tipare (constante
+    # in regula, nu din telemetrie). Poate fi fals pozitiv -> doar escaladeaza, fara podea.
+    "soc-web-traversal-attempt": {
+        "name": "Tentativa de path traversal / LFI (web)",
+        "description": "Cereri catre serverul web cu segmente de traversare in URL (../ in forma bruta, "
+                       "encodata %2e%2e%2f, dublu-encodata %252e, UTF-8 overlong %c0%af) sau tinte uzuale "
+                       "(/etc/passwd, win.ini) - tipic dotdotpwn sau LFI manual. Poate fi fals pozitiv; "
+                       "source.ip e originea.",
+        "type": "query",
+        "language": "kuery",
+        "index": [APACHE_IDX],
+        # Formele acopera: brut (../), encodat (%2e%2e, %2f, %5c), dublu-encodat (%252e/%252f),
+        # bypass de filtru (....//), UTF-8 overlong (%c0%af, %c1%9c) si tintele clasice (etc/passwd,
+        # win.ini). Encodarile sunt tipare fixe, nu telemetrie -> wildcard pe literal e permis.
+        "query": ('url.original : (*../* or *..%2f* or *..%5c* or *%2e%2e%2f* or *%2e%2e%5c* '
+                  'or *%2e%2e/* or *..%252f* or *%252e%252e* or *....//* or *..%c0%af* or *..%c1%9c* '
+                  'or *etc%2fpasswd* or *etc/passwd* or *win.ini*)'),
+        "threat_technique": ("T1190", "Exploit Public-Facing Application"),
+    },
 }
 
 # AIDE (pasul 3.E, G9): integritatea fisierelor de sistem si a webroot-ului, zilnic. Doar

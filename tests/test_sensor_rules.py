@@ -147,6 +147,20 @@ def test_payload_xss():
     assert "soc-web-xss-attempt" in S.RULES
 
 
+def test_payload_traversal():
+    # golul traversal gasit la auto-atac: 10971 cereri dotdotpwn -> ~1.3% alerte (forme evazive)
+    p = S.kibana_payload("soc-web-traversal-attempt")
+    assert p["severity"] == "high" and p["tags"] == [S.TAG]
+    assert p["index"] == [S.APACHE_IDX]
+    q = p["query"]
+    # brut, encodat, dublu-encodat, UTF-8 overlong, tinta clasica
+    assert "*../*" in q and "%2e%2e%2f" in q and "%252e%252e" in q
+    assert "%c0%af" in q and "etc%2fpasswd" in q
+    assert q.count("(") == q.count(")")        # paranteze echilibrate
+    assert p["threat"][0]["technique"][0]["id"] == "T1190"
+    assert "soc-web-traversal-attempt" in S.RULES
+
+
 def test_orchestrator_model_cazut_pastreaza_motivul(rec):
     hunt = FakeHunt()
     orchestrator.process_alerts([Y()], orchestrator.BoundedSeen(), model_ok=False, t2_limit=1, hunt=hunt)
