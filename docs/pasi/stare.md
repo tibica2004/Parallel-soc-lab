@@ -538,3 +538,9 @@ pe sendmail (exceptia e doar in soc-web-spawns-shell). De etichetat benign: AIDE
 (intaririle din 03.11), wget motd-news, curl-ul verificarii 04.11 14:17.
 Readiness c2 nu poate trece aici (172.30.6.133 e privat -> protejat) + o decizie block_ip_ttl cu
 action_target "null" (02.11 10:29, shadow) = bug mic de urmarit. blocked_v4 necitit (cere sudo).
+B.3 + B.4 FACUTE (2026-11-04 14:33): ES green, 0 nealocate; ES_READER 200 pe benign-ground-truth si
+soc-cases; soc-backup-restore-test.timer (2026-12-01) + restore OK 12 tabele + stamp;
+SOC_KEYS_ROTATED_ON=2026-10-08 (ES_API_KEY/ES_WRITER_API_KEY din 10-08 -> prima rotatie 2027-01-06).
+De curatat ulterior (om, ireversibil): chei duplicate active (3x soc-reader, 4x vulns/incidents/metrics
+writer de la reluarile din 29.10); in soc.env sunt folosite doar ID-urile IS_oh6..., HS_oh6..., Hy_oh6..., Ei_oh6....
+De urmarit 05.11: indicii zilnici entity store Kibana pot readuce ES la galben (nu trec prin logs@custom).

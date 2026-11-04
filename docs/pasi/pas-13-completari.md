@@ -26,8 +26,8 @@ pentru om; nimic rulat pe hosturi din sesiune.
    la fel cu scenarios.yml), apoi `start` benign-gen.
 2. Deploy cod pe es-node-1 (scp orchestrator.py absence_check.py behavioral_rules.py honeytokens.py
    elastic_tools.py, cu copii `.pre-13`), `sudo systemctl restart soc-orchestrator`.
-3. `bash deploy/es-node-1/pas13-setup.sh` (cont elastic + sudo).
-4. In soc.env pe es-node-1: `SOC_KEYS_ROTATED_ON=2026-10-08` (data celei mai vechi chei FOLOSITE: ES_API_KEY + ES_WRITER_API_KEY, verificat 2026-11-04 cu _authenticate; G8). Optional
+3. FACUT 2026-11-04: ES green 0 nealocate (replici 0 pe 10 indici + logs/metrics@custom), ES_READER 200 pe benign-ground-truth/soc-cases, timer restore instalat (2026-12-01), restore test OK 12 tabele + stamp. `bash deploy/es-node-1/pas13-setup.sh` (cont elastic + sudo).
+4. FACUT 2026-11-04 (SOC_KEYS_ROTATED_ON=2026-10-08 in soc.env, 600). In soc.env pe es-node-1: `SOC_KEYS_ROTATED_ON=2026-10-08` (data celei mai vechi chei FOLOSITE: ES_API_KEY + ES_WRITER_API_KEY, verificat 2026-11-04 cu _authenticate; G8). Optional
    `KIBANA_FLEET_API_KEY=<cheie Kibana cu rol doar fleet:read>` (Stack Management -> API keys ->
    rol personalizat Kibana: Fleet = Read, nimic altceva); fara ea verificarea e sarita, nu esueaza.
 5. Kibana (cont elastic): `python3 deploy/kibana/honeytoken_rules.py verifica` apoi `aplica`
