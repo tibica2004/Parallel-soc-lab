@@ -36,7 +36,7 @@ pentru om; nimic rulat pe hosturi din sesiune.
    'sudo install -o root -g root -m 755 /tmp/soc-sbom.sh /usr/local/bin/soc-sbom.sh && sudo systemctl
    start soc-sbom.service && tail -1 /var/log/soc/sbom.ndjson | jq -c "[.components[] | select(.type==\"apache_module\") | .name]"'`
    -> fara "Loaded".
-7. OpenStack (de pe boxa sesiunii; ID-urile citite 2026-11-03):
+7. FACUT 2026-11-04 (verificat cu conexiuni noi). OpenStack (de pe boxa sesiunii; ID-urile citite 2026-11-03):
    - victim-sg: SSH de la atacator nu are ce cauta: `openstack security group rule delete 657f6172-8d5c-40c2-b5af-2a892525d1ef`
    - es-sg 9200 doar web-prod + benign-gen (lab-sink e tinta ART, nu trebuie sa vada ES):
      `openstack security group rule create --protocol tcp --dst-port 9200 --remote-ip 192.168.10.138/32 es-sg`

@@ -517,3 +517,24 @@ COD scris + 1099 teste verzi: take_until_cap (plafon pe cazuri noi), reguli e/f/
 NEAPLICAT: cere poarta fast+dev (atinge bucla) + comenzile omului din pas-13 (B.1-B.9).
 Abateri documentate, nu lipsuri: timesyncd, fara off-host, pasul 9 doar readiness, fara
 disable_functions, WP update in mod raport, Discord, conturi honeytoken inexistente, watchdog 900 s.
+
+## 2026-11-04: verificare pe hosturi (citire) + B.7 aplicat
+
+Stare: 5 VM ACTIVE; es-node-1 toate serviciile/timerele active, orchestrator 0 restarturi din 03.11
+08:34, coada 0, shadow=true, jurnale fara avertismente 24 h; absence verde (backup 12.8 h, snapshot
+4.2 h, canar OK); sonda LLM 1438/1440; web-prod servicii active, timere de noapte rulate; benign-gen
+activ, 0 erori. Niciun trafic de la atacator dupa 03.11 11:00.
+NEAPLICAT inca din pas-13: B.1 poarta, B.2 cod (es-node-1 = 2962a1d), B.3 (ES galben 71 shard-uri,
+ES_READER 403 pe benign-ground-truth/soc-cases, timer restore lipsa), B.4 SOC_KEYS_ROTATED_ON, B.5
+(de verificat si soc-web-traversal-attempt: 0 alerte in 14 zile), B.6 (optional: SBOM-ul real nu mai
+are "Loaded", scriptul foloseste fallback-ul mods-enabled), B.8 benign_actions 0 docs, B.9 determinism.
+B.7 APLICAT (aprobat): es-sg 9200 doar .138 + .150, 8220 doar .138; sterse 657f6172 (victim-sg 22 de la
+atacator), 4b5b78b3, 8a829e58, cd826ea9. Verificat cu conexiuni noi: web-prod 9200+8220 deschis,
+benign-gen 9200 deschis / 8220 inchis, lab-sink ambele inchise; telemetria curge.
+FP zilnice gasite (de decis de om): "Reverse shell: Interactive shell" = lsb_release -i -s din
+unattended-upgrade (54 alerte, Tier 1 benign 54/54); "www-data a executat un binar nevazut" =
+soc-wp-update.py la 02:00 -> malicious/95 in fiecare noapte; "RCE: Web server spawns shell" inca
+pe sendmail (exceptia e doar in soc-web-spawns-shell). De etichetat benign: AIDE 04.11 03:30
+(intaririle din 03.11), wget motd-news, curl-ul verificarii 04.11 14:17.
+Readiness c2 nu poate trece aici (172.30.6.133 e privat -> protejat) + o decizie block_ip_ttl cu
+action_target "null" (02.11 10:29, shadow) = bug mic de urmarit. blocked_v4 necitit (cere sudo).
