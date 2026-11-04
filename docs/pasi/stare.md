@@ -1,4 +1,6 @@
-# Stare: extinderea defensiva (plan-0day) — oprit la 2026-10-29
+# Jurnal: extinderea defensiva (plan-0day) — cronologic, actualizat 2026-11-04
+
+Starea curenta pe scurt: docs/pasi/REZUMAT.md. Aici sunt constatarile in ordinea in care au aparut.
 
 Ramura: faza-21-protectie (nepublicata, fara push). Planul complet: docs/plan-0day.md.
 Detaliile pasului 0 (fisiere, comenzi, verificare, metrica, rollback): docs/pasi/pas-00.md.
@@ -77,141 +79,39 @@ Regulile intra in fereastra shadow-review 7 zile inainte de promovare.
 Urmeaza dupa 3.A: 3.C honeytokens WP/MySQL, 3.D integritate->soc-incidents, 3.E AIDE,
 3.B raritate. Apoi pasii 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b. Draft A-E complet: pas-03.md.
 
-## PASUL 2 (analiza statica) — FACUT 2026-11-02, cu o problema de calitate deschisa
+## Sesiune 2026-10-29 (continuare): acces de pe boxa veche + constatari retea
 
-Poarta pasului 3 rulata inainte (results/poarta3-*-2026-11-02-0706 pe es-node-1): fast 4/4,
-0day 1/1, dev 13/14 (recall 8/8; FP-ul cunoscut php --version, identic cu referinta post-migrare),
-val 8/8. Cod 7b2166b, b9197a7, dfed52c (detalii A-E si rezultate: docs/pasi/pas-02.md).
-Semgrep 1.180.0 in ~/semgrep-venv pe es-node-1; static-findings + cheia soc-static-writer create
-de om. 2 rulari exit 0, idempotent (77 -> 0 noi). Triajul: 43 "open" toate in WP core, 2/2
-verificate = fals pozitive -> propunere: filtru pe checksum-urile oficiale WP (decis de cod).
-Timer instalat de om (urmatoarea: dum 2026-11-08 05:01 UTC). REPARAT (aprobat): core identic
-cu checksum-urile oficiale -> upstream_core (77/77), fereastra = functia, prompt v2, modelul nu
-mai inchide nimic (3/3 FP verificate raman "TP conf 90" si in v2). 42 drafturi -> superseded.
-## PASUL 4 (trafic benign) — IN CURS 2026-11-02 (detalii: docs/pasi/pas-04.md)
-VM benign-gen CREAT de Claude (aprobat): 192.168.10.150 / flotant 172.30.6.210, m1.small, benign-sg
-(22 doar admin), victim-sg +80 de la .150. Generator instalat (/opt/soc-benign, user soc-benign,
-Chromium testat), benign.env cu parola WP generata pe VM. Cod 288e170.
-Om a facut: chei/index, cheia pe VM, cont WP, soc-fp-rate.timer. benign-gen.service ACTIV din
-2026-11-02 ~09:31 UTC (sesiune completa 14/14 OK). Reparate pe drum (aprobat): WP siteurl/home
-172.20.99.240 -> 192.168.10.138; / servea copia statica index.html din 20.10 (cu injectorul de
-test wp-warden; efect al scenariului wget) -> carantina /root/soc-quarantine-20261102 + scenariul
-curata dupa el. RAMAS: Fleet Custom Logs soc.benign_actions (om); acceptare 24 h + 4 rapoarte FP.
-benign-gen se opreste in timpul harness-ului: ssh ubuntu@172.30.6.210 'sudo systemctl stop benign-gen'.
-Acces VM: ssh ubuntu@172.30.6.210 (lab-key; cheie host verificata din consola OpenStack).
+Model de lucru confirmat: sesiunea Claude ruleaza inca pe elastic-lab vechi (172.20.99.220);
+Claude da comenzile, le ruleaza de aici si intoarce rezultatele. Deblocat prin doua reguli
+in ~/.claude/settings.json (user): `Bash(ssh tiberiu@172.30.6.106:*)` (es-node-1) si
+`Bash(ssh tiberiu@172.30.6.249:*)` (web-prod). SSH testat pe ambele; atacatorul prin MCP
+opencyber-attacker (ruleaza chiar pe VM-ul atacator, 10.10.0.220). Editarea propriilor
+permisiuni ramane blocata (Self-Modification) — o face omul.
 
-## PASUL 7 (observabilitate) — FACUT 2026-11-02 (detalii: docs/pasi/pas-07.md)
-Cod c2d4c67. Deployat: type=cycle per ciclu, watchdog 900 s, MemoryMax 2G, ProtectSystem=strict
-(ExecStart neatins), soc-llm-probe.timer, absence_check (orchestrator blocat/lent, sonda tacuta),
-dashboard SOC Health. Poarta: fast 4/4; dev 12/14 recall 8/8 (FP php --version cunoscut + "Deploy
-legitim" re-rulat 3x = benign 3/3 -> variatie de model). Ramas: 24 h fara gol, test oprire aprobat.
-
-## PASUL 6 (securitatea SOC) — FACUT 2026-11-02 (detalii: docs/pasi/pas-06.md)
-6.1: prima rulare ESEC (caz 06, engleza in command_line: malicious -> suspicious) -> fix 765a0c8
-(telemetrie delimitata in Tier 1) -> 48/48. Poarta fast 4/4, dev recall 8/8 (FP 2/6, acceptat).
-6.3: snapshot SLM soc-daily aplicat, restore 2051 = 2051; off-host sarit. 6.4: deja satisfacut.
-Orchestratorul trebuie repornit de om ca sa incarce fixul.
-
-## LOT 2026-11-02 dupa-amiaza (detalii: docs/pasi/pas-10-12.md)
-APLICAT: 11 ILM + soc-monitor, 12 suricata-update, 12b ModSecurity DetectionOnly + regula Kibana,
-cod orchestrator/Tier 2/8/10.2 pe es-node-1 (incarcat de orchestrator abia la urmatorul restart).
-Poarta completa (fast+dev+val+injectie) pornita 12:48 UTC; dupa ea: restart orchestrator (om).
-
-Decizii om (2026-11-02 ~13:00): pasul 9 = doar readiness + dry-run (principiul 4 neatins; c9
-imposibil cu SNAT-ul unic); lab-sink CREAT (192.168.10.160, m1.small: m1.tiny n-are disc pentru
-imaginea Noble; cheie host verificata din consola); igiena: regula es-sg 9300 STEARSA; SSH fara
-parole si HTTPS pe web-prod = dupa poarta (reload sshd/Apache nu in timpul harness-ului).
-
-## 2026-11-02 seara: podeaua 4, plann.md, sincronizare completa pe es-node-1
-- Poarta podelei 4 (15:01): dev 8/8 atacuri (FP 2/6 cunoscute), val 4/4 atacuri (FP 2/4: admin
-  prin sudo, enrich_only, variatie Tier 2 = S2), injectie 4/4 cu AMBELE cazuri Tier 2 malicious
-  (podeaua merge). Acceptat de om.
-- plann.md implementat in cod (S1, S3, S6, A1-A7; S2 de masurat dupa pasul 8; S4/S5 prin decizie)
-  + igiena (implicite OpenStack, DISABLE_CRITIC scos din exemple, 2 fisiere marcate deprecate).
-- es-node-1 = laboratorul (decizia omului): arborele git HEAD (507a50b) extras cu `git archive`
-  peste ~/lab (rsync nu exista pe boxa veche); sha256 identice, 1071 teste verzi acolo,
-  prompt_set f1d721739bf7. Secretele raman cele ale masinii. Git-ul de pe es-node-1 ramane in urma
-  pana la push-ul omului (git pull apoi).
-- Poarta finala (fast+dev+val+inj) pornita 15:5x pe arborele complet, benign-gen oprit.
-- POARTA FINALA (arbore complet, 15:49-16:57 UTC): fast 4/4, dev 12/14 (8/8 atacuri, FP cele 2
-  cunoscute), val 8/8, injectie 4/4. type=gate scris in soc-metrics (A5 merge).
-- Igiena aplicata pe web-prod (aprobat): HTTPS self-signed (vhost 443, HTTP ramane; amprenta
-  sha256 FD:50:BF:77...47:8A; copie /root/soc-pre-https-20261102T165829Z), SSH fara parole
-  (00-soc.conf, sshd -t, reload, login cu cheie verificat); victim-sg +443 din benign-gen;
-  benign-gen cu BENIGN_ADMIN_URL=https://192.168.10.138, generator actualizat, repornit.
-- RAMAS om dupa poarta: pas-a1-cases.sh, import soc-status.ndjson (pas-a4-status.sh), restart
-  orchestrator + soc-readiness.timer; apoi benign-gen start (Claude), HTTPS/SSH web-prod,
-  art-setup.sh; apoi pasii 5 si 8.
-
-## COD SCRIS, NEAPLICAT (2026-11-02, dupa poarta 6) — o singura implementare + poarta completa
-10.2 grupare pe cazuri (a164c96), 10.1 CLAUDE.md (ea1ac05), 11 ILM + sanatate ES (920838f),
-12 suricata-update (920838f), 12b ModSecurity (4983971), 6.1 Tier 2 delimitat + scenarios_injection
-(f94b109), 5 art_runner + coverage (1114ed6), 8 prompturi versionate + regresie (5a718b6).
-Tier 3 N-day (fde568b) DEPLOYAT pe es-node-1 (prima rulare reala 13:06 UTC).
-Ramase decizii: pasul 9 (principiul 4 + IP-ul SNAT unic), VM lab-sink (pasul 5).
-
-## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
-
-Cod 5c909df (detalii A-E: docs/pasi/pas-01b.md). web-prod: cont soc-reader (uid 995, parola
-blocata, shell /bin/sh), authorized_keys al lui root cu restrict,command=soc-reader-gate; gate cu
-11 comenzi exacte + rrsync -ro /var/www/html; sshd neatins. es-node-1: ~/.ssh/soc-reader (ed25519,
-SHA256:UkPJB+...F1vU), host key web-prod verificat in known_hosts (SHA256:Nj2GU0...Dk4k).
-reader.py (ReaderCommand = lista gate-ului). wp_inventory din SBOM (nu mai intra ca tiberiu@).
-Verificat de pe es-node-1: 5 permise OK; ls /, cat /etc/shadow, "; id", sesiune fara comanda ->
-DENIED rc=1; -L forwarding "administratively prohibited"; PTY refuzat; toate in logs-system.auth
-(process.name soc-reader-gate). stat backup.sql fara alerta honeytoken. reader.run live OK.
-FACUT si dupa: regula soc-reader-denied creata si testata (DENIED -> alerta in 48 s); restart
-orchestrator; testul 3.B live a trecut (new_executable soc-rarity-test, new_user soc-reader).
-1b.2 FACUT (deb4553): canar-hash (vs ~/lab/data/canary.sha256, referinta verificata: binar =
-/usr/bin/true, cron = fisierul din repo) + cron_hash (vs ~/lab/data/cron.sha256, invatat) in
-absence_check la fiecare 10 min prin reader.run. Live 11:00: "canar hash OK", cron 5 fisiere.
-=> PASUL 3 COMPLET IN INTREGIME (inclusiv cron_hash). Pasii 0, 1, 1b, 1c, 3 = gata.
-CONSTATARE: sshd pe web-prod are passwordauthentication yes GLOBAL (soc-reader nu e afectat:
-parola blocata). Atenuat de nft (22 doar es-node-1 + admin). De inchis la hardening.
-
-## PASUL 3.B (raritate) — FACUT 2026-10-30 -> PASUL 3 COMPLET (minus cron_hash, depinde de 1b)
-
-Cod 7e79232 (detalii A-E: docs/pasi/pas-03b.md). Sweep-uri noi in run_full_sweep (orar):
-new_executable (orice user, fara caile fileless), new_user, sbom_drift (apache_module/php_ext/
-plugin/tema: added/removed/version_changed/modified = alt sha256 la aceeasi versiune). Fum pe
-date reale (24 h): 4 / 0 / 0. Reparatie R9: findings peste --hunt-limit 5 erau sarite si intrau
-in baseline (pana la 511 pierdute in 7 zile); acum verdict de cod undetermined + escalate_human
-(BACKLOG_SEVERE). Deployat pe es-node-1 (*.pre-3b); necesita restart orchestrator.
-Amanat: cron_hash (gate soc-reader, 1b). Bug SBOM: modul Apache "Loaded" (antetul din
-apache2ctl -M) — de reparat in soc-sbom.sh.
-
-## PASUL 3.E (AIDE pe web-prod) — FACUT si verificat 2026-10-30
-
-Cod e2104b4 (detalii A-E: docs/pasi/pas-03e.md). AIDE 0.18.6 fara aide-common (fara timerul
-distributiei), config /etc/soc-aide/aide.conf (G9 + /usr/bin, fara uploads/cache si fara momele),
-soc-aide-check root la 03:30, baza promovata la fiecare rulare (fiecare schimbare raportata o
-data), explicat = pachet dpkg instalat de la rularea anterioara (decis de cod). Regula
-soc-aide-change (senzor, high). Regula wp-config exclude /usr/bin/aide (verificat: citire logata,
-fara alerta). Test: fisier nou + sters in /usr/local/bin -> 2 alerte in ~11 s, ambele procesate,
-escaladare cu sensor_detection.
-
-Doua defecte PREEXISTENTE gasite la testul 3.E (reparate):
-- 0f291ab: jurnalul web-prod vine din /var/log/syslog din ~20.10 (process.name = eticheta, fara
-  log.syslog.appname) -> soc-yara-webshell n-a mai alertat 10 zile (60 potriviri pe 26.10, toate
-  pe fisiere WordPress core = fals pozitive; niciun webshell real ascuns). Helper _syslog_tag.
-- f6cdd85: dedup orchestrator: alertele din jurnal (YARA/AIDE/MySQL/auditd) aveau cheia
-  regula|host| -> a doua alerta a aceleiasi reguli sarita 24 h. Acum hash pe message.
-De facut ulterior: YARA da fals pozitive pe WordPress core (lista alba dupa checksum-urile WP).
-De etichetat benign: soc-aide-change de la testele 09:10-10:19.
-
-## PASUL 3.D (monitor de integritate) — FACUT 2026-10-30
-
-Cod f719c06 + 4046536 (detalii A-E: docs/pasi/pas-03d.md). absence_check.py extins (timer la
-1 min, AccuracySec=1s): tacere pe 7 fluxuri web-prod (prag din pauzele reale; Suricata pe
-agent.name, n-are host.name; Apache exclus), fleet-server /api/status (HTTP :8220),
-integrity_alert Pydantic in soc-incidents (ES_INCIDENTS_WRITER, dedup 10 min), puls
-integrity_check in soc-metrics (ES_METRICS_WRITER); orchestratorul pagineaza daca pulsul
-lipseste > 5 min (paza reciproca). Deployat (*.pre-3d), unitati instalate, orchestrator repornit.
-Verificat: puls ok la ~1 min, 0 integrity_alert false, exit 0.
-Amanat: hash canar (cere gate soc-reader, 1b); stare agent din Fleet API (cheie Kibana fleet:read).
-De facut la pasul 7: mapping explicit pe soc-metrics (create_doc a extins mapping-ul automat;
-ES avertizeaza ca nu va mai fi permis). Notat pentru 11/12: eve.json 545 MB pe web-prod, nerotit?
-Test negativ ramas (optional, cu OK): oprirea soc-absence.timer 6 min -> Discord "monitorul tace".
+Constatari (conteaza pentru pasul 9 si pentru retragerea boxei vechi):
+- **source.ip pe web-prod = 172.30.6.133** (IP-ul FLOTANT al atacatorului, SNAT), NU
+  10.10.0.220. Dovada: logs-apache.* are 125.821 docs de la 172.30.6.133 (atacurile
+  "purple-0day-agresiv"). Routerul OpenStack rescrie adresa interna la L3.
+- **never_block (pasul 9) trebuie lista de IP-uri specifice, nu un CIDR**: IP-ul blocabil
+  al atacatorului (172.30.6.133) e in ACELASI 172.30.6.0/24 cu infrastructura care nu
+  trebuie blocata (es-node-1 172.30.6.106, web-prod self 172.30.6.249, IP admin). Deci
+  WP_SELF_IPS/never_block enumera exact acele flotante; BENIGN_GEN_IPS si logica
+  honeytoken config_error cheie pe 172.30.6.133 pentru "atacatorul din lab".
+- **A10/c9 e blocaj real pentru pasul 9 in topologia asta (nu pentru detectie)**: tot
+  traficul extern se prabuseste pe un singur IP SNAT (172.30.6.133). block_ip_ttl pe
+  source.ip ar bloca acel unic flotant = toata calea externa; mod_remoteip/XFF nu ajuta
+  (nu exista proxy aplicativ, e SNAT L3 de router); criteriul c9 ("≥5 source.ip externe
+  distincte") e de neatins. Detectia (pasii 1-3) coreleaza bine; doar blocarea automata
+  (pasul 9) devine grosiera — de decis: block_ip_ttl manual-only in lab, sau test din mai
+  multe flotante de atacator.
+- **atacator → web-prod:80 e functional si stabil** (5/5 × 200 OK, ~5 ms). Timeout-ul
+  initial a fost un tranzitoriu unic (primul pachet pe cale "rece" ~15 ms). web-prod: Apache
+  active, asculta *:80; nft soc_fw accepta 80/443 de la oricine.
+- **GOTCHA la retragerea boxei vechi**: nft soc_fw pe web-prod permite SSH 22 doar de la
+  192.168.10.121 (es-node-1) si @admin_v4={172.20.99.220} = BOXA VECHE (hostul sesiunii).
+  Inainte de a retrage boxa veche: adauga noul IP de control in admin_v4 pe web-prod SI
+  es-node-1 (`sudo nft add element inet soc_fw admin_v4 { <IP_nou> }` + in deploy/*/soc-fw.nft),
+  altfel pierzi SSH-ul la hosturi.
 
 ## PASUL 3.C (honeytokens WordPress/MySQL) — FACUT si verificat 2026-10-30
 
@@ -247,39 +147,68 @@ ramane pornit (atacatorul cu root nu poate opri auditul fara reboot, iar reboot-
 - De etichetat benign: soc-php-written-in-webroot la plantare (07:29-07:33), yara 08:13-08:17,
   "Payload download: curl/wget" din testele mele (curl din bash), testele T1-T8.
 
-## Sesiune 2026-10-29 (continuare): acces de pe boxa veche + constatari retea
+## PASUL 3.D (monitor de integritate) — FACUT 2026-10-30
 
-Model de lucru confirmat: sesiunea Claude ruleaza inca pe elastic-lab vechi (172.20.99.220);
-Claude da comenzile, le ruleaza de aici si intoarce rezultatele. Deblocat prin doua reguli
-in ~/.claude/settings.json (user): `Bash(ssh tiberiu@172.30.6.106:*)` (es-node-1) si
-`Bash(ssh tiberiu@172.30.6.249:*)` (web-prod). SSH testat pe ambele; atacatorul prin MCP
-opencyber-attacker (ruleaza chiar pe VM-ul atacator, 10.10.0.220). Editarea propriilor
-permisiuni ramane blocata (Self-Modification) — o face omul.
+Cod f719c06 + 4046536 (detalii A-E: docs/pasi/pas-03d.md). absence_check.py extins (timer la
+1 min, AccuracySec=1s): tacere pe 7 fluxuri web-prod (prag din pauzele reale; Suricata pe
+agent.name, n-are host.name; Apache exclus), fleet-server /api/status (HTTP :8220),
+integrity_alert Pydantic in soc-incidents (ES_INCIDENTS_WRITER, dedup 10 min), puls
+integrity_check in soc-metrics (ES_METRICS_WRITER); orchestratorul pagineaza daca pulsul
+lipseste > 5 min (paza reciproca). Deployat (*.pre-3d), unitati instalate, orchestrator repornit.
+Verificat: puls ok la ~1 min, 0 integrity_alert false, exit 0.
+Amanat: hash canar (cere gate soc-reader, 1b); stare agent din Fleet API (cheie Kibana fleet:read).
+De facut la pasul 7: mapping explicit pe soc-metrics (create_doc a extins mapping-ul automat;
+ES avertizeaza ca nu va mai fi permis). Notat pentru 11/12: eve.json 545 MB pe web-prod, nerotit?
+Test negativ ramas (optional, cu OK): oprirea soc-absence.timer 6 min -> Discord "monitorul tace".
 
-Constatari (conteaza pentru pasul 9 si pentru retragerea boxei vechi):
-- **source.ip pe web-prod = 172.30.6.133** (IP-ul FLOTANT al atacatorului, SNAT), NU
-  10.10.0.220. Dovada: logs-apache.* are 125.821 docs de la 172.30.6.133 (atacurile
-  "purple-0day-agresiv"). Routerul OpenStack rescrie adresa interna la L3.
-- **never_block (pasul 9) trebuie lista de IP-uri specifice, nu un CIDR**: IP-ul blocabil
-  al atacatorului (172.30.6.133) e in ACELASI 172.30.6.0/24 cu infrastructura care nu
-  trebuie blocata (es-node-1 172.30.6.106, web-prod self 172.30.6.249, IP admin). Deci
-  WP_SELF_IPS/never_block enumera exact acele flotante; BENIGN_GEN_IPS si logica
-  honeytoken config_error cheie pe 172.30.6.133 pentru "atacatorul din lab".
-- **A10/c9 e blocaj real pentru pasul 9 in topologia asta (nu pentru detectie)**: tot
-  traficul extern se prabuseste pe un singur IP SNAT (172.30.6.133). block_ip_ttl pe
-  source.ip ar bloca acel unic flotant = toata calea externa; mod_remoteip/XFF nu ajuta
-  (nu exista proxy aplicativ, e SNAT L3 de router); criteriul c9 ("≥5 source.ip externe
-  distincte") e de neatins. Detectia (pasii 1-3) coreleaza bine; doar blocarea automata
-  (pasul 9) devine grosiera — de decis: block_ip_ttl manual-only in lab, sau test din mai
-  multe flotante de atacator.
-- **atacator → web-prod:80 e functional si stabil** (5/5 × 200 OK, ~5 ms). Timeout-ul
-  initial a fost un tranzitoriu unic (primul pachet pe cale "rece" ~15 ms). web-prod: Apache
-  active, asculta *:80; nft soc_fw accepta 80/443 de la oricine.
-- **GOTCHA la retragerea boxei vechi**: nft soc_fw pe web-prod permite SSH 22 doar de la
-  192.168.10.121 (es-node-1) si @admin_v4={172.20.99.220} = BOXA VECHE (hostul sesiunii).
-  Inainte de a retrage boxa veche: adauga noul IP de control in admin_v4 pe web-prod SI
-  es-node-1 (`sudo nft add element inet soc_fw admin_v4 { <IP_nou> }` + in deploy/*/soc-fw.nft),
-  altfel pierzi SSH-ul la hosturi.
+## PASUL 3.E (AIDE pe web-prod) — FACUT si verificat 2026-10-30
+
+Cod e2104b4 (detalii A-E: docs/pasi/pas-03e.md). AIDE 0.18.6 fara aide-common (fara timerul
+distributiei), config /etc/soc-aide/aide.conf (G9 + /usr/bin, fara uploads/cache si fara momele),
+soc-aide-check root la 03:30, baza promovata la fiecare rulare (fiecare schimbare raportata o
+data), explicat = pachet dpkg instalat de la rularea anterioara (decis de cod). Regula
+soc-aide-change (senzor, high). Regula wp-config exclude /usr/bin/aide (verificat: citire logata,
+fara alerta). Test: fisier nou + sters in /usr/local/bin -> 2 alerte in ~11 s, ambele procesate,
+escaladare cu sensor_detection.
+
+Doua defecte PREEXISTENTE gasite la testul 3.E (reparate):
+- 0f291ab: jurnalul web-prod vine din /var/log/syslog din ~20.10 (process.name = eticheta, fara
+  log.syslog.appname) -> soc-yara-webshell n-a mai alertat 10 zile (60 potriviri pe 26.10, toate
+  pe fisiere WordPress core = fals pozitive; niciun webshell real ascuns). Helper _syslog_tag.
+- f6cdd85: dedup orchestrator: alertele din jurnal (YARA/AIDE/MySQL/auditd) aveau cheia
+  regula|host| -> a doua alerta a aceleiasi reguli sarita 24 h. Acum hash pe message.
+De facut ulterior: YARA da fals pozitive pe WordPress core (lista alba dupa checksum-urile WP).
+De etichetat benign: soc-aide-change de la testele 09:10-10:19.
+
+## PASUL 3.B (raritate) — FACUT 2026-10-30 -> PASUL 3 COMPLET (minus cron_hash, depinde de 1b)
+
+Cod 7e79232 (detalii A-E: docs/pasi/pas-03b.md). Sweep-uri noi in run_full_sweep (orar):
+new_executable (orice user, fara caile fileless), new_user, sbom_drift (apache_module/php_ext/
+plugin/tema: added/removed/version_changed/modified = alt sha256 la aceeasi versiune). Fum pe
+date reale (24 h): 4 / 0 / 0. Reparatie R9: findings peste --hunt-limit 5 erau sarite si intrau
+in baseline (pana la 511 pierdute in 7 zile); acum verdict de cod undetermined + escalate_human
+(BACKLOG_SEVERE). Deployat pe es-node-1 (*.pre-3b); necesita restart orchestrator.
+Amanat: cron_hash (gate soc-reader, 1b). Bug SBOM: modul Apache "Loaded" (antetul din
+apache2ctl -M) — de reparat in soc-sbom.sh.
+
+## PASUL 1b (soc-reader, = 6.2) — FACUT si verificat 2026-10-30
+
+Cod 5c909df (detalii A-E: docs/pasi/pas-01b.md). web-prod: cont soc-reader (uid 995, parola
+blocata, shell /bin/sh), authorized_keys al lui root cu restrict,command=soc-reader-gate; gate cu
+11 comenzi exacte + rrsync -ro /var/www/html; sshd neatins. es-node-1: ~/.ssh/soc-reader (ed25519,
+SHA256:UkPJB+...F1vU), host key web-prod verificat in known_hosts (SHA256:Nj2GU0...Dk4k).
+reader.py (ReaderCommand = lista gate-ului). wp_inventory din SBOM (nu mai intra ca tiberiu@).
+Verificat de pe es-node-1: 5 permise OK; ls /, cat /etc/shadow, "; id", sesiune fara comanda ->
+DENIED rc=1; -L forwarding "administratively prohibited"; PTY refuzat; toate in logs-system.auth
+(process.name soc-reader-gate). stat backup.sql fara alerta honeytoken. reader.run live OK.
+FACUT si dupa: regula soc-reader-denied creata si testata (DENIED -> alerta in 48 s); restart
+orchestrator; testul 3.B live a trecut (new_executable soc-rarity-test, new_user soc-reader).
+1b.2 FACUT (deb4553): canar-hash (vs ~/lab/data/canary.sha256, referinta verificata: binar =
+/usr/bin/true, cron = fisierul din repo) + cron_hash (vs ~/lab/data/cron.sha256, invatat) in
+absence_check la fiecare 10 min prin reader.run. Live 11:00: "canar hash OK", cron 5 fisiere.
+=> PASUL 3 COMPLET IN INTREGIME (inclusiv cron_hash). Pasii 0, 1, 1b, 1c, 3 = gata.
+CONSTATARE: sshd pe web-prod are passwordauthentication yes GLOBAL (soc-reader nu e afectat:
+parola blocata). Atenuat de nft (22 doar es-node-1 + admin). De inchis la hardening.
 
 ## De facut de om (oricand)
 
@@ -312,16 +241,78 @@ Constatari (conteaza pentru pasul 9 si pentru retragerea boxei vechi):
 - Etichete benign pentru actiunile din 28.10: modificarea wp-config.php, rularile
   soc-wp-update (www-data -> python3/wp).
 
-## Ramas
+## PASUL 2 (analiza statica) — FACUT 2026-11-02, cu o problema de calitate deschisa
 
-Pasul 0: FACUT COMPLET (0.1-0.5), verificat pe hosturi.
-Urmeaza, in ordine D3: 1, 1b, 1c, 3, 2, 4, 7, 6, 5, 8, 9, 10, 11, 12, 12b (15 pasi),
-minim 4-5 saptamani din cauza ferestrelor de asteptare (shadow 7 zile per lot de reguli).
+Poarta pasului 3 rulata inainte (results/poarta3-*-2026-11-02-0706 pe es-node-1): fast 4/4,
+0day 1/1, dev 13/14 (recall 8/8; FP-ul cunoscut php --version, identic cu referinta post-migrare),
+val 8/8. Cod 7b2166b, b9197a7, dfed52c (detalii A-E si rezultate: docs/pasi/pas-02.md).
+Semgrep 1.180.0 in ~/semgrep-venv pe es-node-1; static-findings + cheia soc-static-writer create
+de om. 2 rulari exit 0, idempotent (77 -> 0 noi). Triajul: 43 "open" toate in WP core, 2/2
+verificate = fals pozitive -> propunere: filtru pe checksum-urile oficiale WP (decis de cod).
+Timer instalat de om (urmatoarea: dum 2026-11-08 05:01 UTC). REPARAT (aprobat): core identic
+cu checksum-urile oficiale -> upstream_core (77/77), fereastra = functia, prompt v2, modelul nu
+mai inchide nimic (3/3 FP verificate raman "TP conf 90" si in v2). 42 drafturi -> superseded.
+## PASUL 4 (trafic benign) — IN CURS 2026-11-02 (detalii: docs/pasi/pas-04.md)
+VM benign-gen CREAT de Claude (aprobat): 192.168.10.150 / flotant 172.30.6.210, m1.small, benign-sg
+(22 doar admin), victim-sg +80 de la .150. Generator instalat (/opt/soc-benign, user soc-benign,
+Chromium testat), benign.env cu parola WP generata pe VM. Cod 288e170.
+Om a facut: chei/index, cheia pe VM, cont WP, soc-fp-rate.timer. benign-gen.service ACTIV din
+2026-11-02 ~09:31 UTC (sesiune completa 14/14 OK). Reparate pe drum (aprobat): WP siteurl/home
+172.20.99.240 -> 192.168.10.138; / servea copia statica index.html din 20.10 (cu injectorul de
+test wp-warden; efect al scenariului wget) -> carantina /root/soc-quarantine-20261102 + scenariul
+curata dupa el. RAMAS: Fleet Custom Logs soc.benign_actions (om); acceptare 24 h + 4 rapoarte FP.
+benign-gen se opreste in timpul harness-ului: ssh ubuntu@172.30.6.210 'sudo systemctl stop benign-gen'.
+Acces VM: ssh ubuntu@172.30.6.210 (lab-key; cheie host verificata din consola OpenStack).
 
-Decizii deja luate (implicite, schimbabile): cod in ~/lab cu o ramura per pas; fara
-disable_functions si fara schimbarea proprietarului webroot (altfel pica portile
-harness: scenarios_fast.yml:13 si :25); update-uri WordPress doar in mod raport;
-backup tras de es-node-1 (web-prod fara chei spre SOC); atacatorul fara SSH pe web-prod.
+## PASUL 7 (observabilitate) — FACUT 2026-11-02 (detalii: docs/pasi/pas-07.md)
+Cod c2d4c67. Deployat: type=cycle per ciclu, watchdog 900 s, MemoryMax 2G, ProtectSystem=strict
+(ExecStart neatins), soc-llm-probe.timer, absence_check (orchestrator blocat/lent, sonda tacuta),
+dashboard SOC Health. Poarta: fast 4/4; dev 12/14 recall 8/8 (FP php --version cunoscut + "Deploy
+legitim" re-rulat 3x = benign 3/3 -> variatie de model). Ramas: 24 h fara gol, test oprire aprobat.
+
+## PASUL 6 (securitatea SOC) — FACUT 2026-11-02 (detalii: docs/pasi/pas-06.md)
+6.1: prima rulare ESEC (caz 06, engleza in command_line: malicious -> suspicious) -> fix 765a0c8
+(telemetrie delimitata in Tier 1) -> 48/48. Poarta fast 4/4, dev recall 8/8 (FP 2/6, acceptat).
+6.3: snapshot SLM soc-daily aplicat, restore 2051 = 2051; off-host sarit. 6.4: deja satisfacut.
+Orchestratorul trebuie repornit de om ca sa incarce fixul.
+
+## COD SCRIS, NEAPLICAT (2026-11-02, dupa poarta 6) — o singura implementare + poarta completa
+10.2 grupare pe cazuri (a164c96), 10.1 CLAUDE.md (ea1ac05), 11 ILM + sanatate ES (920838f),
+12 suricata-update (920838f), 12b ModSecurity (4983971), 6.1 Tier 2 delimitat + scenarios_injection
+(f94b109), 5 art_runner + coverage (1114ed6), 8 prompturi versionate + regresie (5a718b6).
+Tier 3 N-day (fde568b) DEPLOYAT pe es-node-1 (prima rulare reala 13:06 UTC).
+Ramase decizii: pasul 9 (principiul 4 + IP-ul SNAT unic), VM lab-sink (pasul 5).
+
+## LOT 2026-11-02 dupa-amiaza (detalii: docs/pasi/pas-10-12.md)
+APLICAT: 11 ILM + soc-monitor, 12 suricata-update, 12b ModSecurity DetectionOnly + regula Kibana,
+cod orchestrator/Tier 2/8/10.2 pe es-node-1 (incarcat de orchestrator abia la urmatorul restart).
+Poarta completa (fast+dev+val+injectie) pornita 12:48 UTC; dupa ea: restart orchestrator (om).
+
+Decizii om (2026-11-02 ~13:00): pasul 9 = doar readiness + dry-run (principiul 4 neatins; c9
+imposibil cu SNAT-ul unic); lab-sink CREAT (192.168.10.160, m1.small: m1.tiny n-are disc pentru
+imaginea Noble; cheie host verificata din consola); igiena: regula es-sg 9300 STEARSA; SSH fara
+parole si HTTPS pe web-prod = dupa poarta (reload sshd/Apache nu in timpul harness-ului).
+
+## 2026-11-02 seara: podeaua 4, plann.md, sincronizare completa pe es-node-1
+- Poarta podelei 4 (15:01): dev 8/8 atacuri (FP 2/6 cunoscute), val 4/4 atacuri (FP 2/4: admin
+  prin sudo, enrich_only, variatie Tier 2 = S2), injectie 4/4 cu AMBELE cazuri Tier 2 malicious
+  (podeaua merge). Acceptat de om.
+- plann.md implementat in cod (S1, S3, S6, A1-A7; S2 de masurat dupa pasul 8; S4/S5 prin decizie)
+  + igiena (implicite OpenStack, DISABLE_CRITIC scos din exemple, 2 fisiere marcate deprecate).
+- es-node-1 = laboratorul (decizia omului): arborele git HEAD (507a50b) extras cu `git archive`
+  peste ~/lab (rsync nu exista pe boxa veche); sha256 identice, 1071 teste verzi acolo,
+  prompt_set f1d721739bf7. Secretele raman cele ale masinii. Git-ul de pe es-node-1 ramane in urma
+  pana la push-ul omului (git pull apoi).
+- Poarta finala (fast+dev+val+inj) pornita 15:5x pe arborele complet, benign-gen oprit.
+- POARTA FINALA (arbore complet, 15:49-16:57 UTC): fast 4/4, dev 12/14 (8/8 atacuri, FP cele 2
+  cunoscute), val 8/8, injectie 4/4. type=gate scris in soc-metrics (A5 merge).
+- Igiena aplicata pe web-prod (aprobat): HTTPS self-signed (vhost 443, HTTP ramane; amprenta
+  sha256 FD:50:BF:77...47:8A; copie /root/soc-pre-https-20261102T165829Z), SSH fara parole
+  (00-soc.conf, sshd -t, reload, login cu cheie verificat); victim-sg +443 din benign-gen;
+  benign-gen cu BENIGN_ADMIN_URL=https://192.168.10.138, generator actualizat, repornit.
+- RAMAS om dupa poarta: pas-a1-cases.sh, import soc-status.ndjson (pas-a4-status.sh), restart
+  orchestrator + soc-readiness.timer; apoi benign-gen start (Claude), HTTPS/SSH web-prod,
+  art-setup.sh; apoi pasii 5 si 8.
 
 ## 2026-11-03 dimineata: pasii omului dupa poarta finala + golul cazurilor pe entitati
 
