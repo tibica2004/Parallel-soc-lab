@@ -536,3 +536,9 @@ SOC_KEYS_ROTATED_ON=2026-10-08 (ES_API_KEY/ES_WRITER_API_KEY din 10-08 -> prima 
 De curatat ulterior (om, ireversibil): chei duplicate active (3x soc-reader, 4x vulns/incidents/metrics
 writer de la reluarile din 29.10); in soc.env sunt folosite doar ID-urile IS_oh6..., HS_oh6..., Hy_oh6..., Ei_oh6....
 De urmarit 05.11: indicii zilnici entity store Kibana pot readuce ES la galben (nu trec prin logs@custom).
+B.1 OPRITA 2026-11-04 15:02: scenariul 1 fast "Request timed out"; sonda LLM 3 timeout-uri/ora; orchestrator
+"plafonul de timp per caz depasit" (R9 corect: undetermined + escalate_human). CAUZA pe gazda GPU 172.30.6.231:
+nvidia-smi "Driver/library version mismatch" (kernel 580.173.02 vs lib 580.178.04, /var/run/reboot-required)
+-> Ollama a cazut pe CPU (llama-server 1900% CPU, load 18); prompt de 1 cuvant > 90 s. Nu e gazda noastra:
+reboot-ul il cere omul de la Laura. Poarta se reia de la zero dupa reboot (results/completari-fast-*-1424 invalid).
+Curatenie repo (9b391a1): cod mort + experiments/test_* + 45 rulari intermediare sterse; REZUMAT.md = stare la zi.
