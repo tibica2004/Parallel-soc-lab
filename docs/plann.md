@@ -90,7 +90,7 @@ poarta podelei 4. Pe hosturi: pas-a1-cases.sh si importul soc-status.ndjson rula
 - "ok" per test ART (pasul 5); etichetele (pasul 8); inchiderea cazurilor (A1).
 - Deciziile cu masuratori: S2 (B sau nu), aprobarea listelor albe (A6).
 - Orice schimbare pe hosturi, chei, reguli Kibana; restartul orchestratorului.
-- Rotatia cheilor la 90 de zile (prima: 2027-01-27); licenta ES (trial -> basic) inainte de expirare.
+- Rotatia cheilor la 90 de zile (prima: 2027-01-06; corectat 2026-11-04); licenta ES (trial -> basic) inainte de expirare.
 
 ## 6. Ce NU se face in acest proiect
 

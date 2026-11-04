@@ -27,7 +27,7 @@ pentru om; nimic rulat pe hosturi din sesiune.
 2. Deploy cod pe es-node-1 (scp orchestrator.py absence_check.py behavioral_rules.py honeytokens.py
    elastic_tools.py, cu copii `.pre-13`), `sudo systemctl restart soc-orchestrator`.
 3. `bash deploy/es-node-1/pas13-setup.sh` (cont elastic + sudo).
-4. In soc.env pe es-node-1: `SOC_KEYS_ROTATED_ON=2026-10-29` (data crearii cheilor; G8). Optional
+4. In soc.env pe es-node-1: `SOC_KEYS_ROTATED_ON=2026-10-08` (data celei mai vechi chei FOLOSITE: ES_API_KEY + ES_WRITER_API_KEY, verificat 2026-11-04 cu _authenticate; G8). Optional
    `KIBANA_FLEET_API_KEY=<cheie Kibana cu rol doar fleet:read>` (Stack Management -> API keys ->
    rol personalizat Kibana: Fleet = Read, nimic altceva); fara ea verificarea e sarita, nu esueaza.
 5. Kibana (cont elastic): `python3 deploy/kibana/honeytoken_rules.py verifica` apoi `aplica`
