@@ -1,161 +1,111 @@
-# REZUMAT — extinderea defensiva SOC (plan-0day)
+# REZUMAT — starea proiectului la 2026-11-04
 
-Rezumat de sine statator: ce s-a facut, ce ramane, constatari cheie. Pentru detalii A-E
-pe fiecare pas, vezi `docs/pasi/pas-00.md`, `pas-01.md`, `pas-01c.md`, `pas-03.md` si
-starea vie `docs/pasi/stare.md`. Plan complet: `docs/plan-0day.md`.
-Ultima actualizare: 2026-10-29. Ramura: `faza-21-protectie` (nepublicata, fara push).
+Rezumat de sine statator: ce exista, ce merge, ce ramane. Jurnalul cronologic (cu toate
+constatarile, in ordinea in care au aparut) e `docs/pasi/stare.md`; detaliile A-E pe fiecare
+pas sunt in `docs/pasi/pas-NN.md`; planul original e `docs/plan-0day.md`.
+Ramura: `faza-21-protectie` (nepublicata, fara push; omul face merge in main).
 
-EXCLUSIV DEFENSIV. Shadow mode activ (nicio actiune pe hosturi pana la pasul 9).
+EXCLUSIV DEFENSIV. Shadow mode permanent: nicio actiune pe hosturi, executorul doar dry-run.
 
----
+## 1. Ce este
 
-## Topologie si model de lucru
+Un SOC agentic Blue Team pe Elastic Stack 9.5.1 + modele locale (qwen3:14b prin Ollama), cu
+trei niveluri si cod determinist in jurul modelului:
 
-- Sesiunea Claude ruleaza pe **elastic-lab vechi** (172.20.99.220 = IP admin). Claude da
-  comenzile, le ruleaza de aici, intoarce rezultatele.
-- **es-node-1** (creierul SOC): intern 192.168.10.121, flotant 172.30.6.106. Docker (es01,
-  kibana :5601, fleet :8220), orchestrator, tunel LLM. Cod in `/home/tiberiu/lab`.
-- **web-prod** (victima WordPress): intern 192.168.10.138, flotant 172.30.6.249. Apache/PHP/WP.
-- **atacator**: flotant 172.30.6.133 (toate atacurile externe apar pe web-prod ca acest IP — SNAT).
-- Kibana: `http://172.30.6.106:5601` (HTTP, doar de pe IP admin din setul `admin_v4`).
+- **Senzori** (web-prod): Elastic Defend eBPF, auditd (kernel imuabil), Suricata 7 cu
+  reguli ET actualizate zilnic, ModSecurity CRS in DetectionOnly, Apache/MariaDB/syslog,
+  AIDE, YARA, SBOM zilnic, 10 honeytokens (fisiere, cai robots.txt, conturi inexistente).
+- **Detectie** (Kibana): reguli EQL/KQL native + 9 reguli comportamentale fara semnatura
+  (shell din apache2, PHP in webroot, binar nevazut, outbound nou, scriere in afara webroot,
+  /etc/shadow, fisiere sensibile, conturi/cron, SUID), 6 reguli honeytoken, XSS/SQLi/
+  traversal/enumerare/brute-force pe trafic, sweep-uri de raritate (new_executable, new_user,
+  new_url_path, sbom_drift).
+- **Tier 1** (triaj, `fast_path.py`): enrich -> RAG -> agent cu max 3 unelte -> verdict ->
+  podele de cod -> `should_escalate()`. Inchide doar benign clar.
+- **Tier 2** (investigatie, `hunt_path.py`): doua investigatii independente cand suportul
+  e 2, coroborare, `policy.decide()`. Nu primeste verdictul Tier 1. Criticul e oprit
+  (masurat daunator la 14B).
+- **Tier 3** (programat, `tier3.py`, orar): vanatoare pe ipoteze ATT&CK, grupare in
+  incidente, reguli EQL proprii cu shadow 7 zile, cereri N-day din SBOM x NVD/WPScan.
+- **Memorie**: verdicts-history, soc-audit, soc-traces, soc-incidents, soc-cases (unitatea de
+  lucru a omului), soc-metrics (ciclu, sonda LLM, integritate, porti), benign-ground-truth.
+- **Om**: interfata de etichetare + cazuri (`label_ui.py`), dashboard SOC Health / SOC Status,
+  notificari Discord (escaladari critice + absente).
 
-**Deploy pe es-node-1 = prin `scp`** (NU git — es-node-1 e o clona cu alta ramura; continutul
-fisierelor coincide cu sesiunea minus modificarile mele). **`sudo` pe es-node-1 cere parola**
-(fara NOPASSWD) → pasii cu sudo/Fleet/parola elastic ii face OMUL; Claude face scp + verificari
-read-only (cheile intra in antetul HTTP, nu se afiseaza).
+## 2. Infrastructura (OpenStack, din 2026-10-26)
 
-## Reguli absolute (rezumat)
+| VM | IP intern / flotant | Rol |
+|---|---|---|
+| es-node-1 | 192.168.10.121 / 172.30.6.106 | ES + Kibana (Docker), Fleet Server, orchestrator + 10 timere SOC |
+| web-prod | 192.168.10.138 / 172.30.6.249 | WordPress tinta, toti senzorii, 6 timere (backup, update raport, SBOM, AIDE, YARA, suricata-update) |
+| atacator | 10.10.0.220 / 172.30.6.133 | OpenClaw / OpenCyber; ajunge doar pe web-prod:80/443; SNAT -> apare ca 172.30.6.133 |
+| benign-gen | 192.168.10.150 / 172.30.6.210 | trafic WordPress benign (Playwright), scrie benign-ground-truth |
+| lab-sink | 192.168.10.160 | tinta ART miscare laterala / exfiltrare; nimic nu ruleaza pe el |
+| GPU | 172.30.6.231 | Ollama qwen3:14b, prin tunel autossh |
 
-R1 exclusiv defensiv. R3 nimic pe web-prod/es-node-1 fara OK per comanda. R4 shadow pana la
-pasul 9. R5 codul decide, modelul judeca. R9 esecul escaladeaza, nu inchide. R12 diff inainte
-de a modifica fisiere existente. R16 niciun secret al SOC-ului pe web-prod (chei doar in
-`soc.env`/`env.sh` pe es-node-1). G5 commit per pas: `pas N.M: <rezumat>`.
+Sesiunea Claude ruleaza pe boxa veche (172.20.99.220); hosturile se ating prin IP-urile
+flotante. Firewall nft propriu (`inet soc_fw`) pe es-node-1 si web-prod; security groups
+restranse (2026-11-04: 9200 doar web-prod + benign-gen, 8220 doar web-prod, fara SSH de la atacator).
 
----
+## 3. Ce s-a facut (pasii 0-12b, plan-0day)
 
-## FACUT (verificat pe hosturi)
+| Pas | Continut | Stare |
+|---|---|---|
+| 0 | backup zilnic + copie trasa + restore lunar; unattended-upgrades; WP fara auto-update; firewall nft; Discord; hardening Apache | FACUT |
+| 1, 1b, 1c | SBOM -> N-day watch (asset-vulns, 224 vulns, hunt/patch_request plafonat); cont soc-reader cu gate de 11 comenzi; soc-metrics | FACUT |
+| 2 | Semgrep saptamanal pe copia webroot + triaj fara model implicit; core-ul oficial WP sarit dupa checksum | FACUT |
+| 3 | reguli comportamentale, honeytokens WP/MySQL, monitor de integritate (absence_check la 1 min), AIDE, sweep-uri de raritate | FACUT |
+| 4 | VM benign-gen + benign-ground-truth + raport FP la 6 h | FACUT (ramas: Fleet Custom Logs soc.benign_actions) |
+| 5 | art_runner + coverage ATT&CK + lab-sink | COD GATA; 1/20 tehnici rulate |
+| 6 | suita de injectie (48/48), telemetrie delimitata in Tier 1 si Tier 2, snapshot SLM zilnic + restore testat | FACUT |
+| 7 | metrici per ciclu, sonda LLM, watchdog 900 s, MemoryMax, dashboard SOC Health | FACUT |
+| 8 | prompturi versionate (MANIFEST sha256), regression.py, determinism | COD GATA; cere >= 100 etichete umane (sunt 2) |
+| 9 | readiness c1-c9, executor cu garzi, doar dry-run | FACUT ca evaluare; c9 imposibil (SNAT unic), c2 nu trece in topologia asta |
+| 10 | CLAUDE.md, agregare pe cazuri, ServerName | FACUT |
+| 11, 12, 12b | ILM 30/45/180 zile, cheia soc-monitor; suricata-update zilnic; ModSecurity CRS DetectionOnly | FACUT |
+| 13 | completari: plafon pe cazuri noi in coada, reguli 3.1 e/f/g, G8 rotatie chei, restore lunar, SBOM fix | B.3, B.4, B.7 aplicate; B.1 poarta in curs; B.2, B.5, B.8, B.9 ramase |
 
-### PASUL 0 — protectie imediata (complet, 0.1-0.5)
-- **0.1 Backup**: `soc-backup.timer` 01:30 pe web-prod (baza wp + grants + webroot, sha256,
-  14 zile); `soc-backup-pull.timer` 02:15 pe es-node-1 (cheie `soc-backup` doar `rrsync -ro`,
-  30 zile); test de restore. Verificat: backup OK, cheia refuza `ls /`, restore 12 tabele.
-- **0.2 Patch-uri**: `unattended-upgrades` fara reboot + syslog; WordPress fara auto-update
-  (`AUTOMATIC_UPDATER_DISABLED`, `WP_AUTO_UPDATE_CORE=false`, `DISALLOW_FILE_EDIT`);
-  `wp-config.php` root:www-data 640; `soc-wp-update.timer` 02:00 in mod raport (APPLY=0).
-- **0.3 Firewall** nft propriu (`inet soc_fw`, separat de Docker) pe ambele hosturi, cu revert
-  automat la 10 min. web-prod: 80/443 oricine, 22 doar es-node-1 + admin. es-node-1: 22/5601/8088
-  doar admin, 8220 din es-net, 9200 doar web-prod+benign-gen. Verificat: atacatorul blocat pe 22/9200.
-- **0.4 Notificari Discord** (webhook): `notify.py` (escaladari critice: honeytoken/sensor/native),
-  `absence_check.py` + `soc-absence.timer` (10 min: backup>26h, servicii, canar). Webhook DOAR
-  in soc.env+env.sh (R16). ACTIV, test Discord confirmat (204).
-- **0.5 Hardening Apache**: `soc-hardening.conf` drop-in (ServerTokens Prod, ServerSignature Off,
-  TraceEnable Off, ServerName 192.168.10.138, xmlrpc.php blocat). Verificat: `Server: Apache` fara
-  versiune, xmlrpc 403.
+Porti de regresie (referinta): dev 14 scenarii recall 8/8 atacuri (2 FP cunoscute: `php --version`,
+"Deploy legitim"), validare 8/8, fast 4/4, 0-day 1/1, injectie 4/4 Tier 2 + 48/48 suita.
+Teste unitare: 1099 verzi (`python3 -m pytest tests -q`).
 
-### PASUL 1 — SBOM + N-day watch (complet)
-- **1.A SBOM** (web-prod): `soc-sbom.sh` (user `soc-sbom`, timer 03:00) → `/var/log/soc/sbom.ndjson`
-  → Fleet Custom Logs (dataset `soc.sbom`) → `logs-soc.sbom-*`. Fara chei/retea pe web-prod.
-  Verificat: 77 componente, core apache 2.4.58 / php 8.3.6 / wp_core 7.1.3.
-- **1.B N-day watch** (es-node-1): `nday_watch.py` (`soc-nday.timer` 04:00) citeste SBOM, coreleaza
-  cu **NVD (cu parsare de interval, `nvd_affects`)** + OSV + WPScan → `asset-vulns` (idempotent,
-  `_id` fix). Hunt/patch plafonat (`NDAY_HUNT_MIN_CVSS=9`, `NDAY_HUNT_MAX=10`, pe `new|newly_confirmed`)
-  → `soc-incidents`. `es_client` hard-fail pe cheie lipsa (R9). Verificat: exit 0, idempotent
-  (224→224); **224 vulns (118 confirmate / 106 needs_review), 114 cu patch, 10 hunt + 10 patch_request**.
-  22 teste. Chei in soc.env: ES_VULNS/INCIDENTS/METRICS_WRITER + ES_READER (soc-reader).
+## 4. Ce a aratat auto-atacul (2026-11-03, OpenCyber din atacator)
 
-### PASUL 1b — partial
-- Cheia **`soc-reader`** creata ca `ES_READER_API_KEY` (cheie de CITIRE ES, cuprinzatoare:
-  logs-*, .alerts-security, verdicts-history, soc-audit, soc-incidents, soc-metrics, asset-vulns).
-  NU am inlocuit `ES_API_KEY` (ar fi pierdut citirea pe soc-traces/baseline-entity-parentchild).
-- **NEFACUT**: gate-ul SSH read-only `soc-reader` pe web-prod (pasul 6.2) — necesar pentru
-  cron_hash (3.B) si canar-HASH (3.D).
+- recon/enumerare: Suricata rateaza flood-ul de 404; sweep-ul propriu (web_enumeration,
+  entity_risk pe IP) il prinde -> suspicious, caz pe source_ip.
+- exploit (nuclei, nikto, sqlmap, hydra, dalfox, wpscan): 1713 alerte intr-un sfert de ora;
+  toate straturile s-au aprins; isolate_host malicious/95 tinut in shadow; coada s-a plafonat
+  corect (R9: criticul escaladeaza fara model sub flood).
+- goluri inchise: XSS la IDS (regula noua, 0 -> 753 alerte), traversal, directory listing,
+  enumerare utilizatori REST, sendmail WordPress ca FP in soc-web-spawns-shell.
+- NU a existat RCE: executiile www-data erau scenariile harness-ului (corelat pe telemetrie).
 
-### PASUL 1c — soc-metrics (complet)
-- `soc-metrics` exista deja (scris de orchestrator, 672 docs) → confirmare, nu creare.
-  Agregabil pe `type.keyword`; cheile ES_METRICS_WRITER + ES_READER OK. nday aliniat la
-  `@timestamp` (standard Kibana). Gol pentru pasul 7: 666/672 docuri orchestrator n-au `type`.
+## 5. Ce ramane (in ordine)
 
-### PASUL 3.A — reguli comportamentale fara semnatura (operational + verificat)
-- **6 reguli EQL** (`behavioral_rules.py`) care prind LANTUL de exploatare, nu semnatura:
-  `soc-web-spawns-shell` (apache/php-fpm → shell), `soc-php-written-in-webroot`,
-  `soc-wwwdata-unexpected-exec`, `soc-webprod-new-outbound`, `soc-wwwdata-writes-outside-webroot`,
-  `soc-apache-reads-shadow` (auditd — Defend nu emite citiri, A3).
-- **Liste albe din baseline** (`build_whitelists.py`) cu `NEVER_WHITELIST` care exclude binarele
-  de recon/shell chiar daca apar in baseline (baseline contaminat de atac: `id`/`env` fusesera
-  rulate de un atacator). Rezultat pe web-prod: `wwwdata_exec=[dash, php8.3]`.
-- **Escaladare** `EscalationReason.BEHAVIORAL` (schemas.py + escalation.py), pasat din orchestrator.
-- **Importer** Kibana extins (`deploy/kibana/honeytoken_rules.py`) — rulat de om cu contul elastic.
-- **Verificat pe host**: toate 6 regulile `pornita` in Kibana; test live `sudo -u www-data
-  /usr/bin/uptime` pe web-prod → `soc-wwwdata-unexpected-exec` a declansat in ~1 min (sev high,
-  tags soc-behavioral+shadow-review). Detectie fara semnatura confirmata end-to-end. 124 teste.
-- In fereastra **shadow-review de 7 zile** inainte de promovare.
+1. **Pas 13**: B.1 poarta (ruleaza), B.2 deploy + restart orchestrator, B.5 cele 3 reguli noi
+   in Kibana (shadow-review 7 zile), B.8 Fleet soc.benign_actions, B.9 `make determinism`.
+2. **Etichetare**: >= 100 alerte in interfata (>= 25 malicious / suspicious / benign). Drumul
+   critic: fara ea nu exista setul de aur, regresia, c1/c7, graduation. ~3-4 h, in bucati.
+3. **ART pe lab-sink**: >= 20 tehnici, fiecare cu cleanup OK si ipoteza Tier 3 pentru cele
+   nevazute. 2-3 sesiuni, omul aproba fiecare comanda.
+4. **Fals pozitive zilnice de calibrat** (decizie om, apoi harness): `lsb_release -i -s` din
+   unattended-upgrade (regula Reverse shell), `soc-wp-update.py` la 02:00 (binar nevazut ->
+   malicious/95), sendmail in regula nativa RCE.
+5. **Ferestre**: 7 zile shadow-review pentru regulile e/f/g; 24 h benign fara restart.
+6. **Igiena**: chei API duplicate active (3x soc-reader, 4x writer-ele din 29.10) de invalidat
+   cu contul elastic; copiile `.pre-*` de pe es-node-1 dupa B.2; rotatia cheilor pe 2027-01-06.
 
----
+Abateri documentate (nu lipsuri): timesyncd in loc de chrony; backup fara copie off-host
+(un singur disc); pasul 9 doar readiness (principiul 4 neatins); fara disable_functions
+(ar pica portile); WP update in mod raport; conturile honeytoken nu exista; Discord ca notificare.
 
-## RAMAS DE FACUT
+## 6. Reguli de lucru care au contat
 
-### 3.A — doua actiuni de om (optionale, nu blocheaza restul)
-- **Step 3 — regula auditd** pe web-prod (ca regula `soc-apache-reads-shadow` sa alerteze; pana
-  atunci e inerta; celelalte 5 merg). Fleet → policy web-prod → `auditd_manager`:
-  `-a always,exit -F arch=b64 -S openat,open -F path=/etc/shadow -F perm=r -F uid=$(id -u www-data) -k soc_shadow_read`
-- **Step 4 — restart orchestrator** (activeaza motivul explicit `BEHAVIORAL`; pana atunci
-  podelele `fast_path` escaladeaza oricum alertele web):
-  `ssh -t tiberiu@172.30.6.106 'sudo systemctl restart soc-orchestrator'`
-
-### Restul pasului 3
-- **3.C** honeytokens WordPress/MySQL: wp-config decoy + user MySQL `wp_backup` fara grants +
-  mu-plugin `soc-honey.php` (login) + `backup.sql` + robots traps. Extinde `honeytokens.py`/
-  `honeytokens.sh`. (Familia `.env.bak` exista deja.)
-- **3.D** integritate → `soc-incidents`: adauga canar-HASH + fleet-server la `absence_check.py`
-  si scrie `integrity_alert` in soc-incidents (azi doar Discord). canar-HASH depinde de soc-reader (1b).
-- **3.E** AIDE (FIM gazda) pe web-prod (G9).
-- **3.B** sweep de raritate pe absenta (executable/listen_port/cron_hash vs baseline 7z);
-  cron_hash depinde de soc-reader (1b).
-
-### Pasii urmatori (ordinea D3)
-`2` (analiza statica Semgrep) → `4` (trafic benign) → `7` (observabilitate + dashboard) →
-`6` (prompt injection, snapshot, chrony) → `5` (ATT&CK/Atomic Red Team) → `8` (determinism,
-regression) → `9` (pregatire iesire din shadow, NU activare) → `10` (igiena) → `11` (ILM) →
-`12` (suricata-update) → `12b` (ModSecurity CRS).
-
-**Durata realista**: minim 4-5 saptamani — fiecare lot de reguli noi are 7 zile shadow;
-pasul 8 cere ≥100 alerte etichetate manual de om.
-
----
-
-## Constatari / decizii cheie (gotchas)
-
-- **Bypass escaladare NU e in l1_agent.py** (cum spunea textul initial), ci in `fast_path.py`
-  (podele) + `escalation.py` (`EscalationReason`). Motive noi se adauga acolo.
-- **Baseline-ul de 7 zile e contaminat de atac** → listele albe trebuie curatate (NEVER_WHITELIST),
-  altfel orbesc exact regulile de detectie. Calibrarea curata vine cu benign-gen (pasul 4).
-- **ES_API_KEY principal are `read:false`** pe asset-vulns + soc-incidents → am facut `soc-reader`
-  (ES_READER) separat. Cand wireuim tier3 sa consume hunturile: largim rolul ES_API_KEY sau
-  wireuim ES_READER.
-- **`soc-reader` SSH gate (pe web-prod) ≠ ES_READER_API_KEY** (cheie ES). Gate-ul SSH e nefacut
-  si blocheaza 3.B cron_hash + 3.D canar-HASH.
-- **A10/c9 blocaj pentru pasul 9**: tot traficul extern vine pe un singur IP SNAT (172.30.6.133),
-  deci block_ip_ttl ar bloca toata calea externa; criteriul "≥5 IP-uri externe distincte" e de
-  neatins in lab. Detectia merge; doar blocarea automata (pasul 9) devine grosiera → de decis
-  manual-only in lab.
-- **never_block (pasul 9) = lista de IP-uri specifice, nu CIDR**: 172.30.6.133 (blocabil) e in
-  acelasi /24 cu es-node-1/web-prod/admin (care nu trebuie blocate).
-- **Licenta ES = basic**: fara conectori email/webhook in Kibana → notificarile merg prin
-  `notify.py`/Discord. Regulile de "absenta" = Elasticsearch query rule "count below 1" (NU threshold).
-- **Elastic Defend (eBPF) nu emite evenimente de citire** → regulile pe "read" sunt pe
-  `logs-auditd_manager.*` (cheie auditd), nu pe endpoint.
-- **GOTCHA la retragerea boxei vechi**: nft `soc_fw` permite SSH/5601 doar de la `admin_v4`
-  (contine 172.20.99.220 = boxa sesiunii). Inainte de a o retrage: adauga noul IP in `admin_v4`
-  pe AMBELE hosturi (`sudo nft add element inet soc_fw admin_v4 { <IP> }` + in deploy/*/soc-fw.nft),
-  altfel pierzi SSH-ul.
-
-## De facut de om (oricand)
-- Etichetare in interfata: ≥100 alerte (25 malicious / 25 suspicious / 25 benign) — drum critic pasul 8.
-- Rotatia cheilor API ES + SSH la 90 zile (G8).
-- Daca transcriptul conversatiei nu e strict privat: regenereaza webhook-ul Discord.
-- Laura: are nevoie de Ollama din retea? (acum asculta 0.0.0.0:11434; atacatorul nu ajunge la el).
-
-## Commits cheie (ramura faza-21-protectie)
-`0.1-0.5` protectie · `1.A` SBOM · `55f1814` 1.B nday · `bc47d45` 1c · `5ce30b2` draft pas 3 ·
-`a73f95d` 3.A reguli+teste · `9f634f0` importer · `9af9647` build_whitelists (anti-contaminare) ·
-`a8aad1b` 3.A verificat end-to-end. (git log pentru lista completa.)
+- Codul decide, modelul judeca; esecul escaladeaza, nu inchide; ground_truth doar de la om.
+- Orice schimbare care atinge verdictul: harness fast + dev inainte de deploy; nicio regresie
+  "reparata" din praguri.
+- Comenzile pe hosturi le ruleaza omul (sau Claude cu aprobare explicita); copii `.pre-<pas>`
+  inainte de fiecare deploy; rollback doar la cerere.
+- Gotcha-uri de tinut minte: kernelul auditd e imuabil (regula noua = reboot web-prod);
+  source.ip pe web-prod e IP-ul flotant al atacatorului (SNAT); never_block e lista de IP-uri,
+  nu CIDR; benign-gen se opreste la harness; GPU-ul e partajat (nu rula OpenClaw in poarta).

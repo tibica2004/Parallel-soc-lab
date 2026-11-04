@@ -1,3 +1,0 @@
-=== Tier 3 reguli: 0 candidati in 2 h (dry-run, nimic in Kibana) ===
-
-Salvat: results/reguli-2026-10-15-0738.json

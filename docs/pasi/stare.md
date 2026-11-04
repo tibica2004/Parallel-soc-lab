@@ -429,15 +429,7 @@ executiilor din 03.11 = sendmail WordPress (FP calibrat in 434da9f). Detectia a 
 Hydra admin:0 = FALS POZITIV hydra: 394 POST wp-login de la 172.30.6.133, 392x200 + 2x400,
 0x302 (benign-gen: 46x302 = login reusit). Investigatia RCE de mai jos se INCHIDE.
 
-### (istoric, gresit) CORECTIE + descoperire critica: RCE REAL pe web-prod
-La calibrarea FP-ului sendmail (validare EQL pe telemetria atacului) au iesit la iveala, pe
-langa cele 2 apeluri sendmail (FP WordPress mail), DOUA executii reale nascute de apache2:
-`sh -c -- id` si `sh -c -- whoami`. Nuclei a gasit o vulnerabilitate de executie de cod pe
-web-prod si a rulat comenzile de verificare (benigne, nedistructive). Deci web-prod ARE un RCE
-exploatabil; concluzia anterioara "nu a fost compromis" se refera DOAR la sendmail. SOC-ul a
-prins corect executia (soc-web-spawns-shell -> malicious/95 -> Tier 2). De investigat de om CARE
-sablon nuclei / ce plugin-tema vulnerabila a permis-o. Fix-ul sendmail (434da9f) pastreaza
-aceasta detectie: validare 4->2 potriviri, id/whoami RAMAN.
+(Sectiunea 'RCE REAL pe web-prod' scrisa initial aici a fost STEARSA la curatenia din 2026-11-04: era gresita, vezi INFIRMAT mai sus.)
 
 ### De aplicat de om
 - Kibana: `python3 deploy/kibana/honeytoken_rules.py actualizeaza` (cont Kibana) -> patch

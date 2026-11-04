@@ -277,7 +277,7 @@ Dupa ~10 minute:
 ```
 source env.sh
 for i in 'logs-endpoint.events.*' 'logs-apache.*' 'logs-suricata.eve-*' 'logs-auditd_manager.*'; do printf "%-28s " "$i"; curl -s -H "Authorization: ApiKey $ES_API_KEY" -H 'Content-Type: application/json' "$ES_URL/$i/_count" -d '{"query":{"bool":{"filter":[{"term":{"host.name":"web-prod"}},{"range":{"@timestamp":{"gte":"now-15m"}}}]}}}'; echo; done
-python3 canary_check.py
+python3 absence_check.py   # (canary_check.py a fost sters 2026-11-04; absence_check il inlocuieste)
 python3 wp_inventory.py arata
 ```
 

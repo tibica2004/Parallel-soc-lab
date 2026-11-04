@@ -1,3 +1,6 @@
+> IMPLEMENTAT integral la 2026-11-02 (S1, S3, S6, A1-A7; S2 se masoara dupa pasul 8; S4/S5 decizii). Pastrat pentru ca
+> fisierele de cod citeaza etichetele de aici ("plann.md A3" etc.). Nu mai e un plan de lucru; starea vie e docs/pasi/REZUMAT.md.
+
 # Plan de finalizare: ce se scoate si ce se adauga (2026-11-02)
 
 Scop: un SOC agentic pe 3 niveluri FUNCTIONAL si CORECT, demonstrabil cu cifre, nu doar proiectat.
