@@ -444,15 +444,27 @@ def load_latest_sbom(es: Elasticsearch) -> dict | None:
     return hits[0]["_source"] if hits else None
 
 
-def upsert_vuln(es: Elasticsearch, rec: VulnRecord) -> str:
+def is_resolved(installed_version: str | None, fixed_version: str | None) -> bool:
+    """Pur: rezolvata daca installed >= fixed (ambele versiuni parsabile). Lipsa fix sau
+    versiune neparsabila -> deschisa (prudent)."""
+    if not fixed_version or not installed_version:
+        return False
+    if not (parse_version(installed_version) and parse_version(fixed_version)):
+        return False
+    return not in_range(installed_version, "0", fixed_version)
+
+
+def upsert_vuln(es: Elasticsearch, rec: VulnRecord) -> tuple[str, bool]:
     """
     Scrie/actualizeaza o vulnerabilitate cu _id fix. Daca exista deja: pastreaza
     first_seen/hunt_requested, improspateaza last_seen; marcheaza resolved cand
-    versiunea instalata a trecut de fixed. Fara delete. Returneaza:
+    versiunea instalata a trecut de fixed. Fara delete. Returneaza (disposition, resolved):
       'new'             — nu exista inainte;
       'newly_confirmed' — exista ca needs_review, acum e confirmat si inca nevanaut
                           (merita un hunt chiar daca documentul nu e nou);
       'update'          — orice alta actualizare.
+    `resolved` e ce s-a scris in document (rec.resolved ramane neatins, deci apelantul
+    trebuie sa foloseasca valoarea intoarsa, nu rec.resolved).
     """
     _id = vuln_id(rec.host, rec.cve, rec.component_name)
     try:
@@ -474,14 +486,13 @@ def upsert_vuln(es: Elasticsearch, rec: VulnRecord) -> str:
     else:
         disposition = "new"
 
-    # resolved daca installed >= fixed
-    if rec.fixed_version and parse_version(rec.installed_version) and parse_version(rec.fixed_version):
-        if not in_range(rec.installed_version, "0", rec.fixed_version):
-            doc["resolved"] = True
-            doc["resolved_at"] = rec.last_seen
+    resolved = is_resolved(rec.installed_version, rec.fixed_version)
+    if resolved:
+        doc["resolved"] = True
+        doc["resolved_at"] = rec.last_seen
 
     es.index(index=VULNS_INDEX, id=_id, document=doc)
-    return disposition
+    return disposition, resolved
 
 
 def request_hunt(es: Elasticsearch, rec: VulnRecord) -> None:
@@ -716,21 +727,21 @@ def run() -> int:
     hunt_candidates: list[VulnRecord] = []
     for rec in all_records:
         try:
-            disposition = upsert_vuln(es_vulns, rec)
+            disposition, resolved = upsert_vuln(es_vulns, rec)
         except Exception as e:  # noqa: BLE001
             log.error("upsert esuat pentru %s/%s: %s", rec.component_name, rec.cve, e)
             m["api_errors"] += 1
             continue
 
         m["needs_review_count"] += int(rec.needs_review)
-        if not rec.resolved:
+        if not resolved:
             m["vulns_open"] += 1
             m["vulns_critical"] += int(rec.severity == "critical")
             m["vulns_patch_available"] += int(rec.patch_available)
         else:
             m["vulns_resolved_today"] += 1
 
-        if (disposition in ("new", "newly_confirmed") and not rec.resolved
+        if (disposition in ("new", "newly_confirmed") and not resolved
                 and not rec.needs_review
                 and rec.cvss is not None and rec.cvss >= HUNT_MIN_CVSS):
             hunt_candidates.append(rec)

@@ -208,3 +208,44 @@ def test_iter_sbom_components_skips_incomplete():
     ]}
     out = list(nd.iter_sbom_components(sbom))
     assert out == [("plugin", "a", "1.0")]
+
+
+# --- faza 22 D: resolved ajunge in metrici (functia pura + valoarea intoarsa de upsert) -------
+
+class _FakeES:
+    def __init__(self, existing=None):
+        self.existing, self.indexed = existing, []
+
+    def get(self, index, id):
+        if self.existing is None:
+            raise KeyError(id)
+        return {"_source": self.existing}
+
+    def index(self, index, id, document):
+        self.indexed.append((id, document))
+
+
+def _rec(installed: str, fixed: str | None) -> VulnRecord:
+    return VulnRecord(cve="CVE-2024-0001", component_type="plugin", component_name="akismet",
+                      installed_version=installed, fixed_version=fixed, cvss=9.1, severity="critical",
+                      first_seen="2026-11-05T00:00:00Z", last_seen="2026-11-05T00:00:00Z",
+                      source="wpscan", host="web-prod")
+
+
+@pytest.mark.parametrize("installed,fixed,expected", [
+    ("5.3", "5.3", True), ("5.4", "5.3", True), ("5.3.1", "5.3", True), ("6.0", "5.3.9", True),
+    ("5.2", "5.3", False), ("5.3", "5.3.1", False),
+    ("5.3", None, False), ("", "5.3", False), ("abc", "5.3", False), ("5.3", "n/a", False),
+])
+def test_is_resolved_installed_vs_fixed(installed, fixed, expected):
+    assert nd.is_resolved(installed, fixed) is expected
+
+
+def test_upsert_intoarce_resolved_si_il_scrie_in_doc():
+    es = _FakeES()
+    disposition, resolved = nd.upsert_vuln(es, _rec("5.4", "5.3"))
+    assert disposition == "new" and resolved is True
+    doc = es.indexed[-1][1]
+    assert doc["resolved"] is True and doc["resolved_at"] == "2026-11-05T00:00:00Z"
+    disposition, resolved = nd.upsert_vuln(_FakeES(), _rec("5.2", "5.3"))
+    assert disposition == "new" and resolved is False
