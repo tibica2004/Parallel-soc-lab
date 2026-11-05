@@ -47,7 +47,6 @@ from schemas import (
     Classification,
     EntityType,
     EscalationReason,
-    EvidenceRef,
     Case,
     RarityFinding,
     Verdict,
@@ -760,7 +759,6 @@ def node_finalize(state: HuntState) -> dict:
     # PODEA DETERMINISTA (ca pe calea rapida): serverul web nu executa comenzi in
     # operare normala, iar actiunile sensibile in afara mentenantei nu se inchid.
     # Codul decide, nu modelul — chiar daca ambii investigatori au zis benign.
-    from schemas import Classification as _Cls
     _ctx = prefetch_context(subject)
     _cls = p.get("classification", "undetermined")
     _floor = False

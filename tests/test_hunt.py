@@ -10,7 +10,7 @@ from pydantic import ValidationError
 import hunt as H
 import hunt_path
 import tier3
-from schemas import Case, EscalationReason as R, HuntMatch
+from schemas import Case, EscalationReason as R
 
 CID = str(uuid.uuid4())
 

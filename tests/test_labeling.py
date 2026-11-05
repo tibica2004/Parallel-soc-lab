@@ -9,7 +9,6 @@ import pytest
 from pydantic import ValidationError
 
 import harness
-import labeling
 from labeling import LabelInput, build_label_update, outcome
 from schemas import ActionType, Classification, Verdict
 

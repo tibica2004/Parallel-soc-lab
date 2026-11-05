@@ -22,7 +22,6 @@ Un criteriu care nu se poate calcula (cheie lipsa, 403) = picat cu motivul, nu s
 from __future__ import annotations
 
 import ipaddress
-import json
 import logging
 import os
 import sys
@@ -250,7 +249,7 @@ def evaluate(now: datetime) -> ReadinessResult:
                       aggs={"ip": {"terms": {"field": "source.ip", "size": 500}}})
         ext = [b["key"] for b in r["aggregations"]["ip"]["buckets"] if not protected(str(b["key"]), prot)]
         crit.append(c9(len(ext)))
-    except Exception as e:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         crit.append(c9(None))
     return result(crit, now)
 

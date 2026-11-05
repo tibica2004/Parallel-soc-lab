@@ -1,6 +1,5 @@
 """Pragul implicit de escaladare pe incredere."""
 import importlib
-import os
 
 
 def test_low_conf_implicit_90(monkeypatch):

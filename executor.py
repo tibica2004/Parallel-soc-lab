@@ -22,7 +22,7 @@ import hashlib
 import ipaddress
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 import os
 from ipaddress import IPv4Address

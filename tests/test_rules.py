@@ -1,6 +1,6 @@
 """Propunerile de reguli Tier 3: functii pure, fara ES si fara model."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest

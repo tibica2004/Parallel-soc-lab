@@ -1,7 +1,6 @@
 """Pasul 7: documentul type=cycle, totalurile LLM per ciclu si watchdog-ul systemd."""
 from __future__ import annotations
 
-import os
 import socket
 from datetime import datetime, timedelta, timezone
 

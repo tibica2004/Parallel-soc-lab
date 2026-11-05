@@ -1,4 +1,0 @@
-=== Harness: 4 scenarii ===
-
-[1/4] Alerta RCE — webshell ruleaza id  (adevar: attack)
-    generez telemetrie (astept 360s)...

@@ -30,7 +30,6 @@ sistemul pe examen, nu pe materie.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import subprocess
 import sys
@@ -229,7 +228,6 @@ def main() -> int:
 
     # --- Raport ---
     tp, fn, tn, fp = (confusion[k] for k in ("TP", "FN", "TN", "FP"))
-    total = tp + fn + tn + fp
     attacks = tp + fn
     benigns = tn + fp
 
@@ -250,7 +248,7 @@ def main() -> int:
     if benigns:
         print(f"  RATA FALS POZITIVE:       {fp/benigns:.0%}  ({fp}/{benigns})")
 
-    print(f"\nCALIBRARE (precizie pe banda de incredere):")
+    print("\nCALIBRARE (precizie pe banda de incredere):")
     for band in sorted(by_band):
         b = by_band[band]
         acc = b["correct"] / b["total"] if b["total"] else 0

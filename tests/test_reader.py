@@ -1,6 +1,5 @@
 """Pasul 1b: gate-ul soc-reader (lista alba exacta) si clientul reader.py. Gate-ul ruleaza
 local cu SSH_ORIGINAL_COMMAND; comenzile refuzate nu executa nimic."""
-import os
 import re
 import shutil
 import subprocess

@@ -1,5 +1,5 @@
 """Ferestrele de mentenanta: validare, ora evenimentului, fail closed."""
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 from pydantic import ValidationError

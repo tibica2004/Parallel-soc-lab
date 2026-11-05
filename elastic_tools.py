@@ -684,7 +684,6 @@ def sweep_sbom_drift(window_hours: int = 1, host: str = "web-prod") -> list[Rari
     if len(hits) < 2:
         return []
     cur, prev = hits[0]["_source"], hits[1]["_source"]
-    from datetime import datetime, timedelta, timezone
     ts = datetime.fromisoformat(cur["@timestamp"].replace("Z", "+00:00"))
     if datetime.now(timezone.utc) - ts > timedelta(hours=int(window_hours) + 1):
         return []
