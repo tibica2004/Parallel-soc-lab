@@ -97,7 +97,7 @@ scenarios:
     kind: new_parent_child
     detail:
       parent: bash
-      child: php8.4
+      child: php8.3
     rarity_score: 0.7
 - name: Deploy legitim — script din /opt de admin
   path: hunt
@@ -166,5 +166,5 @@ scenarios:
     kind: new_parent_child
     detail:
       parent: timeout
-      child: python3.13
+      child: python3.12
     rarity_score: 1.0
