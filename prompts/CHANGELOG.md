@@ -21,3 +21,9 @@ Motiv: linia de baza la introducerea manifestului (dupa intarirea la injectie 6.
 ## 2026-11-02 — prompt_set f1d721739bf7
 - hunt.critic (sters)
 Motiv: plann S3: criticul sters din hunt_path (masurat daunator la 14B, oprit din faza 7)
+
+## 2026-11-05 — prompt_set 2103d7ecb43a
+- hunt.fact_rules -> v1
+- hunt.primary_note -> v1
+- hunt.tier1_note -> v1
+Motiv: faza 22: prompturile Tier 2 lipsa din manifest (tier1_note, primary_note, fact_rules extras din _i_seed, text identic)
