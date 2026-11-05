@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
 
-from elasticsearch import Elasticsearch
+from elasticsearch import Elasticsearch, NotFoundError
 
 STATE_IDX = "soc-state"
 CURSOR_ID = "orchestrator-cursor"
@@ -37,12 +37,17 @@ def _writer() -> Elasticsearch:
 
 
 def load_cursor() -> datetime:
-    """Momentul de la care sa citim alertele. Prima data: acum - DEFAULT_LOOKBACK."""
+    """Momentul de la care sa citim alertele. Prima data (documentul lipseste): acum - DEFAULT_LOOKBACK.
+
+    "Lipsa" nu e "eroare": un 403 sau un timeout tranzitoriu pe soc-state ridica exceptia mai
+    departe; run_positioned o prinde ca eroare de ciclu (ciclul se sare, cursorul nu se muta).
+    Inainte, orice exceptie intorcea now-15min si save_cursor(until) pierdea definitiv alertele
+    dintre cursorul real si now-15min."""
     try:
         doc = _writer().get(index=STATE_IDX, id=CURSOR_ID)["_source"]
-        return datetime.fromisoformat(doc["last_ts"].replace("Z", "+00:00"))
-    except Exception:
+    except NotFoundError:
         return datetime.now(timezone.utc) - timedelta(minutes=DEFAULT_LOOKBACK_MIN)
+    return datetime.fromisoformat(doc["last_ts"].replace("Z", "+00:00"))
 
 
 def save_cursor(ts: datetime) -> None:
