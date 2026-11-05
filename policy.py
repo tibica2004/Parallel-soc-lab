@@ -15,6 +15,7 @@ Nimic din fisierul asta nu atinge Elasticsearch sau reteaua. E cod pur, testabil
 
 from __future__ import annotations
 
+import ipaddress
 import os
 from dataclasses import dataclass
 
@@ -41,9 +42,9 @@ THRESHOLDS: dict[ActionType, int] = {
 # un caz care merita o actiune scumpa merita macar ochi uman).
 FALLBACK = ActionType.ESCALATE_HUMAN
 
-# Prefixe de tinta pe care nu le blocam niciodata ( retea interna, loopback).
-NEVER_BLOCK_PREFIXES = ("127.", "10.", "172.16.", "172.17.", "172.18.",
-                        "172.20.", "192.168.", "::1")
+# Lista explicita de IP-uri pe care nu le blocam niciodata, din mediu (virgula sau spatiu).
+# Singura definitie a lui "IP protejat" e is_protected(); executor si readiness o folosesc.
+NEVER_BLOCK_IPS_VAR = "NEVER_BLOCK_IPS"
 
 
 @dataclass
@@ -64,13 +65,35 @@ def _shadow() -> bool:
     return os.environ.get("SHADOW_MODE", "true").lower() != "false"
 
 
+def never_block_ips() -> frozenset[str]:
+    """Lista explicita din mediu (NEVER_BLOCK_IPS), separata prin virgula sau spatiu."""
+    raw = os.environ.get(NEVER_BLOCK_IPS_VAR, "")
+    return frozenset(x.strip() for x in raw.replace(",", " ").split() if x.strip())
+
+
+def is_protected(target: str | None, extra: frozenset[str] = frozenset()) -> bool:
+    """IP pe care nu-l blocam niciodata. O singura definitie pentru policy, executor si readiness.
+
+    Protejat: lipsa/invalid (prudent), lista explicita (`extra` + NEVER_BLOCK_IPS din mediu),
+    privat (inclusiv 172.16/12, deci si flotantele 172.30.6.x), loopback, link-local, multicast,
+    rezervat. Nimeni nu mai compara prefixe de siruri."""
+    if not target:
+        return True
+    t = target.strip()
+    if t in extra or t in never_block_ips():
+        return True
+    try:
+        a = ipaddress.ip_address(t)
+    except ValueError:
+        return True
+    return a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved
+
+
 def _target_protected(action: ActionType, target: str | None) -> bool:
     """Nu bloca/izola tinte interne — risc de a te taia singur din propria retea."""
     if action not in (ActionType.BLOCK_IP_TTL, ActionType.ISOLATE_HOST):
         return False
-    if not target:
-        return True  # actiune de blocare fara tinta clara: refuz
-    return target.startswith(NEVER_BLOCK_PREFIXES)
+    return is_protected(target)
 
 
 def decide(verdict: Verdict) -> Decision:

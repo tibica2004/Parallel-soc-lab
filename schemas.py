@@ -183,6 +183,15 @@ class Verdict(BaseModel):
                 raise ValueError(f"tehnica ATT&CK invalida: {t!r}")
         return v
 
+    @field_validator("action_target", mode="before")
+    @classmethod
+    def _null_target_is_none(cls, v):
+        """Modelul scrie uneori "null"/"none"/"" ca sir: inseamna lipsa tintei, nu o tinta.
+        (Cauza deciziei block_ip_ttl cu action_target "null" din 2026-11-02.)"""
+        if isinstance(v, str) and v.strip().lower() in ("", "null", "none"):
+            return None
+        return v
+
     @field_validator("entity_id", "action_target")
     @classmethod
     def _no_injection_surface(cls, v: str | None) -> str | None:

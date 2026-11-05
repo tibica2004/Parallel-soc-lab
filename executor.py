@@ -31,7 +31,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from policy import NEVER_BLOCK_PREFIXES, THRESHOLDS, Decision
+from policy import THRESHOLDS, Decision, is_protected
 from schemas import ActionPlan, ActionType, PlanStep, Reversibility, Verdict
 
 # Absolvire (aprobate de Tiberiu, 2026-10-15)
@@ -89,8 +89,7 @@ def check_target(kind: str, target: str | None, host: str) -> str:
             ip = ipaddress.ip_address(target)
         except ValueError:
             raise PlanError(f"IP invalid: {target!r}")
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast \
-                or target.startswith(NEVER_BLOCK_PREFIXES):
+        if is_protected(str(ip)):
             raise PlanError(f"IP intern sau protejat: {target}")
         return str(ip)
     if kind == "pid":
@@ -221,8 +220,7 @@ def block_guard(req: BlockIpTtl, *, shadow: bool, ready: bool | None, protected_
     if not ready:
         return "refused_not_ready", "readiness de azi nu e ready (sau lipseste)"
     ip = req.ip
-    if (str(ip) in protected_ips or ip.is_private or ip.is_loopback or ip.is_link_local
-            or ip.is_multicast or ip.is_reserved or str(ip).startswith(NEVER_BLOCK_PREFIXES)):
+    if is_protected(str(ip), protected_ips):
         return "refused_internal", f"{ip} e protejat (never_block / privat / rezervat)"
     if req.confidence < BLOCK_MIN_CONFIDENCE:
         return "refused_confidence", f"incredere {req.confidence} < {BLOCK_MIN_CONFIDENCE}"

@@ -21,7 +21,6 @@ Un criteriu care nu se poate calcula (cheie lipsa, 403) = picat cu motivul, nu s
 """
 from __future__ import annotations
 
-import ipaddress
 import logging
 import os
 import sys
@@ -29,6 +28,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from policy import is_protected
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
@@ -63,15 +64,9 @@ class ReadinessResult(BaseModel):
 # =============================================================================
 
 def protected(ip: str, extra: frozenset[str]) -> bool:
-    """IP pe care nu-l blocam niciodata: lista explicita (proprii, benign-gen, admin) sau
-    privat/loopback/link-local/multicast/rezervat. Nevalid -> protejat (prudent)."""
-    if ip in extra:
-        return True
-    try:
-        a = ipaddress.ip_address(ip)
-    except ValueError:
-        return True
-    return a.is_private or a.is_loopback or a.is_link_local or a.is_multicast or a.is_reserved
+    """Alias subtire peste policy.is_protected (o singura definitie a lui "IP protejat");
+    semnatura se pastreaza pentru apelantii existenti."""
+    return is_protected(ip, extra)
 
 
 def c1(tp: int, fp: int, hours_with_benign: int, hours_total: int) -> Criterion:
