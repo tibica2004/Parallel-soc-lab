@@ -61,8 +61,14 @@ class Decision:
         return self.chosen not in (ActionType.NONE, ActionType.ENRICH_ONLY, ActionType.ESCALATE_HUMAN)
 
 
+def shadow_mode() -> bool:
+    """SHADOW_MODE citit intr-un singur loc: shadow daca valoarea nu e exact "false"
+    (deci "1", "yes", "" raman shadow). orchestrator, cycle_metrics si executor o folosesc."""
+    return os.environ.get("SHADOW_MODE", "true").strip().lower() != "false"
+
+
 def _shadow() -> bool:
-    return os.environ.get("SHADOW_MODE", "true").lower() != "false"
+    return shadow_mode()
 
 
 def never_block_ips() -> frozenset[str]:

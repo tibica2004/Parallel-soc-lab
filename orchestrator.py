@@ -37,7 +37,7 @@ import sensor_rules
 import tracing
 from escalation import EscalationDecision, should_escalate
 from schemas import EscalationReason
-from policy import decide
+from policy import decide, shadow_mode
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
 
 from elasticsearch import Elasticsearch
@@ -293,7 +293,7 @@ def make_plan(verdict, decision):
         try:
             req = executor.BlockIpTtl(ip=p.target, ttl_s=3600, reason="verdict Tier 1/2",
                                       confidence=verdict.confidence, case_id=(verdict.chain_id or "")[:64])
-            res, why = executor.block_guard(req, shadow=os.environ.get("SHADOW_MODE", "true").lower() == "true",
+            res, why = executor.block_guard(req, shadow=shadow_mode(),
                                             ready=None, protected_ips=frozenset())
             text = f"{text}; garzi: {res} ({why})"
         except Exception as e:  # noqa: BLE001 — garzile nu au voie sa piarda auditul
@@ -893,7 +893,7 @@ def main() -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     mode = ("SCRIE audit+verdicte" if WRITER is not None else "DRY-RUN, nu scrie nimic")
-    shadow = os.environ.get("SHADOW_MODE", "true").lower() != "false"
+    shadow = shadow_mode()
     print(f"=== Orchestrator {stamp} | {mode} | shadow={shadow} ===\n")
 
     # Aceleasi functii ca modul cu pozitie. Dedup doar in memorie: o rulare manuala
