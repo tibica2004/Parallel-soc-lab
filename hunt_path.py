@@ -128,6 +128,7 @@ class InvestigatorState(TypedDict, total=False):
     draft: dict
     evidence_snippets: list[str]
     hit_budget: bool
+    prefetch_ctx: dict   # contextul preadus in seed; finalize il refoloseste (o singura interogare)
 
 
 
@@ -152,6 +153,11 @@ def _subject(x: RarityFinding | Case) -> tuple[str, str | None, str | None, str 
 # Fereastra pentru cautarea dupa entity_id: potrivire exacta, ieftina, iar Tier 2
 # poate rula mult dupa alerta (buget pe ciclu, reprocesare manuala).
 ENTITY_LOOKBACK_H = 168
+
+# Fereastra pentru findings (parinte-copil / doar copil). Sweep-ul ruleaza orar pe ultima ora
+# (run_full_sweep(1)), deci un finding poate avea 30-60 min cand ajunge aici: cu 30/15 min
+# faptele nu se rezolvau niciodata si podelele Tier 2 nu se aplicau (faza 22 H).
+FINDING_LOOKBACK_MIN = max(1, int(os.environ.get("FINDING_LOOKBACK_MIN", "90")))
 
 
 def execution_facts(finding: RarityFinding | Case) -> dict:
@@ -200,9 +206,9 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
     if not (parent and child):
         return facts
     try:
-        rows = _esql("""
+        rows = _esql(f"""
             FROM logs-endpoint.events.process-*
-            | WHERE @timestamp >= NOW() - 30 minutes
+            | WHERE @timestamp >= NOW() - {int(FINDING_LOOKBACK_MIN)} minutes
             | WHERE host.name == ?
               AND process.parent.name == ?
               AND process.name == ?
@@ -217,9 +223,9 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
         # STARTS_WITH, nu LIKE: un `*` sau `?` din numele procesului ar deveni
         # wildcard in LIKE. Aici e doar prefix literal.
         try:
-            rows = _esql("""
+            rows = _esql(f"""
                 FROM logs-endpoint.events.process-*
-                | WHERE @timestamp >= NOW() - 15 minutes
+                | WHERE @timestamp >= NOW() - {int(FINDING_LOOKBACK_MIN)} minutes
                 | WHERE host.name == ? AND STARTS_WITH(process.name, ?)
             """ + keep, params=[host, child])
             matched_by = "child_only"
@@ -479,6 +485,7 @@ def _i_seed(state: InvestigatorState) -> dict:
         ctx_note += HUNT_FACT_RULES
     return {
         "tool_calls_made": 0, "tokens": 0, "queries_run": [], "hit_budget": False,
+        "prefetch_ctx": ctx,
         "messages": [
             SystemMessage(content=HUNT_PROMPT + state.get("role_note", "") + ctx_note
                           + ("" if f is not None else
@@ -655,6 +662,7 @@ class HuntState(TypedDict, total=False):
     queries_run: list[str]
     verdict: Verdict
     narrative: str
+    prefetch_ctx: dict   # din seed-ul investigatorului A; node_finalize nu reinterogheaza
 
 
 def _input(state: HuntState) -> dict:
@@ -675,6 +683,7 @@ def node_primary(state: HuntState) -> dict:
         "tokens_a": res.get("tokens", 0), "tool_calls_a": res.get("tool_calls_made", 0),
         "budget_a": res.get("hit_budget", False),
         "queries_run": res.get("queries_run", []),
+        "prefetch_ctx": res.get("prefetch_ctx") if isinstance(res.get("prefetch_ctx"), dict) else {},
     }
 
 
@@ -772,7 +781,11 @@ def node_finalize(state: HuntState) -> dict:
     # PODEA DETERMINISTA (ca pe calea rapida): serverul web nu executa comenzi in
     # operare normala, iar actiunile sensibile in afara mentenantei nu se inchid.
     # Codul decide, nu modelul — chiar daca ambii investigatori au zis benign.
-    _ctx = prefetch_context(subject)
+    # Contextul e cel din seed (aceeasi interogare pe care a vazut-o investigatorul); doar pe
+    # calea veche, fara prefetch_ctx in stare, se reinterogheaza.
+    _ctx = state.get("prefetch_ctx")
+    if not isinstance(_ctx, dict):
+        _ctx = prefetch_context(subject)
     _cls = p.get("classification", "undetermined")
     _floor = False
     if _cls == "benign" and _ctx.get("ran_by_web_service_account"):
