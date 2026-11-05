@@ -609,6 +609,9 @@ def node_finalize(state: FastState) -> dict:
         if action in ("none", "enrich_only"):
             action = "escalate_human"
         floor_applied = True
+        # Ca la podelele 1-2: clasa a fost rasturnata de cod, deci increderea modelului (data
+        # pentru ALTA clasa) nu ramane; se plafoneaza la 60 si cazul merge la om (faza 22 L).
+        conf = min(conf, 60)
         if os.environ.get("VERBOSE") == "1":
             print("      podea 4: serverul web a pornit un proces -> malicious, escaladat", flush=True)
 

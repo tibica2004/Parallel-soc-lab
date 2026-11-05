@@ -15,7 +15,6 @@ per entitate) in data/risk-state.json.
 """
 from __future__ import annotations
 
-import ipaddress
 import json
 import math
 import os
@@ -38,14 +37,11 @@ ALERTS = ".alerts-security.alerts-*"
 
 
 def excluded_ips() -> frozenset[str]:
-    out = set()
-    for var, default in (("WP_SELF_IPS", "192.168.10.138,127.0.0.1"), ("BENIGN_GEN_IPS", "192.168.10.150")):
-        for x in os.environ.get(var, default).replace(" ", "").split(","):
-            try:
-                out.add(str(ipaddress.ip_address(x)))
-            except ValueError:
-                pass
-    return frozenset(out)
+    """IP-urile proprii si ale generatorului benign, ca siruri normalizate. O singura sursa:
+    honeytokens.known_own_ips (WP_SELF_IPS cu implicitul care include 172.30.6.249, BENIGN_GEN_IPS);
+    inainte, implicitul de aici nu continea flotantul web-prod (faza 22 L)."""
+    import honeytokens
+    return frozenset(str(ip) for ip in honeytokens.known_own_ips())
 
 
 def _ts(v) -> datetime | None:
