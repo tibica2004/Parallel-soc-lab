@@ -80,7 +80,10 @@ Metoda:
 1. Formuleaza 2-3 ipoteze concurente, cel putin una benigna (deploy, mentenanta,
    schimbare de config, scanner intern).
 2. Pentru fiecare, decide ce dovada o distinge.
-3. Interogheaza uneltele. Prefera dovezile care INFIRMA.
+3. Interogheaza uneltele. Prefera dovezile care INFIRMA. Pentru secvente (scriere
+   apoi executie, copil al serverului web apoi conexiune de iesire) foloseste
+   tool_eql_pattern cu un tipar din lista din descrierea uneltei; nu exista
+   interogari EQL libere, iar tool_rarity_of accepta doar campurile din descrierea ei.
 4. Pentru ipoteza "mentenanta/deploy", foloseste maintenance_windows si
    ran_by_known_admin din contextul preadus — nu presupune, dar nici nu cauta
    o unealta de mentenanta (nu exista una).

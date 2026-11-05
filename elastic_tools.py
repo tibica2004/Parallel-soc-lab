@@ -61,6 +61,75 @@ def _refs(hits: list[dict]) -> list[EvidenceRef]:
     ]
 
 
+MINUTES_MIN, MINUTES_MAX = 1, 1440
+
+
+def _minutes(minutes: Any) -> int:
+    """Fereastra uneltelor: int plafonat in [1, 1440]. Orice altceva decat un numar ridica
+    ValueError (modelul primeste eroarea uneltei, nu un text interpolat in interogare)."""
+    return max(MINUTES_MIN, min(MINUTES_MAX, int(minutes)))
+
+
+# Campurile pe care modelul poate intreba "cat de rar e X" (principiul 3: niciun camp ales de
+# model nu se interpoleaza in text; cheia alege indexul, valoarea merge ca parametru).
+_RARITY_INDEX: dict[str, str] = {
+    "process.name": PROC_IDX, "process.parent.name": PROC_IDX, "process.executable": PROC_IDX,
+    "process.command_line": PROC_IDX, "user.name": PROC_IDX,
+    "destination.ip": NET_IDX, "destination.port": NET_IDX, "dns.question.name": NET_IDX,
+    "url.path": APACHE_IDX, "file.path": FILE_IDX,
+}
+RARITY_FIELDS: frozenset[str] = frozenset(_RARITY_INDEX)
+
+# Catalog INCHIS de secvente EQL scrise de om (principiul 3). Hostul si fereastra intra prin
+# `filter` (term + range), niciodata in textul interogarii; indexul e fix per tipar.
+_ENDPOINT_FILE_PROC = f"{FILE_IDX},{PROC_IDX}"
+_ENDPOINT_PROC_NET = f"{PROC_IDX},{NET_IDX}"
+EQL_PATTERNS: dict[str, dict[str, str]] = {
+    "webshell_write_then_exec": {
+        "title": "fisier PHP scris in webroot, apoi serverul web porneste un proces (<= 10 min)",
+        "index": _ENDPOINT_FILE_PROC,
+        "query": (
+            'sequence by host.id with maxspan=10m\n'
+            '  [ file where event.action in ("creation", "modification", "rename")\n'
+            '      and file.path : "/var/www/*" and file.extension in ("php", "phtml", "phar") ]\n'
+            '  [ process where event.type == "start"\n'
+            '      and process.parent.name in ("apache2", "httpd", "php-fpm8.3", "php-fpm") ]'
+        ),
+    },
+    "web_child_then_egress": {
+        "title": "proces copil al serverului web, apoi conexiune de iesire (<= 5 min)",
+        "index": _ENDPOINT_PROC_NET,
+        "query": (
+            'sequence by host.id with maxspan=5m\n'
+            '  [ process where event.type == "start"\n'
+            '      and process.parent.name in ("apache2", "httpd", "php-fpm8.3", "php-fpm") ]\n'
+            '  [ network where network.direction == "egress" ]'
+        ),
+    },
+    "tmp_write_then_exec": {
+        "title": "fisier scris in /tmp, /var/tmp sau /dev/shm, apoi executat de acolo (<= 10 min)",
+        "index": _ENDPOINT_FILE_PROC,
+        "query": (
+            'sequence by host.id with maxspan=10m\n'
+            '  [ file where event.action in ("creation", "modification", "rename")\n'
+            '      and file.path : ("/tmp/*", "/var/tmp/*", "/dev/shm/*") ]\n'
+            '  [ process where event.type == "start"\n'
+            '      and process.executable : ("/tmp/*", "/var/tmp/*", "/dev/shm/*") ]'
+        ),
+    },
+    "cron_write_then_exec": {
+        "title": "fisier de cron scris, apoi cron porneste un proces (<= 60 min)",
+        "index": _ENDPOINT_FILE_PROC,
+        "query": (
+            'sequence by host.id with maxspan=60m\n'
+            '  [ file where event.action in ("creation", "modification", "rename")\n'
+            '      and file.path : ("/etc/cron*", "/var/spool/cron/*") ]\n'
+            '  [ process where event.type == "start" and process.parent.name == "cron" ]'
+        ),
+    },
+}
+
+
 def _esql(query: str, params: list[Any] | None = None) -> list[dict]:
     resp = ES.esql.query(query=query, params=params or [], format="json")
     cols = [c["name"] for c in resp["columns"]]
@@ -736,7 +805,7 @@ def tool_process_tree(host_name: str, entity_id: str, minutes: int = 30) -> dict
     rows = _esql(
         f"""
         FROM {PROC_IDX} METADATA _id, _index
-        | WHERE host.name == ? AND @timestamp >= NOW() - {int(minutes)} minutes
+        | WHERE host.name == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes
           AND (process.entity_id == ? OR process.parent.entity_id == ?)
         | KEEP _id, _index, @timestamp, process.name, process.command_line, process.entity_id,
                process.parent.name, process.parent.entity_id, user.name
@@ -757,7 +826,7 @@ def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
     rows = _esql(
         f"""
         FROM {NET_IDX}
-        | WHERE host.name == ? AND @timestamp >= NOW() - {int(minutes)} minutes
+        | WHERE host.name == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes
           AND network.direction == "egress"
         | STATS bytes = SUM(network.bytes), cnt = COUNT(*)
             BY destination.ip, destination.port, destination.as.organization.name, process.name
@@ -778,7 +847,7 @@ def tool_apache_requests(host_name: str, minutes: int = 30, status: int | None =
     rows = _esql(
         f"""
         FROM {APACHE_IDX} METADATA _id, _index
-        | WHERE host.name == ? AND @timestamp >= NOW() - {int(minutes)} minutes {extra}
+        | WHERE host.name == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes {extra}
         | KEEP _id, _index, @timestamp, source.ip, url.path, http.request.method,
                http.response.status_code, http.response.body.bytes, user_agent.original
         | SORT @timestamp DESC
@@ -791,20 +860,24 @@ def tool_apache_requests(host_name: str, minutes: int = 30, status: int | None =
 
 @tool
 @_traced
-def tool_eql_sequence(query: str, index: str = PROC_IDX) -> dict:
-    """
-    Secvente corelate — asta e ce KQL nu poate face si de ce ai nevoie de EQL.
-
-    Exemplu de scriere de webshell urmata de acces la ea:
-
-        sequence by host.id with maxspan=10m
-          [ file where event.action == "creation"
-              and file.path : "/var/www/*" and file.extension in ("php","jsp") ]
-          [ process where event.type == "start"
-              and process.parent.name in ("apache2","httpd","php-fpm") ]
-    """
-    resp = ES.eql.search(index=index, query=query, size=50)
+def tool_eql_pattern(pattern_id: str, host_name: str, minutes: int = 30) -> dict:
+    """Secvente corelate (EQL) dintr-un catalog INCHIS de tipare scrise de om, pe un host, in
+    ultimele N minute (1-1440). Tiparele: webshell_write_then_exec (fisier PHP scris in webroot,
+    apoi serverul web porneste un proces), web_child_then_egress (proces copil al serverului web,
+    apoi conexiune de iesire), tmp_write_then_exec (fisier scris in /tmp, /var/tmp, /dev/shm,
+    apoi executat de acolo), cron_write_then_exec (fisier de cron scris, apoi cron porneste un
+    proces). Un pattern_id necunoscut intoarce eroarea si lista permisa, fara interogare."""
+    pat = EQL_PATTERNS.get(str(pattern_id))
+    if pat is None:
+        return {"error": f"pattern necunoscut: {str(pattern_id)[:64]!r}", "allowed": sorted(EQL_PATTERNS)}
+    m = _minutes(minutes)
+    resp = ES.eql.search(
+        index=pat["index"], query=pat["query"], size=50,
+        filter={"bool": {"filter": [{"term": {"host.name": host_name}},
+                                    {"range": {"@timestamp": {"gte": f"now-{m}m"}}}]}},
+    )
     return {
+        "pattern": pat["title"], "minutes": m,
         "sequences": resp["hits"].get("sequences", []),
         "events": resp["hits"].get("events", []),
     }
@@ -819,7 +892,7 @@ def tool_suricata_alerts(source_ip: str, minutes: int = 60) -> dict:
     rows = _esql(
         f"""
         FROM {SURICATA_IDX} METADATA _id, _index
-        | WHERE source.ip == ? AND @timestamp >= NOW() - {int(minutes)} minutes
+        | WHERE source.ip == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes
           AND event.kind == "alert"
         | KEEP _id, _index, @timestamp, rule.name, rule.category, destination.ip, destination.port
         | LIMIT 100
@@ -833,9 +906,14 @@ def tool_suricata_alerts(source_ip: str, minutes: int = 60) -> dict:
 @_traced
 def tool_rarity_of(field: str, value: str, host_name: str | None = None) -> dict:
     """
-    Cat de neobisnuit e X aici? Intrebarea pe care agentul trebuie s-o poata pune
-    despre orice, nu doar despre ce am precalculat eu in sweep.
+    Cat de neobisnuit e X aici (ultimele 90 de zile)? `field` e DOAR unul din: process.name,
+    process.parent.name, process.executable, process.command_line, user.name, destination.ip,
+    destination.port, url.path, file.path, dns.question.name. Alt camp intoarce eroarea si lista
+    permisa, fara interogare. `value` se compara prin egalitate (parametru, nu text).
     """
+    idx = _RARITY_INDEX.get(str(field))
+    if idx is None:
+        return {"error": f"camp nepermis: {str(field)[:64]!r}", "allowed": sorted(RARITY_FIELDS)}
     where = f"WHERE {field} == ?"
     params = [value]
     if host_name:
@@ -843,7 +921,7 @@ def tool_rarity_of(field: str, value: str, host_name: str | None = None) -> dict
         params.append(host_name)
     rows = _esql(
         f"""
-        FROM {PROC_IDX}
+        FROM {idx}
         | {where} AND @timestamp >= NOW() - 90 days
         | STATS cnt = COUNT(*), first_seen = MIN(@timestamp), last_seen = MAX(@timestamp)
         """,
@@ -862,7 +940,7 @@ HUNT_TOOLS = [
     tool_process_tree,
     tool_egress_for_host,
     tool_apache_requests,
-    tool_eql_sequence,
+    tool_eql_pattern,
     tool_suricata_alerts,
     tool_rarity_of,
 ]
