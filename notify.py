@@ -135,7 +135,12 @@ def notify_human(title: str, detail: str = "", *, severity: str = "critical",
 def maybe_notify_escalation(verdict, narrative: str, escalation, failure, *,
                             rule_name: str | None = None, shadow: bool = False) -> bool:
     """Apelat din orchestrator.persist(): pagineaza omul DOAR pentru escaladarile
-    critice (momeala / senzor / detectie nativa). Dedup per case_id (chain_id)."""
+    critice (momeala / senzor / detectie nativa). Dedup per case_id (chain_id).
+
+    Mesajul e un POINTER: severitate, motive, regula, host, clasificare/incredere, chain_id
+    scurt si "vezi Kibana". Naratiunea modelului NU pleaca pe Discord: citeaza frecvent linia
+    de comanda (telemetrie bruta catre un serviciu tert); ramane in soc-audit. Parametrul
+    `narrative` se pastreaza pentru compatibilitatea apelantilor, dar nu intra in payload."""
     if escalation is None or not getattr(escalation, "escalate", False):
         return False
     reasons = getattr(escalation, "reasons", []) or []
@@ -150,7 +155,7 @@ def maybe_notify_escalation(verdict, narrative: str, escalation, failure, *,
     chain = getattr(verdict, "chain_id", "") or ""
     tag = "[SHADOW] " if shadow else ""
     title = f"{tag}Escaladare critica: {why}" + (f" — {rule_name}" if rule_name else "")
-    detail = f"verdict={cls}/{conf}" + (f" · {narrative[:500]}" if narrative else "") \
+    detail = f"verdict={cls}/{conf}" + (f" · chain={chain[:12]}" if chain else "") \
              + "\nvezi Kibana → Security → Alerts / soc-audit"
     try:
         return notify_human(title, detail, severity="critical",
