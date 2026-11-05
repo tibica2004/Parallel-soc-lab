@@ -1,0 +1,29 @@
+# Faza 22 K: testele unitare ruleaza oriunde. Fara secrete, fara Elasticsearch, fara model.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Dependinte de test
+        run: pip install -r requirements-test.txt
+      - name: Teste unitare
+        run: python -m pytest -q tests
+      - name: Prompturile sunt in MANIFEST
+        # modulele creeaza clientii ES la import; valori inofensive, ca in tests/conftest.py
+        env:
+          ES_URL: http://127.0.0.1:1
+          ES_API_KEY: test
+        run: python prompts.py --check
