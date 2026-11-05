@@ -3,7 +3,9 @@
 Rezumat de sine statator: ce exista, ce merge, ce ramane. Jurnalul cronologic (cu toate
 constatarile, in ordinea in care au aparut) e `docs/pasi/stare.md`; detaliile A-E pe fiecare
 pas sunt in `docs/pasi/pas-NN.md`; planul original e `docs/plan-0day.md`.
-Ramura: `faza-21-protectie` (nepublicata, fara push; omul face merge in main).
+Ramura: `faza-21-protectie`, publicata pe GitHub si adusa in `main` prin fast-forward la 2026-11-05 (la cererea
+omului, pentru analiza din claude.ai cu integrarea GitHub). Lucrul continua pe `faza-21-protectie`; merge-urile
+urmatoare in `main` le face omul dupa revizuire.
 
 EXCLUSIV DEFENSIV. Shadow mode permanent: nicio actiune pe hosturi, executorul doar dry-run.
 

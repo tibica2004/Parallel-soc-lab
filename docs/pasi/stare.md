@@ -2,7 +2,7 @@
 
 Starea curenta pe scurt: docs/pasi/REZUMAT.md. Aici sunt constatarile in ordinea in care au aparut.
 
-Ramura: faza-21-protectie (nepublicata, fara push). Planul complet: docs/plan-0day.md.
+Ramura: faza-21-protectie, publicata si adusa in main (fast-forward, 2026-11-05). Planul complet: docs/plan-0day.md.
 Detaliile pasului 0 (fisiere, comenzi, verificare, metrica, rollback): docs/pasi/pas-00.md.
 Sesiunea Claude ruleaza pe elastic-lab vechi (172.20.99.220); hosturile se ating doar
 prin IP-urile flotante: es-node-1 172.30.6.106, web-prod 172.30.6.249, atacator 172.30.6.133.
@@ -533,3 +533,11 @@ nvidia-smi "Driver/library version mismatch" (kernel 580.173.02 vs lib 580.178.0
 -> Ollama a cazut pe CPU (llama-server 1900% CPU, load 18); prompt de 1 cuvant > 90 s. Nu e gazda noastra:
 reboot-ul il cere omul de la Laura. Poarta se reia de la zero dupa reboot (results/completari-fast-*-1424 invalid).
 Curatenie repo (9b391a1): cod mort + experiments/test_* + 45 rulari intermediare sterse; REZUMAT.md = stare la zi.
+2026-11-05 docs + publicare: docs/roadmap-intelegere.md (parcurgerea laboratorului in ordinea datelor, 16 pasi,
+comenzi read-only, intrebari de control); README.md la radacina (ordinea de citire, harta repo-ului, rulare);
+curatenie pyflakes (importuri/variabile nefolosite in 5 module si 7 teste, fara schimbare de logica) si 3 rulari
+abandonate scoase din results (validation 09-28-0207 gol, dev 09-29-0724 tunel oprit, fast-redsage 10-05-0328
+intrerupt); 1099 teste verzi. Ramura faza-21-protectie urcata pe GitHub (75 commit-uri locale) si adusa in main
+prin fast-forward (126 commit-uri, bc3f185), la cererea omului, pentru analiza din claude.ai (Project cu GitHub).
+Secretele raman in afara repo-ului (env.sh, soc.env, .env ignorate; doar *.example in git). B.1 ramane oprita
+(GPU pe CPU, reboot cerut).
