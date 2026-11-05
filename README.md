@@ -13,7 +13,8 @@ Proiect de licenta (CTI, AC Iasi) + stagiu. Documentatia si comentariile sunt in
    de la masinile OpenStack pana la verdictul din Elasticsearch (16 pasi, comenzi read-only).
 3. `docs/pasi/REZUMAT.md`: starea proiectului (ce exista, ce merge, ce ramane).
 4. `docs/arhitectura.md`: diagrama arhitecturii tinta (Mermaid).
-5. `docs/plan-0day.md`: planul extinderii defensive 0-day / N-day (pasii 0-13, regulile R1-R16).
+5. `docs/plan-0day.md`: planul extinderii defensive 0-day / N-day (pasii 0-13).
+   `docs/reguli.md`: regulile R1-R16 si G1-G9 citate in cod si documente, cu textul lor.
 6. `docs/faze.md`: fazele 0-20 (istoric) si `docs/pasi/stare.md` (jurnal cronologic).
 
 ## Cum functioneaza, pe scurt
@@ -27,6 +28,9 @@ web-prod (senzori: Defend eBPF, auditd, Suricata, Apache, momeli) -> Elastic Age
    -> soc-tier3 (orar): incidente, reguli EQL proprii cu shadow 7 zile, vanatoare ATT&CK
    -> om: label_ui (ground_truth), dashboard Kibana, Discord
 ```
+
+Tier 1 in productie ruleaza `FAST_CONFIG=base` (faptele alertei, activul, ferestrele, istoricul pe regula,
+podele); enrich-ul extins, RAG si agentul cu unelte sunt configuratiile A-D ale studiului de ablatie.
 
 Principiul central: **codul decide, modelul judeca**. Escaladarea, podelele de incredere,
 politicile, bugetele si rutarea sunt cod determinist; modelul propune doar verdicte si naratiuni,
@@ -62,8 +66,8 @@ SHADOW_MODE=true python3 orchestrator.py --minutes 60 --limit 5     # un ciclu m
 SCENARIOS=scenarios_fast.yml VERBOSE=1 python3 -u harness.py        # poarta rapida (4 scenarii, lenta, atacuri reale pe web-prod)
 ```
 
-Porti de regresie (referinta): fast 4/4, dev 14/14 (recall 100%), validare 8/8, 0-day 1/1,
-injectie 48/48. Orice regresie opreste lucrul; nu se ajusteaza scenariile sau pragurile ca sa treaca.
+Porti de regresie (referinta): fast 4/4, dev recall 8/8 cu 2 FP cunoscute (12/14; `php --version`
+si "Deploy legitim"), validare 8/8, 0-day 1/1, injectie 48/48. Orice regresie opreste lucrul; nu se ajusteaza scenariile sau pragurile ca sa treaca.
 
 ## Secrete
 

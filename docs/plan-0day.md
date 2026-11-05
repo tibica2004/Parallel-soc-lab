@@ -47,7 +47,7 @@ es-node-1, cheile ES si regulile Kibana, comanda cu comanda.
 | Honeytokens (3.3) | honeytokens.py, .env.bak, soc-honeytoken-read (auditd), deploy/kibana/honeytoken_rules.py |
 | Raritate (3.2) | sweep extins (faza 12): parinte-copil, destinatii, porturi, cai URL, webroot, JA4 |
 | Detectie comportamentala (3.1 a, b) | "RCE: Web server spawns shell", new_webroot_write, YARA |
-| Integritate (3.4) | canary_check.py, /etc/cron.d/soc-canary |
+| Integritate (3.4) | absence_check.py (a inlocuit canary_check.py, sters 2026-11-04), /etc/cron.d/soc-canary |
 | soc-metrics (1c, 7) | metrics.py, deploy/kibana/build_dashboard.py, soc-metrici.ndjson |
 | Executor (9) | executor.py: planuri dry-run in soc-audit, absolvire din etichete |
 | Reguli Tier 3 + shadow (2.5, 5.4) | rules.py, kibana_rules.py (prefix t3-), tier3.py |
@@ -91,8 +91,8 @@ es-node-1, cheile ES si regulile Kibana, comanda cu comanda.
   7 zile), reguli auditd (shadow read uid 33, wp-config cu exe!=apache2, backup.sql),
   honeytokens noi (H1b user MariaDB fara GRANT, H2 mu-plugin, H3 backup.sql, H4 robots),
   bypass in l1_agent pentru a/h/i si soc-honeytoken (preset malicious 100; config_error
-  pentru WP_SELF_IPS/BENIGN_GEN_IPS) — diff aratat; integrity_check.py extinde
-  canary_check.py (silence, canar, hash, agent, fleet); tipurile de raritate lipsa
+  pentru WP_SELF_IPS/BENIGN_GEN_IPS) — diff aratat; verificarile de integritate (silence, canar,
+  hash, agent, fleet) au ajuns in absence_check.py (canary_check.py sters 2026-11-04); tipurile de raritate lipsa
   (user, apache_module/php_ext din SBOM, cron_hash prin soc-reader); AIDE (G9).
 - Om: fiecare honeytoken separat, regulile auditd in policy Fleet, importul regulilor.
 - Poarta: dev 14/14, val 8/8, fast 4/4 + scenarios_0day.yml; testele din 3.6;

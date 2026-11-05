@@ -54,7 +54,7 @@ Porti faza 12 (2026-10-16): dev 14/14 (recall 100%, FP 0/6), fast 4/4; 538 teste
 
 Executorul dry-run (ramura faza-13-executor, 2026-10-15): executor.py construieste planul (pasi argv / API, rollback, expirare, criticitate, absolvire din etichete umane: >= 50, precizie >= 95%, 0 FN in 30 zile); planul intra in soc-audit (execution_plan). Nu exista cod de executie reala.
 
-Faza 14 — ferestre de mentenanta (ramura faza-14-mentenanta, 2026-10-19): maintenance.py valideaza ferestrele din asset-inventory (recurente <= 8 h, inclusiv peste miezul noptii; unice <= 72 h; motiv obligatoriu; invalidele ignorate) si le evalueaza la ora EVENIMENTULUI (Tier 1: kibana.alert.original_time; Tier 2: @timestamp-ul procesului sau inceputul si sfarsitul potrivirii de vanatoare). Tier 2 calculeaza acum in_maintenance_window (inainte lipsea, deci podeaua trata orice actiune sensibila ca fiind in afara ferestrei). Fereastra + admin cunoscut ridica doar podeaua "actiune sensibila"; contul web, momelile, YARA si detectiile EDR raman la om. Ferestrele le scrie omul: deploy/inventory_windows.py (contul elastic, parola la tastatura).
+Faza 14 — ferestre de mentenanta (ramura faza-14-mentenanta, 2026-10-19): maintenance.py valideaza ferestrele din asset-inventory (recurente <= 8 h, inclusiv peste miezul noptii; unice <= 72 h; motiv obligatoriu; invalidele ignorate) si le evalueaza la ora EVENIMENTULUI (Tier 1: kibana.alert.original_time; Tier 2: @timestamp-ul procesului sau inceputul si sfarsitul potrivirii de vanatoare). Tier 2 calculeaza acum in_maintenance_window (inainte lipsea, deci podeaua trata orice actiune sensibila ca fiind in afara ferestrei). Fereastra + admin cunoscut ridica doar podeaua "actiune sensibila"; contul web, momelile, YARA si detectiile EDR raman la om. Ferestrele le scrie omul cu contul elastic, direct in asset-inventory (comanda in docstring-ul maintenance.py; deploy/inventory_windows.py a fost sters la curatenia 9b391a1).
 Porti faza 14 (2026-10-19): dev 14/14 (recall 100%, FP 0/6), fast 4/4; 624 teste unitare.
 Ablatia A-D reluata pe codul fazei 14 (2026-10-19, alertele salvate pe 13.10, qwen3:14b pe Tier 1): 28 TP, 8 TN, 0 FP, 0 FN pe toate configuratiile, injectie 10/10; RAG si uneltele nu schimba acuratetea, uneltele dubleaza latenta (p50 ~27 s vs ~15 s) si adauga ~60% tokeni. check_scenarios.py terminat (validatorul setului de ablatie, cu teste).
 
@@ -64,7 +64,7 @@ Toate fazele din lista sunt facute in cod: Tier 1, Tier 2, Tier 3 (incidente, re
 
 Raman la om (nu le face agentul, prin principiile de mai sus):
 - revizuirea si merge-ul in main, push-ul, restartul soc-orchestrator;
-- ferestrele de mentenanta (deploy/inventory_windows.py, contul elastic);
+- ferestrele de mentenanta (asset-inventory, contul elastic; comanda in maintenance.py);
 - etichetarea in interfata (ground_truth, label_source=human) — deblocheaza absolvirea executorului si metricile pe etichete;
 - schimbarile pe web-prod (ex. actualizarea zilnica a regulilor Suricata) si in regulile Kibana;
 - alegerea si rularea testelor Atomic Red Team.

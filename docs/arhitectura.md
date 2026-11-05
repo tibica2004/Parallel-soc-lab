@@ -2,6 +2,13 @@
 
 Diagrama din conversatia de proiectare (claude.ai, 2026-10-08).
 
+Actualizata 2026-11-05 (faza 22 J): Tier 1 ruleaza pe Qwen3 14B, nu pe RedSage 8B (decizia
+2026-10-19: acelasi model pe toate rolurile; RedSage ramane optional prin MODEL_FAST), iar
+nodul "critic" din Tier 2 a fost scos din diagrama (oprit din faza 7, masurat daunator la 14B,
+sters din cod in 2026-11-02). Tier 1 in productie ruleaza FAST_CONFIG=base: prefetch (faptele alertei,
+activul, ferestrele de mentenanta, istoricul pe regula) + pattern + verdict + finalize; enrich-ul extins
+(alerte corelate, threat intel), rag si l1_agent/tools sunt configuratiile A-D ale ablatiei, nu productia.
+
 ```mermaid
 flowchart TD
   %% ============ NODURI ============
@@ -14,7 +21,7 @@ flowchart TD
   subgraph T1["Tier 1 · triaj"]
     T1_ENRICH["enrich<br/>fapte, activ, TI, corelate"]
     T1_RAG["rag<br/>cazuri etichetate de om"]
-    T1_AGENT("l1_agent<br/>RedSage 8B")
+    T1_AGENT("l1_agent<br/>Qwen3 14B, doar ablatie")
     T1_TOOLS["tools<br/>3 unelte read-only"]
     T1_VERD("verdict<br/>JSON → Pydantic")
     T1_FIN["finalize<br/>podele deterministe"]
@@ -29,7 +36,6 @@ flowchart TD
     T2_TOOLS["tools<br/>max 12 apeluri"]
     T2_B("investigator_b<br/>independent")
     T2_COR["corroborate<br/>acord / dezacord"]
-    T2_CRIT("critic<br/>oprit, măsurat")
     T2_FIN["finalize<br/>Verdict validat"]
   end
 
@@ -81,7 +87,6 @@ flowchart TD
   T2_A <--> T2_TOOLS
   T2_A -->|suport = 2| T2_B --> T2_COR
   T2_A -->|altfel| T2_COR
-  T2_COR -.-> T2_CRIT
   T2_COR --> T2_FIN --> DECIDE
 
   %% ============ POLITICI ============
@@ -113,7 +118,7 @@ flowchart TD
   classDef model fill:#EEEDFE,stroke:#534AB7,color:#3C3489
   classDef code  fill:#E1F5EE,stroke:#0F6E56,color:#085041
   classDef store fill:#F1EFE8,stroke:#5F5E5A,color:#444441
-  class T1_AGENT,T1_VERD,T2_A,T2_B,T2_CRIT,H1,H3,C2,R2 model
+  class T1_AGENT,T1_VERD,T2_A,T2_B,H1,H3,C2,R2 model
   class T1_ENRICH,T1_RAG,T1_TOOLS,T1_FIN,T1_ESC,CASE,T2_SEED,T2_TOOLS,T2_COR,T2_FIN,DECIDE,EXEC,H2,C1,C3,R1,R3,R4,R5 code
   class HIST,AUDIT,INC,CLOSED,PROD,OFF store
 

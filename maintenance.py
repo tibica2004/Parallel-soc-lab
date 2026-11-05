@@ -7,8 +7,13 @@ in fereastra declarata de om, poate face actiuni sensibile fara ca modelul sa fi
 obligat sa le escaladeze. Contul web, momelile, YARA, detectiile EDR raman la om
 indiferent de fereastra (podelele lor nu depind de ea).
 
-Ferestrele le scrie OMUL (deploy/inventory_windows.py, cu contul elastic): o
+Ferestrele le scrie OMUL, cu contul elastic, direct in documentul activului din
+asset-inventory (deploy/inventory_windows.py a fost sters la curatenia 9b391a1): o
 fereastra slabeste o podea, deci e o decizie de acelasi fel ca o exceptie.
+
+  curl -u elastic -H 'Content-Type: application/json' \\
+    "$ES_URL/asset-inventory/_update/<id-ul documentului web-prod>" -d '{"doc": {
+      "maintenance_windows": [{"days": [6], "start": "02:00", "end": "04:00", "reason": "..."}]}}'
 
 Doua forme, in UTC:
   recurenta: {"days": [6], "start": "02:00", "end": "04:00", "reason": "..."}

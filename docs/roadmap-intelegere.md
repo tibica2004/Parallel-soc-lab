@@ -421,6 +421,12 @@ Graf LangGraph liniar, configurabil prin `FastConfig` (configuratiile A-D ale ab
 prefetch -> [rag] -> [l1_agent <-> tools, max 3] -> pattern -> verdict -> finalize
 ```
 
+**Productia ruleaza `FAST_CONFIG=base`** (implicitul din `fast_path.config_from_env`): prefetch ->
+pattern -> verdict -> finalize. Nodurile din paranteze drepte (rag, l1_agent cu unelte) si
+enrich-ul extins (alerte corelate, threat intel) exista doar in configuratiile A-D ale
+studiului de ablatie (`ablation.py`), masurate ca nu schimba acuratetea la 14B. Descrierea de
+mai jos e a configuratiei complete (D), ca sa stii ce exista; in productie vezi doar `base`.
+
 - **prefetch / enrich** (`enrich.py`): faptele alertei (proces, parinte, user, command_line),
   activul (`lookup_asset`, criticitate, ferestre de mentenanta din `maintenance.py`), threat
   intel local (`kb/threat_intel.yml`), alertele corelate, istoricul pe regula (`lookup_history`).
@@ -603,7 +609,7 @@ permite 22 de la es-node-1), asteapta alertele si compara verdictul cu scenariul
 | Fisier | Scenarii | Referinta |
 |---|---|---|
 | scenarios_fast.yml | 4 | 4/4 |
-| scenarios.yml (dev) | 14 | 14/14, recall 100% (2 FP cunoscute: `php --version`, "Deploy legitim") |
+| scenarios.yml (dev) | 14 | recall 8/8, 2 FP cunoscute (12/14): `php --version`, "Deploy legitim" |
 | scenarios_validation.yml | 8 | 8/8 |
 | scenarios_0day.yml | 1 | 1/1 |
 | scenarios_injection.yml + suita prompt_injection.py | 4 + 48 | 4/4, 48/48 (prag >= 98% identic) |
