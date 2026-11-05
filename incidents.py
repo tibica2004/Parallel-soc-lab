@@ -43,7 +43,7 @@ COMMON_ROOT_FRAC = 0.5
 # host (webshell -> worker apache -> master apache -> systemd), deci nu leaga
 # doua actiuni intre ele. sshd-session NU e aici: e o sesiune de login anume.
 SERVICE_ROOTS = frozenset({
-    "systemd", "init", "sshd", "apache2", "httpd", "nginx", "php-fpm", "php-fpm8.4",
+    "systemd", "init", "sshd", "apache2", "httpd", "nginx", "php-fpm", "php-fpm8.3", "php-fpm8.4",
     "cron", "crond", "containerd", "dockerd", "elastic-agent", "elastic-endpoint",
     "rsyslogd", "systemd-journald", "dbus-daemon", "agetty", "login",
 })
