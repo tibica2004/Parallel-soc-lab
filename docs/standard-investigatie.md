@@ -105,7 +105,7 @@ verifica omul, cum se eticheteaza.
 
 - Fapt: `sensitive_action` (webroot_executable_write). Podeaua 2: benign doar in fereastra de
   mentenanta SI de un admin cunoscut. Regula comportamentala escaladeaza mereu (BEHAVIORAL).
-- Explicatii legitime: update de plugin/tema in fereastra de mentenanta (deploy/inventory_windows.py),
+- Explicatii legitime: update de plugin/tema in fereastra de mentenanta (maintenance_windows din asset-inventory, scrise de om; vezi maintenance.py),
   rularea soc-wp-update (fereastra de update din fp_rate.update_windows), plantarea momelilor.
 - Omul verifica: cine a scris (proces, user), hash-ul fisierului fata de checksum-urile WP
   oficiale (static_triage foloseste aceeasi logica: upstream_core), YARA, AIDE, cererea HTTP

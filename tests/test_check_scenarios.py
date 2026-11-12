@@ -53,3 +53,26 @@ def test_echilibru_si_injectie():
     _, w, summ = C.check({"scenarios": [sc(), sc(name="s2", injection=True)]}, R)
     assert summ["attack"] == 1 and summ["injection"] == 1 and summ["benign"] == 0
     assert any("niciun scenariu benign" in x for x in w)
+
+
+# --- faza 22 I: valori ramase de pe vechiul web-prod -------------------------------------
+
+def test_find_stale_gaseste_markerii_pe_orice_schema():
+    data = {"scenarios": [
+        {"name": "a", "finding": {"detail": {"parent": "bash", "child": "php8.4"}}},
+        {"name": "b", "generate": "curl http://172.20.99.240/x", "detail": {"child": "python3"}},
+        {"name": "c", "finding": {"detail": {"child": "python3.13"}}},
+    ]}
+    hits = C.find_stale(data)
+    assert len(hits) == 3
+    assert any("scenarios[0].finding.detail.child" in h and "php8.4" in h for h in hits)
+    assert any("scenarios[1].generate" in h and "172.20.99." in h for h in hits)
+    assert any("scenarios[2]" in h and "python3.13" in h for h in hits)
+    assert C.find_stale({"x": ["php8.3", "python3", 1, None]}) == []
+
+
+def test_check_avertizeaza_la_marker_invechit():
+    s = dict(name="s", path="fast", ground_truth="attack", rule_name=next(iter(C.KNOWN_RULES)),
+             generate="sudo -u www-data php8.4 -r 'echo 1;'")
+    _, warns, _ = C.check({"scenarios": [s]}, set(C.KNOWN_RULES))
+    assert any("invechita" in w and "php8.4" in w for w in warns)

@@ -9,6 +9,8 @@ bucla (R9 se aplica alertelor, nu observabilitatii).
 from __future__ import annotations
 
 import os
+
+from policy import shadow_mode
 from datetime import datetime
 
 INDEX = "soc-metrics"
@@ -37,7 +39,7 @@ def build_cycle_doc(*, cycle: int, cycle_id: str, started: datetime, ended: date
         "llm_calls": int(llm.get("llm_calls", 0)), "tokens": int(llm.get("tokens", 0)),
         "llm_ms": int(llm.get("llm_ms", 0)),
         "backlog": backlog, "sweep_ran": sweep_ran,
-        "shadow": os.environ.get("SHADOW_MODE", "").lower() == "true",
+        "shadow": shadow_mode(),
         "model_tag": os.environ.get("MODEL_FAST", "qwen3:14b"),
     }
 

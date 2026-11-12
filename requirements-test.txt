@@ -1,0 +1,19 @@
+# Doar ce cer testele unitare (tests/, fara model si fara Elasticsearch). Fara pin-uri:
+# `pip install -r requirements-test.txt && python -m pytest -q tests` trebuie sa mearga oriunde
+# (CI: .github/workflows/tests.yml, Python 3.11 si 3.12). Productia foloseste requirements.txt.
+pytest
+pydantic
+PyYAML
+requests
+# importate direct de teste si de module la import; daca lipsesc, tests/conftest.py
+# inregistreaza stub-uri minimale suficiente pentru import (nu pentru rulare reala)
+elasticsearch
+langchain-core
+langchain-openai
+langgraph
+# label_ui (FastAPI + Jinja2 + sesiuni) si TestClient-ul din tests/test_label_ui.py
+fastapi
+httpx
+jinja2
+itsdangerous
+python-multipart

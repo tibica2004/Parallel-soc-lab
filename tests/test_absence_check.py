@@ -454,3 +454,21 @@ def test_agent_sarit_fara_cheie_si_critic_cand_e_offline(monkeypatch):
     monkeypatch.setattr(A.requests, "get", lambda *a, **k: R(body={"items": [{"status": "offline"}]}))
     run = _run(); A.check_agent(run)
     assert run.kinds == ["agent_unhealthy:elastic-agent"] and run.ages["agent_ok"] == 0.0
+
+
+# --- faza 22 L: CANARY_HOST ca parametru, nu in textul interogarii ----------------------------
+
+def test_canary_host_intra_prin_params(monkeypatch):
+    seen = {}
+
+    class _ES:
+        class esql:
+            @staticmethod
+            def query(query, params=None, format="json"):
+                seen.update(query=query, params=params)
+                return {"values": [["2026-11-05T10:00:00.000Z"]]}
+    monkeypatch.setattr(A, "CANARY_HOST", 'web-prod" OR true')
+    run = _run()
+    A.check_canary(_ES(), run)
+    assert "host.name == ?" in seen["query"] and 'web-prod" OR true' not in seen["query"]
+    assert seen["params"] == ['web-prod" OR true']

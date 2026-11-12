@@ -258,13 +258,14 @@ def check_suricata_rules(es: Elasticsearch, run: Run) -> None:
 
 
 def check_canary(es: Elasticsearch, run: Run) -> None:
-    r = es.esql.query(query=f"""
+    # Hostul intra ca parametru, nu in textul interogarii (coerent cu restul: principiul 3).
+    r = es.esql.query(query="""
         FROM logs-endpoint.events.process-*
-        | WHERE host.name == "{CANARY_HOST}" AND process.name == "soc-canary"
+        | WHERE host.name == ? AND process.name == "soc-canary"
         | SORT event.ingested DESC
         | KEEP event.ingested
         | LIMIT 1
-    """, format="json")
+    """, params=[CANARY_HOST], format="json")
     if not r["values"]:
         run.problem(IntegrityKind.CANARY_MISSING, "Canar lipsa: telemetrie oprita?",
                     f"Niciun eveniment soc-canary pentru {CANARY_HOST}. Cron-ul ruleaza? Agentul trimite?",

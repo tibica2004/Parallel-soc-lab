@@ -7,8 +7,9 @@ conditia de repornire. Lista se actualizeaza la fiecare oprire/pornire (om sau T
 
 ## 1. Regulile Kibana proprii (deploy/kibana/honeytoken_rules.py verifica, 2026-11-03)
 
-Toate cele 25 de reguli proprii sunt PORNITE: 10 honeytoken, 6 comportamentale (soc-behavioral,
-in fereastra shadow-review), YARA, Suricata web-attack, ModSecurity, AIDE, soc-reader-denied,
+Toate cele 25 de reguli proprii sunt PORNITE: 10 honeytoken, 6 comportamentale in Kibana
+(soc-behavioral, in fereastra shadow-review) + 3 comportamentale scrise in cod dar inca neimportate
+(regulile 3.1 e/f/g din pasul 13 B.5: nu lipsesc, asteapta importul si cele 7 zile de shadow-review), YARA, Suricata web-attack, ModSecurity, AIDE, soc-reader-denied,
 enumerare web, brute-force web/SSH, SQLi. Niciuna oprita din lipsa de capacitate.
 
 Regulile generate de Tier 3 (eticheta tier3-generated) pot fi dezactivate de cod dupa fereastra

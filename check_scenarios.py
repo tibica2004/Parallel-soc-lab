@@ -43,6 +43,29 @@ REQUIRED = ("name", "path", "ground_truth", "rule_name", "generate")
 ALLOWED = set(REQUIRED) | {"injection", "notes", "validation"}
 MIN_TOTAL = 10
 
+# Valori ramase de pe vechiul web-prod (Debian, PHP 8.4, Python 3.13, reteaua 172.20.99.x).
+# Pe Ubuntu 24.04 procesele se numesc altfel, deci un scenariu cu ele nu-si gaseste faptele
+# (faza 22 I). Doar avertisment: setul ramane valid, dar omul trebuie sa stie.
+STALE_MARKERS = ("php8.4", "python3.13", "172.20.99.")
+
+
+def find_stale(data, markers: tuple[str, ...] = STALE_MARKERS, _path: str = "") -> list[str]:
+    """Pur. Parcurge orice structura YAML (dict/list/str) si intoarce `cale: valoare` pentru
+    fiecare sir care contine un marker invechit. Merge pe orice set de scenarii, indiferent
+    de schema."""
+    out: list[str] = []
+    if isinstance(data, dict):
+        for k, v in data.items():
+            out += find_stale(v, markers, f"{_path}.{k}" if _path else str(k))
+    elif isinstance(data, list):
+        for i, v in enumerate(data):
+            out += find_stale(v, markers, f"{_path}[{i}]")
+    elif isinstance(data, str):
+        hit = [m for m in markers if m in data]
+        if hit:
+            out.append(f"{_path}: {data.strip()[:80]!r} (marker {', '.join(hit)})")
+    return out
+
 
 def check(data, rules: set[str], rag_text: str = "", other_names: set[str] = frozenset()
           ) -> tuple[list[str], list[str], dict]:
@@ -121,6 +144,8 @@ def check(data, rules: set[str], rag_text: str = "", other_names: set[str] = fro
     for r, c in sorted(per_rule.items()):
         if not c["benign"]:
             warnings.append(f"regula {r!r}: fara scenariu benign")
+    for s in find_stale(data):
+        warnings.append(f"valoare invechita (vechiul web-prod): {s}")
     summary = {"total": n_total, **{k: totals[k] for k in ("attack", "benign", "injection")},
                "per_rule": {r: dict(c) for r, c in sorted(per_rule.items())}}
     return errors, warnings, summary
@@ -173,6 +198,16 @@ def main() -> int:
         print(f"AVERTISMENT: {w}")
     for e in errors:
         print(f"EROARE: {e}")
+    # Markerii invechiti se cauta si in celelalte seturi (au alta schema decat cel de ablatie).
+    for other in OTHER_SETS:
+        op = ROOT / other
+        if op == path or not op.exists():
+            continue
+        try:
+            for s in find_stale(yaml.safe_load(op.read_text(encoding="utf-8"))):
+                print(f"AVERTISMENT: {other}: valoare invechita (vechiul web-prod): {s}")
+        except (OSError, yaml.YAMLError) as e:
+            print(f"AVERTISMENT: nu pot citi {other}: {e}")
     print("OK" if not errors else f"{len(errors)} erori")
     return 1 if errors else 0
 

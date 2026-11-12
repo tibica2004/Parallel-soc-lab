@@ -50,3 +50,17 @@ def test_sweep_cu_es_fals(tmp_path, monkeypatch):
     out = R.sweep_entity_risk(1, es=ES())
     assert len(out) == 1 and out[0].entity_id == "203.0.113.9"
     assert R.sweep_entity_risk(1, es=ES()) == []            # cooldown: nu se repeta
+
+
+# --- faza 22 L: o singura sursa pentru IP-urile proprii ---------------------------------------
+
+def test_excluded_ips_aceeasi_sursa_ca_honeytokens(monkeypatch):
+    import honeytokens
+    monkeypatch.delenv("WP_SELF_IPS", raising=False)
+    monkeypatch.delenv("BENIGN_GEN_IPS", raising=False)
+    got = R.excluded_ips()
+    assert got == frozenset(str(ip) for ip in honeytokens.known_own_ips())
+    assert {"172.30.6.249", "192.168.10.138", "192.168.10.150", "127.0.0.1", "::1"} <= got
+    monkeypatch.setenv("WP_SELF_IPS", "10.9.9.9, nu-ip")
+    monkeypatch.setenv("BENIGN_GEN_IPS", "10.8.8.8")
+    assert R.excluded_ips() == frozenset({"10.9.9.9", "10.8.8.8"})

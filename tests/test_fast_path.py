@@ -73,7 +73,7 @@ def test_podea4_serverul_web_a_pornit_un_proces():
     out = _finalize({"classification": "suspicious", "confidence": 80, "proposed_action": "enrich_only"}, ctx)
     v = out["verdict"]
     assert v.classification.value == "malicious" and v.proposed_action.value == "escalate_human"
-    assert v.confidence == 80 and out["floor_applied"] is True     # increderea modelului neatinsa
+    assert v.confidence == 60 and out["floor_applied"] is True     # plafonata ca la podelele 1-2 (faza 22 L)
 
 
 def test_podea4_nu_se_aplica_prin_sudo():

@@ -1,19 +1,32 @@
 #!/usr/bin/env python3
 """
-ORCHESTRATOR — pasul 1: DOAR AFISARE (dry-run).
+ORCHESTRATOR — bucla principala a SOC-ului (serviciul soc-orchestrator, ciclu la 120 s).
 
-Citeste alertele noi si, optional, ruleaza sweep-ul. Ruteaza fiecare pe calea
-potrivita (alerta -> rapida, finding -> lenta) si TIPARESTE ce ar face. Nu scrie
-nimic: nici verdicte, nici audit, nici pozitie. Zero risc.
+Un ciclu (run_positioned):
+  1. Pozitia: cursorul din soc-state (load_cursor; lipsa = prima rulare, orice alta eroare sare
+     ciclul fara sa mute cursorul) si fereastra pana la acum minus lag (window_end).
+  2. Fetch: alertele din .alerts-security.alerts-* intre cursor si fereastra (fetch_alerts_between).
+  3. Dedup + plafon: group_alerts grupeaza in cazuri (regula + entitate), BoundedSeen sare
+     duplicatele deja vazute (persistat in soc-state, cu TTL), take_until_cap opreste la --limit
+     CAZURI NOI per ciclu; restul raman pentru ciclul urmator.
+  4. Sanatatea modelului (degraded.llm_healthy): model cazut -> totul escaladeaza fara verdict.
+  5. Restanta peste prag: coada ordonata dupa severitate si criticitate; critical escaladeaza
+     direct, fara model.
+  6. process_alerts: alerta -> Tier 1 (fast_path) -> should_escalate -> Case (case_adapter, fara
+     verdictul Tier 1) -> Tier 2 (hunt_path, buget --t2-limit) -> policy.decide -> persist
+     (verdicts-history, soc-audit, soc-traces, soc-cases) + notificarea escaladarilor critice.
+  7. Cursorul avanseaza la capatul ferestrei (golita) sau la ultima alerta consumata.
+  8. Metrici (soc-metrics type=cycle la fiecare ciclu, instantaneu la --metrics-every), integritatea
+     canarului si a prompturilor (_integrity_watch; nepotrivire = conditie de oprire), WATCHDOG=1.
+  9. Sweep-ul de raritate (run_full_sweep) la fiecare --sweep-every cicluri -> findings -> Tier 2
+     (--hunt-limit per ciclu).
 
-Scopul: sa vezi cum se comporta sistemul pe fluxul real inainte sa-i dai voie
-sa scrie. Motorul de politici si scrierea vin in pasul 2, rularea automata in 3.
+SHADOW_MODE e fortat in ExecStart (deploy/soc-orchestrator.service): decide() calculeaza si
+logheaza, nu executa. Rularea manuala (fara --loop) foloseste aceleasi functii, dedup doar in
+memorie, si nu atinge pozitia serviciului:
 
-    export ES_API_KEY=<read-only>  ES_URL=...  LLM_BASE_URL=...
-    python3 orchestrator.py                 # alerte din ultimele 60 min
-    python3 orchestrator.py --minutes 30
-    python3 orchestrator.py --sweep         # si un ciclu de sweep
-    python3 orchestrator.py --limit 5       # cel mult 5 elemente (util la debug)
+    SHADOW_MODE=true python3 orchestrator.py --minutes 60 --limit 5     # fara scriere daca lipseste ES_WRITER_API_KEY
+    python3 orchestrator.py --loop --interval 120 --sweep-every 30     # modul serviciului
 """
 
 from __future__ import annotations
@@ -37,7 +50,7 @@ import sensor_rules
 import tracing
 from escalation import EscalationDecision, should_escalate
 from schemas import EscalationReason
-from policy import decide
+from policy import decide, shadow_mode
 from state import load_cursor, load_seen, save_cursor, save_seen, window_end
 
 from elasticsearch import Elasticsearch
@@ -293,7 +306,7 @@ def make_plan(verdict, decision):
         try:
             req = executor.BlockIpTtl(ip=p.target, ttl_s=3600, reason="verdict Tier 1/2",
                                       confidence=verdict.confidence, case_id=(verdict.chain_id or "")[:64])
-            res, why = executor.block_guard(req, shadow=os.environ.get("SHADOW_MODE", "true").lower() == "true",
+            res, why = executor.block_guard(req, shadow=shadow_mode(),
                                             ready=None, protected_ips=frozenset())
             text = f"{text}; garzi: {res} ({why})"
         except Exception as e:  # noqa: BLE001 — garzile nu au voie sa piarda auditul
@@ -893,7 +906,7 @@ def main() -> int:
 
     stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     mode = ("SCRIE audit+verdicte" if WRITER is not None else "DRY-RUN, nu scrie nimic")
-    shadow = os.environ.get("SHADOW_MODE", "true").lower() != "false"
+    shadow = shadow_mode()
     print(f"=== Orchestrator {stamp} | {mode} | shadow={shadow} ===\n")
 
     # Aceleasi functii ca modul cu pozitie. Dedup doar in memorie: o rulare manuala

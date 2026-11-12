@@ -1,5 +1,5 @@
 {
- "prompt_set": "f1d721739bf7",
+ "prompt_set": "23664c93b9cd",
  "prompts": {
   "fast.extended_rules": {
    "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
@@ -37,16 +37,34 @@
    "updated": "2026-11-02",
    "version": 1
   },
+  "hunt.fact_rules": {
+   "reason": "faza 22: prompturile Tier 2 lipsa din manifest (tier1_note, primary_note, fact_rules extras din _i_seed, text identic)",
+   "sha256": "26c6ac62f2328a2c13eb6581f29a170cec1b28a09a386722d5a54fdb1d33c01b",
+   "updated": "2026-11-05",
+   "version": 1
+  },
   "hunt.investigator": {
-   "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
-   "sha256": "4278f553414c5816aba8a0f4a86418f2b4f7ad14b9a229e69aebf64df1b4e00e",
-   "updated": "2026-11-02",
+   "reason": "faza 22 G: o fraza despre tool_eql_pattern (catalog inchis) si campurile permise in tool_rarity_of",
+   "sha256": "cb81cee562c4a6f89f507b00effced80603b6c4ab6abe0c135aa5a30fd71553b",
+   "updated": "2026-11-05",
+   "version": 2
+  },
+  "hunt.primary_note": {
+   "reason": "faza 22: prompturile Tier 2 lipsa din manifest (tier1_note, primary_note, fact_rules extras din _i_seed, text identic)",
+   "sha256": "d60cf0b9882e00e5012b520204c487099bc5ac96453f8f69a78aecab938c97af",
+   "updated": "2026-11-05",
    "version": 1
   },
   "hunt.secondary_note": {
    "reason": "linia de baza la introducerea manifestului (dupa intarirea la injectie 6.1, 2026-11-02)",
    "sha256": "687ac5e7931775eb475078c9e397b93c1ae9b7b389792c1629aee09bce3fd5a4",
    "updated": "2026-11-02",
+   "version": 1
+  },
+  "hunt.tier1_note": {
+   "reason": "faza 22: prompturile Tier 2 lipsa din manifest (tier1_note, primary_note, fact_rules extras din _i_seed, text identic)",
+   "sha256": "7c896bff2bd9b54f4084773bf165bc7c6a556dd7370ef9e1cba57bc5ff024956",
+   "updated": "2026-11-05",
    "version": 1
   },
   "static.triage": {
