@@ -11,3 +11,6 @@ __pycache__/
 data/
 logs/
 *.log
+
+# stare de rulare (deduplicare Tier 3)
+results/*-stare.json
