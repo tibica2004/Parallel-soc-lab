@@ -2,6 +2,8 @@ services:
   es01:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.5.1
     container_name: es01
+    # Porneste singur dupa restartul masinii (oprit manual = ramane oprit).
+    restart: unless-stopped
     environment:
       - node.name=es01
       - discovery.type=single-node
@@ -31,6 +33,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:9.5.1
     container_name: kibana
+    restart: unless-stopped
     environment:
       - SERVER_NAME=kibana
       - SERVER_HOST=0.0.0.0
