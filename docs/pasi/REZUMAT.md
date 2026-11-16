@@ -41,8 +41,8 @@ trei niveluri si cod determinist in jurul modelului:
 | es-node-1 | 192.168.10.121 / 172.30.6.106 | ES + Kibana (Docker), Fleet Server, orchestrator + 10 timere SOC |
 | web-prod | 192.168.10.138 / 172.30.6.249 | WordPress tinta, toti senzorii, 6 timere (backup, update raport, SBOM, AIDE, YARA, suricata-update) |
 | atacator | 10.10.0.220 / 172.30.6.133 | OpenClaw / OpenCyber; ajunge doar pe web-prod:80/443; SNAT -> apare ca 172.30.6.133 |
-| benign-gen | 192.168.10.150 / 172.30.6.210 | trafic WordPress benign (Playwright), scrie benign-ground-truth |
-| lab-sink | 192.168.10.160 | tinta ART miscare laterala / exfiltrare; nimic nu ruleaza pe el |
+| benign-gen | 192.168.10.150 (fara flotant; prin es-node-1) | trafic WordPress benign (Playwright), scrie benign-ground-truth |
+| lab-sink | 192.168.10.160 / 172.30.6.210 | tinta ART miscare laterala / exfiltrare; nimic nu ruleaza pe el |
 | GPU | 172.30.6.231 | Ollama qwen3:14b, prin tunel autossh |
 
 Sesiunea Claude ruleaza pe boxa veche (172.20.99.220); hosturile se ating prin IP-urile

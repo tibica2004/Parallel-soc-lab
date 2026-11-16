@@ -56,7 +56,7 @@ Ramura noua, de exemplu `faza-23-inchidere-conceptuala`.
 ## Faza B — dupa rebootul GPU-ului
 
 ### B1. Poarta faza-22
-- [ ] Opresti benign-gen: `sudo systemctl stop benign-gen` (pe 172.30.6.210).
+- [ ] Opresti benign-gen: `sudo systemctl stop benign-gen` (pe benign-gen: `ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150`).
 - [ ] Rulezi pe rand cele patru seturi:
   ```
   SCENARIOS=scenarios_fast.yml VERBOSE=1 python3 -u harness.py | tee results/faza22-fast-$(date +%F-%H%M).txt
