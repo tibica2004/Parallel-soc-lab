@@ -1,0 +1,23 @@
+{
+ "@timestamp": "2026-11-02T16:32:25.668481+00:00",
+ "type": "gate",
+ "scenario_set": "scenarios",
+ "scenarios": 14,
+ "TP": 8,
+ "FN": 0,
+ "TN": 4,
+ "FP": 2,
+ "recall": 1.0,
+ "fp_rate": 0.3333,
+ "precision": 0.8,
+ "passed": true,
+ "missed": [],
+ "false_positives": [
+  "Admin verifica versiunea php",
+  "Deploy legitim — script din /opt de admin"
+ ],
+ "commit": "82feeb4",
+ "prompt_set": "f1d721739bf7",
+ "model_tag": "qwen3:14b",
+ "duration_s": 1004.0
+}

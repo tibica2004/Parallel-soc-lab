@@ -1,0 +1,20 @@
+{
+ "@timestamp": "2026-11-03T09:28:17.530247+00:00",
+ "type": "gate",
+ "scenario_set": "scenarios_fast",
+ "scenarios": 4,
+ "TP": 3,
+ "FN": 0,
+ "TN": 1,
+ "FP": 0,
+ "recall": 1.0,
+ "fp_rate": 0.0,
+ "precision": 1.0,
+ "passed": true,
+ "missed": [],
+ "false_positives": [],
+ "commit": "82feeb4",
+ "prompt_set": "f1d721739bf7",
+ "model_tag": "qwen3:14b",
+ "duration_s": 1538.4
+}

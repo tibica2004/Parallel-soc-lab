@@ -1,0 +1,22 @@
+=== Harness: 1 scenarii ===
+
+[1/1] 0-day RCE - webshell ofuscat (YARA orb) ruleaza id  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True sensitive=False fereastra=False baseline=True fp_rate=None
+      concluzie: malicious/95
+    -> malicious / 95 / escalate_human  [TP OK]  [24s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):     1
+  FN (ATAC RATAT):        0   <- eroarea scumpa
+  TN (benign inchis):     0
+  FP (benign escaladat):  0
+
+  RECALL (atacuri prinse):  100%  (1/1)
+  RATA ATACURI RATATE:      0%  <- metrica care conteaza
+  PRECIZIE:                 100%
+
+CALIBRARE (precizie pe banda de incredere):
+   90-99:  100%  (1/1)
+  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%

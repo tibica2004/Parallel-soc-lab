@@ -1,0 +1,29 @@
+=== Harness: 3 scenarii ===
+
+[1/3] Mentenanta — admin reporneste apache  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False sensitive=False alerte_host=77 gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign / 75 / none  [TN OK]  [15s]
+[2/3] Mentenanta — admin reporneste apache  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False sensitive=False alerte_host=77 gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign / 75 / none  [TN OK]  [20s]
+[3/3] Mentenanta — admin reporneste apache  (adevar: benign)
+    generez telemetrie (astept 45s)...
+      fapte: user=root via_sudo=tiberiu admin=True web_svc=False tmp=False sensitive=False alerte_host=73 gasit=True
+      concluzie: benign/75 semnale=[]
+    -> benign / 75 / none  [TN OK]  [30s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):     0
+  FN (ATAC RATAT):        0   <- eroarea scumpa
+  TN (benign inchis):     3
+  FP (benign escaladat):  0
+  RATA FALS POZITIVE:       0%  (0/3)
+
+CALIBRARE (precizie pe banda de incredere):
+   70-79:  100%  (3/3)
+  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%

@@ -1,0 +1,33 @@
+=== Harness: 4 scenarii ===
+
+[1/4] Alerta RCE — webshell ruleaza id  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True sensitive=False fereastra=False baseline=True fp_rate=None
+    EROARE: Request timed out.
+[2/4] Alerta reverse shell — /dev/tcp  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=True fereastra=False baseline=True fp_rate=None
+    EROARE: Request timed out.
+[3/4] Alerta webshell scris in webroot (de www-data)  (adevar: attack)
+    generez telemetrie (astept 360s)...
+      fapte: user=www-data via_sudo=None admin=False web_svc=True sensitive=True fereastra=False baseline=True fp_rate=None
+    EROARE: Request timed out.
+[4/4] Alerta download — admin curl catre localhost  (adevar: benign)
+    generez telemetrie (astept 360s)...
+      fapte: user=tiberiu via_sudo=None admin=True web_svc=False sensitive=False fereastra=False baseline=True fp_rate=1.0
+      concluzie: benign/95
+    -> benign / 95 / none  [TN OK]  [242s]
+
+==================================================
+MATRICE DE CONFUZIE
+  TP (atac semnalat):     0
+  FN (ATAC RATAT):        0   <- eroarea scumpa
+  TN (benign inchis):     1
+  FP (benign escaladat):  0
+  RATA FALS POZITIVE:       0%  (0/1)
+
+CALIBRARE (precizie pe banda de incredere):
+   90-99:  100%  (1/1)
+  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%
+
+[poarta] inregistrata: recall=None fp_rate=0.0 commit=82feeb4 prompt_set=f1d721739bf7
