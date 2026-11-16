@@ -31,7 +31,10 @@ Testat local (fake webroot): o linie NDJSON valida, components = core + plugin-u
 ### B. Comenzi
 Prerequisit pe web-prod (root, o singura data) — APLICAT 2026-10-29:
   sudo useradd --system --shell /usr/sbin/nologin --home /nonexistent soc-sbom
-  sudo mkdir -p /var/log/soc && sudo chown soc-sbom:adm /var/log/soc && sudo chmod 750 /var/log/soc
+  sudo mkdir -p /var/log/soc && sudo chown soc-sbom:adm /var/log/soc && sudo chmod 751 /var/log/soc
+  # 751, NU 750: www-data (soc-wp-update, benign-actions) trebuie sa poata traversa directorul
+  # ca sa scrie in fisierele lui pre-create; cu 750 soc-wp-update a cazut zilnic (PermissionError)
+  # intre ~2026-11-01 si 2026-11-16. o+x fara o+r: poate deschide, nu poate lista.
   # ACL NU e necesar: /var/www/html e deja world-readable (drwxr-xr-x www-data), soc-sbom
   # citeste version.php/plugin *.php/style.css, iar wp-config.php ramane 640 (denied). Daca
   # pe viitor se restrang drepturile webroot-ului, adauga ACL atunci (pachetul acl + setfacl
