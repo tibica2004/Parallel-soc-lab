@@ -1,6 +1,8 @@
 # /etc/logrotate.d/soc — jurnalele SOC de pe web-prod. copytruncate: scriitorii (www-data,
 # soc-sbom) nu pot crea fisiere noi in /var/log/soc, iar Elastic Agent urmareste acelasi fisier.
-/var/log/soc/*.log /var/log/soc/*.ndjson {
+# sbom.ndjson NU e aici: il roteste /etc/logrotate.d/soc-sbom (daily). Un glob *.ndjson il
+# prindea de doua ori -> "duplicate log entry" si logrotate.service cadea in fiecare noapte.
+/var/log/soc/*.log /var/log/soc/benign-actions.ndjson /var/log/soc/emulation.ndjson {
     weekly
     rotate 8
     compress
