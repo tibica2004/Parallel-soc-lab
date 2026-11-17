@@ -292,3 +292,19 @@ Ramane la om, in ordine: (1) ssh-parola - FACUT 2026-11-17 08:04 UTC; (2) poarta
 (3) pornit benign-gen + regula 80 la loc - FACUT 09:57 UTC; (4) etapa 2 (comanda de mai
 sus); (5) etichetare 50 + 50; (6) imagine OpenStack pentru es-node-1 si web-prod; (7) reboot pe cele
 5 VM-uri, es-node-1 ultimul; (8) ES la verde (replici 0, contul elastic); (9) etapele 4-9.
+
+### Pregatit de Claude pe 2026-11-17 dupa poarta (pe ramura, NEDEPLOYAT)
+
+- **Etapa 5 (cod gata, `cada43f`)**: regula asimetrica in `hunt_path.py` (`result_has_rows`,
+  `sweep_benign_supported`, numaratoare `nonempty_results` in starea grafului), 11 teste noi, 1 test vechi
+  adaptat. ATINGE VERDICTUL. Nu se pune pe es-node-1 pana cand: (1) omul ruleaza etapa 2 si accepta cifra;
+  (2) trece poarta dev + validare. Decizie deschisa: `pair_in_baseline` NU exista azi in `prefetch_ctx`
+  al Tier 2 (e doar pe calea rapida), deci conditia (b) se reduce la fereastra de mentenanta + admin
+  cunoscut. Adaugarea lui in context inseamna o interogare in plus si un fapt nou vazut de model.
+- **Etapa 8 (lista gata)**: `docs/pasi/etapa-8-lista-art.md`. 14 tehnici rulabile acum (15 cu cea facuta);
+  pentru 20 trebuie aduse inca 5 directoare de tehnici pe web-prod.
+- **GRAV, de facut inainte de orice test ART**: runner-ul de pe web-prod permite T1070.004 #8
+  (`rm -rf / --no-preserve-root`). Reparat in cod pe ramura; omul copiaza fisierul nou in /opt/soc
+  (comenzile sunt in lista etapei 8).
+- **Imagini OpenStack**: `web-prod-2026-11-17` activa; `es-node-1-2026-11-17` in curs la 10:56 UTC.
+

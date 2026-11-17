@@ -42,6 +42,17 @@ _IP_RE = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
 _URL_RE = re.compile(r"https?://", re.IGNORECASE)
 _ARG_RE = re.compile(r"#\{(\w+)\}")
 TIMEOUT_S = 300
+# Faza 23: teste care distrug hostul sau datele altor servicii. Refuzate de cod indiferent de
+# aprobarea omului (gasit la inventarul pentru etapa 8: T1070.004#8 = rm -rf / --no-preserve-root
+# trecea ca "permis", la fel T1070.003#10 = docker container prune + golirea logurilor docker).
+_DESTRUCTIVE = (
+    (re.compile(r"--no-preserve-root"), "sterge radacina sistemului de fisiere"),
+    (re.compile(r"\brm\s+(?:-\S+\s+)*/(?:\s|$)"), "sterge radacina sistemului de fisiere"),
+    (re.compile(r"\bdocker\s+(?:container|system|volume|image|network)\s+prune\b"), "sterge resurse docker"),
+    (re.compile(r"/var/lib/docker/"), "atinge datele docker"),
+    (re.compile(r"\b(?:mkfs(?:\.\w+)?|wipefs)\b"), "formateaza sau sterge un disc"),
+    (re.compile(r"\bdd\b[^\n;|&]*\bof=/dev/"), "scrie direct pe un dispozitiv"),
+)
 
 
 # ---------------- functii pure (testate pe es-node-1/local, fara sa ruleze nimic) ----------------
@@ -72,6 +83,9 @@ def refusal(test: dict, command: str, cleanup: str) -> str | None:
     if test.get("dependencies"):
         return "are dependinte (prerechizitele descarca/instaleaza de obicei ceva)"
     for part in (command, cleanup):
+        for rx, why in _DESTRUCTIVE:
+            if rx.search(part):
+                return f"distructiv: {why}"
         if _URL_RE.search(part):
             return "contine un URL (fara internet si fara descarcari)"
         for ip in _IP_RE.findall(part):

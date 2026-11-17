@@ -89,3 +89,18 @@ def test_tier3_prioritizeaza_golurile_cu_sablon(tmp_path):
     assert H.pick_techniques(state, 2, priority=("T1053.003",), now=now)[0] == "T1053.003"
     state["T1053.003"] = {"last": "2026-11-02T23:00:00Z"}      # vanat acum o ora: fara prioritate
     assert H.pick_techniques(state, 2, priority=("T1053.003",), now=now)[0] != "T1053.003"
+
+
+def test_testele_distructive_sunt_refuzate_de_cod():
+    # faza 23: T1070.004#8 si T1070.003#10 din depozitul oficial treceau ca "permis"
+    for cmd in ("[ \"$(uname)\" = Linux ] && rm -rf / --no-preserve-root > /dev/null 2> /dev/null",
+                "rm -rf / > /dev/null", "rm -rf /", "sudo rm -fr / ",
+                "docker container prune -f && sudo truncate -s 0 /var/lib/docker/containers/*/*-json.log",
+                "truncate -s 0 /var/lib/docker/containers/x/x-json.log",
+                "mkfs.ext4 /dev/vdb", "wipefs -a /dev/vda", "dd if=/dev/zero of=/dev/vda bs=1M"):
+        assert (art.refusal(_test(), cmd, "") or "").startswith("distructiv"), cmd
+        assert (art.refusal(_test(), "true", cmd) or "").startswith("distructiv"), cmd
+    # stergerile obisnuite din teste si din cleanup raman permise
+    for cmd in ("rm -rf /tmp/victim-folder", "rm -f /tmp/T1003.008.txt", "rm ~/.bash_history",
+                "dd if=/dev/zero of=/tmp/f bs=1 count=1", "rm -rf /tmp/a /tmp/b"):
+        assert art.refusal(_test(), cmd, "") is None, cmd
