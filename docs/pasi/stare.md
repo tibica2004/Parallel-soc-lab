@@ -605,3 +605,19 @@ inceput la cateva secunde dupa oprirea benign-gen, nu dupa 5 minute; (3) `make` 
 s-a rulat direct cu python. Deploy-ul (B2) fusese facut inainte, pe 16.11; poarta il valideaza ulterior.
 09:57: regula 80 recreata (0835a0f9) si benign-gen pornit (om). De retinut pentru etapa 6.1: FP-ul php la
 95 ar fi izolat automat un host la pragul 95.
+
+## 2026-11-17 ~10:05-10:47 UTC: push in main (B4) + imagini OpenStack (incident: VM-uri inghetate)
+
+Push (Claude, la cererea omului): `origin/main` 2782119 -> 80a867c prin fast-forward; ramura faza-23 urcata,
+neunita. Facut de pe elastic-lab (cheia GitHub de pe es-node-1 e doar de citire).
+Imagini: `openstack server image create` pentru web-prod (`web-prod-2026-11-17`, activa, 40 GB) si es-node-1
+(`es-node-1-2026-11-17`, inca `saving` la 10:47). INCIDENT: snapshot-ul NU e live pe acest cloud; hipervizorul
+a inghetat VM-urile cat a copiat discul: es-node-1 ~11 min 40 s (real ~10:09-10:21), web-prod ~3 min 15 s.
+La revenire ceasurile au ramas in urma cu exact atat. es-node-1 s-a corectat singur (timesyncd) pe la 10:27
+real; web-prod la 10:23, dupa `systemctl restart systemd-timesyncd` (om). Efecte: ciclurile 561-563 ale
+orchestratorului au rulat cu ceas gresit (jurnalul lor arata 10:10-10:14, real 10:22-10:26); ferestrele sunt
+continue (ciclul 564 = [10:14:10, 10:27:35], 1 alerta), deci nicio fereastra sarita. Telemetria web-prod
+10:00-10:36 nu are goluri la 2 minute (agentul a retrimis), dar evenimentele web-prod din ~10:06-10:23 pot
+avea ora cu pana la 3 minute in urma. Servicii dupa: soc-orchestrator activ, es01 healthy, kibana up.
+Lectie: imaginea unui VM = pauza de minute; se face cu benign-gen oprit si anuntat, si urmata de
+`systemctl restart systemd-timesyncd` pe VM. Ceasul lui elastic-lab e cu ~16 s INAINTE si nesincronizat.

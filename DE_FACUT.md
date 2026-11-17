@@ -89,7 +89,12 @@ a iesit acum benign/75/none (TN), deci 1 FP in loc de 2.
 **Gata cand:** 9 reguli comportamentale pornite si determinism de cel putin 98%.
 
 ### B4. Merge
-- [ ] Aduci faza-22 in main.
+- [x] Aduci faza-22 in main.
+
+**FACUT 2026-11-17 ~10:05 UTC** (Claude, la cererea omului): `origin/main` adus prin fast-forward de la
+2782119 la 80a867c (fara force), dupa poarta. Ramura `faza-23-inchidere-conceptuala` urcata pe GitHub ca
+ramura, NEunita in main. Push-ul s-a facut de pe elastic-lab: cheia GitHub de pe es-node-1 e doar de citire.
+`main` local din `~/lab` adus si el la 80a867c.
 
 ---
 
