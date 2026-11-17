@@ -15,9 +15,35 @@ GATE = ROOT / "deploy" / "web-prod" / "soc-reader" / "soc-reader-gate"
 INSTALL = ROOT / "deploy" / "web-prod" / "soc-reader" / "install.sh"
 
 
+_PATH_LINE = "export PATH=/usr/sbin:/usr/bin:/sbin:/bin"
+_QUIET: dict[str, Path] = {}
+
+
+def _quiet_gate() -> Path:
+    """Copie a gate-ului in care DOAR `logger` e neutralizat (functie shell goala dupa linia PATH).
+    Faza 23: gate-ul real scrie in syslog (auth.warning); rulat pe es-node-1, fiecare comanda
+    refuzata din teste devenea o alerta reala "soc-reader: comanda refuzata" (16 pe rulare) si
+    ajungea in coada omului. Logica de decizie e aceeasi; ca gate-ul real jurnalizeaza se verifica
+    separat, pe text (test_gate_jurnalizeaza_refuzul)."""
+    if "p" not in _QUIET:
+        import tempfile
+        body = GATE.read_text()
+        assert body.count(_PATH_LINE) == 1, "linia PATH din gate s-a schimbat; actualizeaza testul"
+        d = Path(tempfile.mkdtemp(prefix="soc-gate-test-"))
+        (d / "soc-reader-gate").write_text(body.replace(_PATH_LINE, _PATH_LINE + "\nlogger() { :; }"))
+        _QUIET["p"] = d / "soc-reader-gate"
+    return _QUIET["p"]
+
+
 def gate(cmd: str):
     env = {"PATH": "/usr/bin:/bin", "SSH_ORIGINAL_COMMAND": cmd}
-    return subprocess.run(["bash", str(GATE)], env=env, capture_output=True, text=True, timeout=20)
+    return subprocess.run(["bash", str(_quiet_gate())], env=env, capture_output=True, text=True, timeout=20)
+
+
+def test_copia_de_test_difera_doar_prin_logger():
+    real, quiet = GATE.read_text().splitlines(), _quiet_gate().read_text().splitlines()
+    assert [l for l in quiet if l not in real] == ["logger() { :; }"]
+    assert len(quiet) == len(real) + 1
 
 
 # ---------------- lista alba: o singura sursa ----------------
