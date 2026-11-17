@@ -633,3 +633,14 @@ In procente: 10/17 = 59% din inchiderile benign de sweep s-au facut fara ca mode
 `/opt/soc/art_runner.py` pe web-prod inlocuit cu varianta care refuza testele distructive (om, 11:36);
 verificat: T1070.004 #8 -> "REFUZAT: distructiv".
 
+## 2026-11-17 ~11:50 UTC: OpenClaw scos de pe atacator (Claude, la cererea omului)
+
+Sters de pe atacator (10.10.0.220): serviciul de utilizator `openclaw-gateway` (tiberiu, port 18789), unitatea
+`openclaw-llm-tunnel` (autossh spre GPU, port local 11434), pachetul npm global `openclaw@2026.9.2` (525 MB),
+`~tiberiu/.openclaw` (57 MB: configuratie, agenti, workspace), `~ubuntu/.openclaw`, linia de completare din
+`.bashrc`. Fara copie: nu se mai poate reface decat reinstaland. Ramas neatins: containerul
+`opencyber-attacker` (healthy), volumul lui, `~tiberiu/.opencyber`, nodejs 22, wpscan, sqlmap.
+Consecinte: atacatorul nu mai are tunel spre GPU (un consumator mai putin pe GPU-ul partajat); regula
+"nu rula OpenClaw in timpul harness-ului" nu mai are obiect. CLAUDE.md (linia despre atacator) si REZUMAT
+inca descriu OpenClaw/RedAgent: de actualizat de om.
+
