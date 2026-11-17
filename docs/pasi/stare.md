@@ -541,3 +541,22 @@ intrerupt); 1099 teste verzi. Ramura faza-21-protectie urcata pe GitHub (75 comm
 prin fast-forward (126 commit-uri, bc3f185), la cererea omului, pentru analiza din claude.ai (Project cu GitHub).
 Secretele raman in afara repo-ului (env.sh, soc.env, .env ignorate; doar *.example in git). B.1 ramane oprita
 (GPU pe CPU, reboot cerut).
+
+## 2026-11-17: faza 23 (inchidere conceptuala), etapele 0-1
+
+Ramura `faza-23-inchidere-conceptuala` din `80a867c`, lucrata in worktree-ul `~/lab-faza23` (`~/lab`
+ramane pe faza-22, din el ruleaza orchestratorul). Etapa 0: 1217 teste verzi, `prompts.py --check`
+la zi (prompt_set 23664c93b9cd); cu HOME fara `~/lab` picau 3 teste (nota 2 din DE_FACUT.md era
+gresita, corectata). `main` local = `origin/main` = `a0f4a56` (nota 1 din DE_FACUT.md nu mai e valabila).
+Etapa 1 (fara GPU, fara poarta, nu atinge verdictul):
+- 1.1 `hunt_path.guides_dir()`: implicit `detections/` din repo; GUIDES_DIR din mediu ramane.
+- 1.2 `regression.wilson()` + intervale 95% pentru precizie / recall / rata FP in metrics() si in raportul .md.
+- 1.3 `regression.write_golden()`: tmp + os.replace, deci export() merge si peste fisierul 0440.
+- 1.4 `metrics`: first_look_s p50/p90 (doar label_source=human, prima eticheta din label_history),
+  escalated_per_day in soc-metrics, escaladari pe zi in CLI.
+- 1.5 `experiments/direct_baseline.py`: un apel get_llm("fast"), alerta bruta, prompt minim, esec ->
+  undetermined + escalate_human; set de aur + suita de injectie, 3 treceri; nu scrie in indici. NERULAT.
+- 1.6 README "Domeniu", REZUMAT sectiunea 7 "Limitari".
+Etapa 2: `experiments/tier2_fara_dovezi.py` (citire), NERULAT, asteapta aprobarea.
+Teste: 1241 verzi (si cu HOME fara ~/lab). Audit OpenStack: `ssh-parola` (22 + ICMP de la 0.0.0.0/0)
+pe 4 VM-uri; comenzile de inlocuire in DE_FACUT.md, neaplicate.
