@@ -38,16 +38,45 @@ DETERMINISM_MIN_PCT = 98.0
 # FUNCTII PURE
 # =============================================================================
 
+WILSON_Z = 1.959964   # 95%
+
+
+def wilson(k: int, n: int, z: float = WILSON_Z) -> tuple[float, float] | None:
+    """Intervalul Wilson (95%) pentru proportia k/n. None cand n = 0 (nimic de estimat).
+    Ramane in [0, 1] si la k = 0 sau k = n, unde intervalul normal ar degenera. Pur."""
+    if n <= 0:
+        return None
+    if not 0 <= k <= n:
+        raise ValueError(f"k={k} in afara [0, {n}]")
+    p = k / n
+    den = 1 + z * z / n
+    mid = (p + z * z / (2 * n)) / den
+    half = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / den
+    return (round(max(0.0, mid - half), 4), round(min(1.0, mid + half), 4))
+
+
 def metrics(rows: list[dict]) -> dict:
-    """rows: {ground_truth, outcome(TP/FP/FN/TN)}. Precizie/recall/F1 pe clasa attack. Pur."""
+    """rows: {ground_truth, outcome(TP/FP/FN/TN)}. Precizie/recall/F1 pe clasa attack, cu
+    intervale Wilson 95% pentru precizie, recall si rata de fals pozitive. Pur."""
     c = {k: sum(1 for r in rows if r["outcome"] == k) for k in ("TP", "FP", "FN", "TN")}
     p = c["TP"] / (c["TP"] + c["FP"]) if c["TP"] + c["FP"] else None
     r = c["TP"] / (c["TP"] + c["FN"]) if c["TP"] + c["FN"] else None
     f1 = 2 * p * r / (p + r) if p and r else None
     rnd = lambda x: None if x is None else round(x, 4)
+    ci = lambda k, n: None if (w := wilson(k, n)) is None else list(w)
     return {**c, "n": len(rows), "precision_attack": rnd(p), "recall_attack": rnd(r),
             "f1_attack": rnd(f1),
-            "fpr_benign": rnd(c["FP"] / (c["FP"] + c["TN"])) if c["FP"] + c["TN"] else None}
+            "fpr_benign": rnd(c["FP"] / (c["FP"] + c["TN"])) if c["FP"] + c["TN"] else None,
+            "precision_attack_ci95": ci(c["TP"], c["TP"] + c["FP"]),
+            "recall_attack_ci95": ci(c["TP"], c["TP"] + c["FN"]),
+            "fpr_benign_ci95": ci(c["FP"], c["FP"] + c["TN"])}
+
+
+def fmt_ci(value: float | None, ci: list[float] | None) -> str:
+    """'0.75 [0.41, 0.93]' pentru raport; '—' cand nu exista valoare. Pur."""
+    if value is None:
+        return "—"
+    return f"{value} [{ci[0]}, {ci[1]}]" if ci else str(value)
 
 
 def changed(baseline: dict[str, dict], now: dict[str, dict]) -> list[dict]:
@@ -102,6 +131,17 @@ def triage_one(fast, alert: dict) -> dict:
             "flagged": is_flagged(v.classification.value, v.proposed_action.value)}
 
 
+def write_golden(path: Path, items: list[dict]) -> None:
+    """Scrie setul de aur prin fisier temporar + os.replace: merge si cand versiunea veche e
+    doar-citire (0440; write_text pe ea ar da PermissionError la a doua rulare) si nu lasa
+    niciodata un fisier pe jumatate scris. La final, tot 0440 (setul nu se editeaza de mana)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text("".join(json.dumps(i, default=str) + "\n" for i in items))
+    os.chmod(tmp, 0o440)
+    os.replace(tmp, path)
+
+
 def export() -> int:
     es = _es()
     r = es.search(index="verdicts-history", size=2000, query={"bool": {"filter": [
@@ -116,9 +156,7 @@ def export() -> int:
             missing += 1
             continue
         items.append({"verdict_id": h["_id"], "ground_truth": s["ground_truth"], "alert": alert})
-    GOLDEN.parent.mkdir(parents=True, exist_ok=True)
-    GOLDEN.write_text("".join(json.dumps(i, default=str) + "\n" for i in items))
-    os.chmod(GOLDEN, 0o440)
+    write_golden(GOLDEN, items)
     b = balanced(items)
     print(f"{GOLDEN}: {len(items)} alerte ({b}); fara alerta in ES: {missing}; "
           f"sha256={hashlib.sha256(GOLDEN.read_bytes()).hexdigest()[:16]}")
@@ -175,9 +213,13 @@ def run() -> int:
     (OUT / f"{ts}.json").write_text(json.dumps(rep, indent=1))
     (OUT / f"{ts}.md").write_text(
         f"# Regresie {ts}\n\nprompt_set {pset}, model {model}, set de aur {rep['golden_sha256'][:16]} "
-        f"({rep['balance']})\n\n| TP | FP | FN | TN | precizie | recall | F1 atac | FPR benign |\n"
+        f"({rep['balance']})\n\n| TP | FP | FN | TN | precizie [IC 95%] | recall [IC 95%] | F1 atac "
+        f"| FPR benign [IC 95%] |\n"
         f"|---|---|---|---|---|---|---|---|\n| {m['TP']} | {m['FP']} | {m['FN']} | {m['TN']} | "
-        f"{m['precision_attack']} | {m['recall_attack']} | {m['f1_attack']} | {m['fpr_benign']} |\n\n"
+        f"{fmt_ci(m['precision_attack'], m['precision_attack_ci95'])} | "
+        f"{fmt_ci(m['recall_attack'], m['recall_attack_ci95'])} | {m['f1_attack']} | "
+        f"{fmt_ci(m['fpr_benign'], m['fpr_benign_ci95'])} |\n\n"
+        f"Intervale Wilson 95% (n mic -> intervale largi; nu se compara doar valorile punctuale).\n\n"
         f"Verdicte schimbate fata de baseline: {len(ch)}\n"
         + "".join(f"- {c['alert'][:12]}: {c['old']} -> {c['new']}\n" for c in ch))
     _metric_doc("regression", {"prompt_set": pset, **m, "changed_verdicts_count": len(ch)})
