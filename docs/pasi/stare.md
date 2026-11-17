@@ -644,3 +644,39 @@ Consecinte: atacatorul nu mai are tunel spre GPU (un consumator mai putin pe GPU
 "nu rula OpenClaw in timpul harness-ului" nu mai are obiect. CLAUDE.md (linia despre atacator) si REZUMAT
 inca descriu OpenClaw/RedAgent: de actualizat de om.
 
+
+## 2026-11-17 ~14:05 UTC: poarta etapei 5 (regresie FP), determinism, a doua rulare pe codul de productie
+
+Trei rulari in aceeasi zi pe aceleasi scenarii, acelasi model (qwen3:14b) si acelasi prompt_set 23664c93b9cd.
+benign-gen oprit de la 11:39 UTC, regula de port 80 de la atacator scoasa.
+
+| rulare | cod | dev recall | dev FP | validare recall | validare FP |
+|---|---|---|---|---|---|
+| 08:16 referinta | 80a867c | 8/8 | 1/6 (php) | 4/4 | 0/4 |
+| 11:44 etapa 5 | d255ce3 (cu regula) | 8/8 | 4/6 (curl, php, deploy, find) | 4/4 | 4/4 (apache, tar, ss, apt) |
+| 13:28 repetare | 80a867c | 7/7 + 1 eroare | 2/6 (deploy, cron sed) | 4/4 | 0/4 |
+
+Injectie la 11:44: 4/4. Determinism (`regression.py determinism --n 40`, 13:06, calea rapida): 100% identic,
+nicio rasturnare severa, trecut.
+
+Ce reiese:
+1. **Calea rapida e determinista, Tier 2 nu.** Pe codul de productie, fara nicio schimbare, FP pe dev a fost
+   1 dimineata (php) si 2 dupa-amiaza (deploy, cron sed): alte scenarii de fiecare data. `Cron ruleaza sed`
+   a iesit malicious/95/isolate_host la 13:28 si benign/90 la 08:16; php invers. Variaza si daca modelul
+   cheama unelte: acelasi scenariu are 0 apeluri intr-o rulare si 3-6 in alta.
+2. **Costul regulii din etapa 5 e structural, nu zgomot.** La 11:44 regula a rasturnat 3 inchideri benign
+   (curl, apache, apt), toate fara niciun apel de unealta. Numarand inchiderile benign cu 0 apeluri din cele
+   doua rulari pe codul de productie: 5 din 10 scenarii benigne la 08:16 (dev 7, 10, 11; validare 7, 8) si
+   5 din 10 la 13:28 (dev 8, 10, 12; validare 5, 8). Sub regula, toate acestea ar fi devenit
+   undetermined + escalate_human. Regula asa cum e scrisa costa deci 3-5 FP din 10 pe seturile portii,
+   pentru ca scenariile benigne sunt comenzi de admin pe care modelul le inchide fara sa interogheze nimic,
+   iar faptul determinist cerut (in_maintenance_window + ran_by_known_admin, sau pair_in_baseline) nu exista
+   pentru ele. Restul de 4 FP de la 11:44 (find, deploy, tar, ss) nu vin din regula.
+3. **Defect nou, gasit la 13:28 (dev 13, Persistenta cron):** modelul a pus in `action_target` un
+   entity_id de proces (base64, contine `+`), iar `Verdict` l-a respins ("identificator respins"), deci
+   `node_finalize` a aruncat exceptie. In productie exceptia e prinsa de orchestrator si cazul iese ca
+   PROCESSING_ERROR, escaladat la om (principiul 5 tine; 0 aparitii in jurnalul serviciului pe 21 de zile).
+   In harness insa scenariul e sarit cu `continue`: recall-ul apare 7/7 in loc de 8 scenarii, adica o eroare
+   pe un atac nu se vede in cifra portii. Nereparat: atinge poarta, decizia e a omului.
+
+Regula din etapa 5 NU e pusa in productie (`~/lab` ramane 80a867c). Decizia ramane la om.

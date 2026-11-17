@@ -335,3 +335,30 @@ Gemma 4 12B) trebuie descarcati de om inainte de orice experiment.
 Ramane la om: decizia pe etapa 5 (regula la poarta? pair_in_baseline?), etichetarea 50 + 50, Kibana e/f/g,
 Fleet soc.benign_actions, etapa 6, cele 5 tehnici ART in plus, reboot-urile, ES la verde.
 
+
+### Stare la 2026-11-17 ~14:05 UTC
+
+Poarta etapei 5 a rulat (11:44, d255ce3): recall intact (dev 8/8, validare 4/4, injectie 4/4), dar FP in
+regresie: dev 4/6 (referinta 1/6), validare 4/4 (referinta 0/4). Oprit si raportat, nimic ajustat, regula
+nu e in productie. Determinism: trecut (100% identic pe 40). A doua rulare pe codul de productie (13:28):
+dev 2/6 FP (alte scenarii decat dimineata), validare 0/4. Detalii in `docs/pasi/stare.md`.
+
+Decizii care raman la om:
+
+- [ ] **Regula din etapa 5.** Costa 3-5 FP din 10 scenarii benigne la poarta (inchiderile fara niciun apel
+      de unealta), independent de zgomotul modelului. Variante: (a) o pastrezi asa si accepti cifra, cu
+      explicatia ca sunt escaladari la om, nu actiuni; (b) adaugi un fapt determinist benign pentru Tier 2
+      (de exemplu `ran_by_known_admin` singur, sau `pair_in_baseline` calculat si pe calea lenta) si se
+      reface poarta; (c) renunti la regula si ramane masuratoarea din etapa 2 ca limita cunoscuta.
+- [ ] **Instabilitatea Tier 2 pe codul de productie.** Aceeasi poarta da 1 FP dimineata si 2 dupa-amiaza, cu
+      `isolate_host` la 95 pe un benign in ambele (php, apoi cron sed). O singura rulare a portii nu mai e
+      o referinta; de hotarat daca poarta se ruleaza de 3 ori si se raporteaza interval.
+- [ ] **`action_target` respins opreste `node_finalize`** (entity_id de proces cu `+`). In productie cazul
+      iese escaladat (PROCESSING_ERROR); in harness scenariul e sarit si lipseste din recall. De hotarat:
+      tinta invalida -> `None` + `escalate_human` in cod, si eroarea numarata in harness ca escaladare.
+
+De refacut dupa rulari (elastic-lab):
+
+    export OS_CLOUD=openstack
+    openstack security group rule create victim-sg --protocol tcp --dst-port 80 --remote-ip 172.30.6.133/32
+    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl start benign-gen"
