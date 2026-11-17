@@ -621,3 +621,15 @@ continue (ciclul 564 = [10:14:10, 10:27:35], 1 alerta), deci nicio fereastra sar
 avea ora cu pana la 3 minute in urma. Servicii dupa: soc-orchestrator activ, es01 healthy, kibana up.
 Lectie: imaginea unui VM = pauza de minute; se face cu benign-gen oprit si anuntat, si urmata de
 `systemctl restart systemd-timesyncd` pe VM. Ceasul lui elastic-lab e cu ~16 s INAINTE si nesincronizat.
+
+## 2026-11-17 ~11:40 UTC: etapa 2 masurata (om) + runner ART nou pe web-prod
+
+Etapa 2 (`experiments/tier2_fara_dovezi.py --zile 30`, rulat de om, doar citire): 29 de verdicte hunt/benign
+in 30 de zile, din care 12 din cazuri Tier 1 (excluse) si 17 din findings de sweep. Din cele 17, **10 nu au
+niciun apel de unealta cu randuri** (toate au document de urma). Pe zi: 22.10=1, 30.10=3, 01.11=1, 02.11=3,
+12.11=1, 15.11=1, restul 0; maxim 3 pe zi, medie ~0,33 pe zi. E LIMITA SUPERIOARA a cresterii cozii omului
+sub regula din etapa 5 (faptul determinist din prefetch_ctx nu e in urma, deci unele ar ramane benign).
+In procente: 10/17 = 59% din inchiderile benign de sweep s-au facut fara ca modelul sa vada vreun rand.
+`/opt/soc/art_runner.py` pe web-prod inlocuit cu varianta care refuza testele distructive (om, 11:36);
+verificat: T1070.004 #8 -> "REFUZAT: distructiv".
+
