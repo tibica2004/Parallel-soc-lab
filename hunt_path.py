@@ -28,6 +28,7 @@ import json
 import os
 import sys
 import uuid
+from collections.abc import Mapping
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage, ToolMessage
@@ -134,7 +135,14 @@ class InvestigatorState(TypedDict, total=False):
 
 from pathlib import Path as _Path
 
-GUIDES_DIR = _Path(os.environ.get("GUIDES_DIR", _Path.home() / "lab" / "detections"))
+# Implicit: detections/ din repo (langa acest fisier), nu ~/lab/detections; o clona in alt
+# director (sau pe alt host) gaseste ghidurile fara configurare. GUIDES_DIR din mediu ramane.
+def guides_dir(env: Mapping[str, str]) -> _Path:
+    """Directorul ghidurilor de investigatie. Pur (primeste mediul ca argument)."""
+    return _Path(env.get("GUIDES_DIR") or _Path(__file__).resolve().parent / "detections")
+
+
+GUIDES_DIR = guides_dir(os.environ)
 _RULE_GUIDE = {
     "perl": "payload-download.md", "curl": "payload-download.md",
     "wget": "payload-download.md", "id": "rce-web-shell.md",
