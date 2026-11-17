@@ -277,7 +277,7 @@ Incercat si REFUZAT de sistemul de permisiuni al lui Claude (ramane la om):
   ```
   Maparea verdicts-history e text + .keyword (verificat), deci filtrele din script sunt corecte.
 
-Ramane la om, in ordine: (1) ssh-parola; (2) poarta faza-22 (B1), cu regula 80 de la 172.30.6.133
+Ramane la om, in ordine: (1) ssh-parola - FACUT 2026-11-17 08:04 UTC; (2) poarta faza-22 (B1), cu regula 80 de la 172.30.6.133
 scoasa temporar din victim-sg; (3) pornit benign-gen + regula 80 la loc; (4) etapa 2 (comanda de mai
 sus); (5) etichetare 50 + 50; (6) imagine OpenStack pentru es-node-1 si web-prod; (7) reboot pe cele
 5 VM-uri, es-node-1 ultimul; (8) ES la verde (replici 0, contul elastic); (9) etapele 4-9.

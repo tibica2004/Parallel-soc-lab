@@ -581,3 +581,11 @@ rulari pytest ale lui Claude de azi 07:xx, 16 din 16.11), 27 lsb_release, 12 "ww
 Reparat: test_reader.py fara logger real (fc9e9e3; 0 linii in syslog, 1242 teste verzi); tgz-ul cu secrete
 0600, /tmp/ab-old 0700. Refuzat lui Claude (ramane la om): ssh-parola, etapa 2 (403 pe soc-traces cu cheia de
 citire). Lista ordonata: DE_FACUT.md, sfarsit.
+
+## 2026-11-17 08:04 UTC: ssh-parola scos (om)
+
+Omul a adaugat TCP 22 de la 192.168.62.206/32 in es-sg, victim-sg si attacker-sg (reguli a2179831, 0fdd8fac,
+5494bcad) si a detasat `ssh-parola` de pe es-node-1, web-prod, atacator si benign-gen (grupul exista inca,
+neatasat). Verificat: SSH de pe elastic-lab spre toate cele 5 VM-uri merge; fiecare VM are doar grupul
+propriu + laptop-access. Nu mai exista SSH/ICMP de la 0.0.0.0/0. Starea dinainte:
+elastic-lab:~/lab-journal/backup-sg-2026-11-17-1004.txt. Rollback: `openstack server add security group <vm> ssh-parola`.
