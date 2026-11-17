@@ -11,6 +11,8 @@ si Tier 2) si pe total:
   - coroborarea pe calea lenta: acord / dezacord A-B, B indisponibil
   - pe etichete UMANE (label_source=human): TP/FP/FN/TN, precizie, recall,
     rata de atacuri ratate
+  - coada omului (faza 23): timpul pana la prima privire a omului (labeled_at - @timestamp,
+    mediana si p90, doar label_source=human) si cazurile escaladate pe zi
   - drift fata de fereastra anterioara: rata de escaladare si distributia
     clasificarilor (distanta de variatie totala, 0..1)
 
@@ -151,6 +153,42 @@ def _label_metrics(docs: list[dict]) -> dict:
     }
 
 
+def time_to_first_look_s(docs: list[dict]) -> list[float]:
+    """Secunde de la verdict (@timestamp) pana la prima eticheta a omului. Doar label_source=human.
+    Prima privire: daca exista label_history, cel mai vechi labeled_at de acolo (o reetichetare
+    nu muta momentul primei priviri). Valorile negative sau lipsa sunt sarite. Pur."""
+    out = []
+    for d in docs:
+        if d.get("label_source") != "human":
+            continue
+        t0 = _ts(d.get("@timestamp"))
+        seen = [_ts(h.get("labeled_at")) for h in (d.get("label_history") or [])
+                if isinstance(h, dict) and h.get("label_source") == "human"]
+        seen.append(_ts(d.get("labeled_at")))
+        seen = [t for t in seen if t is not None]
+        if t0 is None or not seen:
+            continue
+        dt = (min(seen) - t0).total_seconds()
+        if dt >= 0:
+            out.append(dt)
+    return out
+
+
+def _first_look_metrics(docs: list[dict]) -> dict:
+    v = time_to_first_look_s(docs)
+    return {"first_look_n": len(v), "first_look_s_p50": _pct(v, 0.5), "first_look_s_p90": _pct(v, 0.9)}
+
+
+def escalated_by_day(audits: list[dict]) -> dict[str, int]:
+    """Cazuri escaladate (escalate=True) pe zi UTC, 'AAAA-LL-ZZ' -> numar. Pur."""
+    c: Counter = Counter()
+    for d in audits:
+        t = _ts(d.get("@timestamp"))
+        if d.get("escalate") and t is not None:
+            c[t.astimezone(timezone.utc).date().isoformat()] += 1
+    return dict(sorted(c.items()))
+
+
 def compute(audits: list[dict], traces: list[dict], verdicts: list[dict],
             now: datetime, days: float) -> list[dict]:
     """Un document per nivel (fast, hunt) si unul total, pentru fereastra
@@ -164,7 +202,10 @@ def compute(audits: list[dict], traces: list[dict], verdicts: list[dict],
         doc = {"@timestamp": now.isoformat(), "window_days": days, "tier": tier}
         doc.update(_audit_metrics(cur_a))
         doc.update(_trace_metrics([d for d in traces if pick(d) and _in(d, start, end)]))
-        doc.update(_label_metrics([d for d in verdicts if pick(d) and _in(d, start, end)]))
+        cur_v = [d for d in verdicts if pick(d) and _in(d, start, end)]
+        doc.update(_label_metrics(cur_v))
+        doc.update(_first_look_metrics(cur_v))
+        doc["escalated_per_day"] = round(doc["escalated"] / days, 2) if days > 0 else None
         old = _audit_metrics(old_a)
         doc["prev_escalation_rate"] = old["escalation_rate"]
         doc["drift_escalation_rate"] = (round(doc["escalation_rate"] - old["escalation_rate"], 4)
@@ -208,7 +249,8 @@ def collect(es, now: datetime, days: float) -> list[dict]:
                                            "verdict.classification", "verdict.corroboration_status",
                                            "verdict.model_id"])
     traces = _fetch(es, TRACES_IDX, since, ["@timestamp", "source_path", "totals"])
-    verdicts = _fetch(es, VERDICTS_IDX, since, ["@timestamp", "source_path", "label_source", "label_outcome"])
+    verdicts = _fetch(es, VERDICTS_IDX, since, ["@timestamp", "source_path", "label_source", "label_outcome",
+                                                 "labeled_at", "label_history"])
     return compute(audits, traces, verdicts, now, days)
 
 
@@ -245,11 +287,15 @@ def main() -> int:
     keys = ["cases", "escalated", "escalation_rate", "drift_escalation_rate", "drift_classes_tvd",
             "tier2_investigated", "tier2_skipped_budget", "no_model", "latency_ms_p50", "latency_ms_p95",
             "tokens_per_case", "tool_calls_per_case", "tool_error_rate", "ab_agreement_rate",
-            "labeled", "TP", "FP", "FN", "TN", "precision", "recall", "missed_attack_rate"]
+            "labeled", "TP", "FP", "FN", "TN", "precision", "recall", "missed_attack_rate",
+            "escalated_per_day", "first_look_n", "first_look_s_p50", "first_look_s_p90"]
     print(f"Metrici pe ultimele {args.zile:g} zile\n")
     print(f"{'':24s}" + "".join(f"{d['tier']:>12s}" for d in docs))
     for k in keys:
         print(f"{k:24s}" + "".join(f"{_fmt(k, d.get(k)):>12s}" for d in docs))
+    now = datetime.now(timezone.utc)
+    per_day = escalated_by_day(_fetch(es, AUDIT_IDX, now - timedelta(days=args.zile), ["@timestamp", "escalate"]))
+    print("\nEscaladate pe zi (UTC): " + (", ".join(f"{d} {n}" for d, n in per_day.items()) or "—"))
     if args.scrie:
         write_snapshot(es, docs)
         print(f"\nInstantaneu scris in {METRICS_IDX} ({len(docs)} documente).")

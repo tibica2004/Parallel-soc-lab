@@ -108,3 +108,58 @@ def test_orchestratorul_tolereaza_esecul_instantaneului(monkeypatch, capsys):
     monkeypatch.setattr(m, "compute_and_write", boom)
     orchestrator._metrics_snapshot(); orchestrator._metrics_snapshot()
     assert capsys.readouterr().out.count("instantaneul a esuat") == 1
+
+
+# ---------------------------------------------------------------------------------------------
+# Faza 23: coada omului (timpul pana la prima privire, escaladari pe zi)
+# ---------------------------------------------------------------------------------------------
+
+def _v(h_verdict, h_label=None, source="human", history=()):
+    d = {"@timestamp": _t(h_verdict), "source_path": "fast", "label_source": source}
+    if h_label is not None:
+        d["labeled_at"] = _t(h_label)
+        d["label_outcome"] = "TP"
+    d["label_history"] = list(history)
+    return d
+
+
+def test_prima_privire_doar_etichete_umane():
+    docs = [_v(10, 9), _v(10, 8), _v(10, 6), _v(10, 0),           # 1 h, 2 h, 4 h, 10 h
+            _v(5, 4, source="auto"),                               # nu e om: ignorat
+            _v(5, None),                                           # neetichetat: ignorat
+            _v(3, 4)]                                              # eticheta inainte de verdict: sarit
+    v = sorted(metrics.time_to_first_look_s(docs))
+    assert v == [3600.0, 7200.0, 14400.0, 36000.0]
+    m = metrics._first_look_metrics(docs)
+    assert m["first_look_n"] == 4
+    assert m["first_look_s_p50"] == 10800.0
+    assert m["first_look_s_p90"] == pytest.approx(29520.0)
+
+
+def test_prima_privire_ia_cea_mai_veche_eticheta_umana():
+    # reetichetat azi, dar omul s-a uitat prima data dupa 1 h -> 1 h, nu 9 h
+    d = _v(10, 1, history=[{"label_source": "human", "labeled_at": _t(9)},
+                           {"label_source": None, "labeled_at": _t(9.9)}])
+    assert metrics.time_to_first_look_s([d]) == [3600.0]
+
+
+def test_prima_privire_gol():
+    m = metrics._first_look_metrics([])
+    assert m == {"first_look_n": 0, "first_look_s_p50": None, "first_look_s_p90": None}
+
+
+def test_escaladate_pe_zi():
+    a = [_audit(1, esc=True), _audit(2, esc=True), _audit(2, esc=False), _audit(30, esc=True),
+         _audit(3, esc=None), {"escalate": True}]
+    assert metrics.escalated_by_day(a) == {"2026-10-11": 1, "2026-10-12": 2}
+    assert metrics.escalated_by_day([]) == {}
+
+
+def test_compute_are_coada_omului():
+    audits = [_audit(1, esc=True), _audit(5, esc=True), _audit(6, esc=False)]
+    verdicts = [_v(10, 9), _v(10, 8)]
+    d = _by_tier(metrics.compute(audits, [], verdicts, NOW, 1))["all"]
+    assert d["escalated_per_day"] == 2.0
+    assert d["first_look_n"] == 2 and d["first_look_s_p50"] == 5400.0
+    d2 = _by_tier(metrics.compute(audits, [], verdicts, NOW, 2))["all"]
+    assert d2["escalated_per_day"] == 1.0
