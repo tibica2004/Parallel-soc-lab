@@ -159,10 +159,10 @@ Constatari facute la scrierea listei; nu schimba taskul, dar trebuie stiute.
 1. **B4 / merge-ul e deja facut local, inainte de poarta.** La cererea omului, `main` a fost adus
    prin fast-forward la `4521a2c` (faza-22 + rezultatele fazei 18), dar NU e urcat pe GitHub
    (`main` local e cu 14 commit-uri inaintea `origin/main`).
-   **Verificat 2026-11-17: NU mai e asa.** Pe es-node-1, `main` local = `a0f4a56` = `origin/main`
-   (0 commit-uri inainte), stramos al faza-22 (`80a867c`). Fast-forward-ul la `4521a2c` nu mai e in
-   `main` (alta clona, sau resetat). Nu am schimbat nimic; de lamurit de om inainte de B4. Ce ramane pentru B4: push la `main`
-   abia dupa B1. Daca poarta pica: `git switch main && git reset --hard origin/main`.
+   **Verificat 2026-11-17 (corectat la a doua verificare):** in clona de pe es-node-1, `main` local
+   e VECHI: `a0f4a56`, cu 127 commit-uri IN URMA `origin/main` (`2782119`, 2026-11-05). faza-22
+   (`80a867c`) e cu 19 commit-uri inaintea `origin/main` si nu e continuta in el. Deci pe es-node-1
+   nu exista un `main` adus la faza-22; B4 = push faza-22 -> main dupa poarta (din clona care il are).
 2. **A4, `tests/test_guides.py`: CORECTAT 2026-11-17 — nota initiala era gresita.** Testul nu
    depindea de ROOT, ci de `fast_path.lookup_guide`, care citea `hunt_path.GUIDES_DIR` cu implicitul
    `~/lab/detections`. Intr-o clona in alt director trecea doar pentru ca `~/lab` exista pe es-node-1;
@@ -232,3 +232,28 @@ sufixul. Cifra e o limita superioara (faptele deterministe din prefetch_ctx nu s
 
 Ramase in afara etapelor: sectiunile "Domeniu" si "Limitari" in lucrare (omul copiaza din README /
 REZUMAT); deploy-ul codului faza-23 (metricile noi apar in soc-metrics abia dupa el).
+
+## A doua verificare, 2026-11-17 08:00 UTC (citire pe hosturi, ES si OpenStack)
+
+Constatari noi, in ordinea in care trebuie tratate:
+1. **faza-22 ruleaza deja in productie, FARA poarta.** `~/lab` a fost mutat pe faza-22 pe 2026-11-16
+   13:53 UTC si `soc-orchestrator` repornit la 13:57 (prompt_set 23664c93b9cd). B2 e deci facut inainte
+   de B1. Copia dinainte: `~/lab-backup-2026-11-16.tgz`. Poarta B1 e urgenta.
+2. **GPU-ul e reparat (A1 gata):** qwen3:14b integral in VRAM, latenta Tier 1 p50 17 s, 0 timeout-uri.
+3. **benign-gen e oprit din 2026-11-04 14:23 UTC** (oprit pentru poarta, nerepornit): 0 documente in
+   benign-ground-truth de 13 zile, readiness c1 "0/169 ore". De pornit DUPA poarta.
+4. **Testele rulate pe es-node-1 produc alerte reale.** `tests/test_reader.py` ruleaza gate-ul cu 16
+   comenzi refuzate; gate-ul scrie cu `logger` in auth.log, Fleet il trimite, regula "soc-reader:
+   comanda refuzata de gate pe web-prod" se aprinde (nu filtreaza pe host). Cele 6 rulari pytest ale
+   lui Claude din 2026-11-17 07:xx UTC = 96 de alerte false + verdictele lor (si 16 pe 11-16, 16 pe
+   11-04). De etichetat benign ("pytest pe es-node-1") sau de ocolit la etichetare. Pana la reparatie:
+   nu se ruleaza `pytest tests` pe es-node-1 (sau se sare test_reader.py).
+5. Etichete umane: 2 (ambele attack, hunt). Tinta: >= 50 attack + >= 50 benign.
+6. ES galben: 14 shard-uri nealocate (replici pe un singur nod), ca pe 03.11.
+7. `/var/run/reboot-required` pe toate cele 5 VM-uri (es-node-1 pornit de 21 de zile).
+8. Fara copie off-host in continuare: 0 imagini / 0 volume / 0 backup-uri in OpenStack.
+9. Igiena: `~/lab-backup-2026-11-16.tgz` e 0664; `/tmp/ab-old` (copie de repo cu `.env` si `soc.env`),
+   `~/lab-gate` (clona veche, murdara), `soc.env.pre-3c`; credentialul OpenStack `debian-cli` fara expirare.
+10. Jurnal: `stare.md` nu are intrari intre 2026-11-05 si 2026-11-17 (deploy-ul din 16.11, mutarea IP-ului);
+    antetul din REZUMAT.md e inca "2026-11-04 / faza-21".
+11. FP zilnice inca active (24 h): lsb_release 27 de alerte, "www-data binar nevazut" 12 (fp_rate 1.0).
