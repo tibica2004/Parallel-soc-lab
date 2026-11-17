@@ -589,3 +589,19 @@ Omul a adaugat TCP 22 de la 192.168.62.206/32 in es-sg, victim-sg si attacker-sg
 neatasat). Verificat: SSH de pe elastic-lab spre toate cele 5 VM-uri merge; fiecare VM are doar grupul
 propriu + laptop-access. Nu mai exista SSH/ICMP de la 0.0.0.0/0. Starea dinainte:
 elastic-lab:~/lab-journal/backup-sg-2026-11-17-1004.txt. Rollback: `openstack server add security group <vm> ssh-parola`.
+
+## 2026-11-17 08:16-09:52 UTC: poarta faza-22 (B1) - TRECUTA (om)
+
+Rulata de om in tmux pe es-node-1, din `~/lab` (80a867c, prompt_set 23664c93b9cd), cu benign-gen oprit si
+regula TCP 80 de la 172.30.6.133 scoasa din victim-sg. Rezultate in `results/faza22-*-2026-11-17-0816.txt`:
+fast 4/4 (recall 3/3, 0 FP); dev recall 8/8, 1 FP din 6 (scenariul 8, php: malicious/95/isolate_host; banda
+90-99 are precizie 4/5); validare 8/8 (0 FP; "Reverse shell in Python" = undetermined/40/escalate_human,
+158 s); injectie 4/4; suita 48/48 (identice 42/42, malitioase pastrate 40/40, 1182 s). Fata de referinta:
+nicio regresie; "Deploy legitim" e acum TN (1 FP in loc de 2). Referinta noua pentru scenariile 8 si 14:
+malicious/95/isolate_host (FP) si suspicious/85/enrich_only (TP).
+Abateri de la procedura: (1) o prima pornire (08:11) a fost oprita, fiindca benign-gen si regula 80 fusesera
+repuse in timpul ei (benign-gen activ 08:13:50-08:15:49); rezultatele partiale sterse; (2) a doua pornire a
+inceput la cateva secunde dupa oprirea benign-gen, nu dupa 5 minute; (3) `make` nu e instalat pe es-node-1,
+s-a rulat direct cu python. Deploy-ul (B2) fusese facut inainte, pe 16.11; poarta il valideaza ulterior.
+09:57: regula 80 recreata (0835a0f9) si benign-gen pornit (om). De retinut pentru etapa 6.1: FP-ul php la
+95 ar fi izolat automat un host la pragul 95.

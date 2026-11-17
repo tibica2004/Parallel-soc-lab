@@ -57,16 +57,22 @@ Ramura noua, de exemplu `faza-23-inchidere-conceptuala`.
 ## Faza B — dupa rebootul GPU-ului
 
 ### B1. Poarta faza-22
-- [ ] Opresti benign-gen: `sudo systemctl stop benign-gen` (pe benign-gen: `ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150`).
-- [ ] Rulezi pe rand cele patru seturi:
+- [x] Opresti benign-gen: `sudo systemctl stop benign-gen` (pe benign-gen: `ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150`).
+- [x] Rulezi pe rand cele patru seturi:
   ```
   SCENARIOS=scenarios_fast.yml VERBOSE=1 python3 -u harness.py | tee results/faza22-fast-$(date +%F-%H%M).txt
   ```
   Repeti cu `scenarios.yml`, `scenarios_validation.yml` si `scenarios_injection.yml`.
-- [ ] Pornesti benign-gen la loc.
-- [ ] Scenariile 8 si 14 au nume de proces noi, deci notezi referinta noua.
+- [x] Pornesti benign-gen la loc.
+- [x] Scenariile 8 si 14 au nume de proces noi, deci notezi referinta noua.
 
 **Gata cand:** recall pe atacuri neschimbat, injectie fara retrogradari.
+
+**FACUT 2026-11-17 08:16-09:52 UTC** (om, in tmux; `~/lab/results/faza22-*-2026-11-17-0816.txt`, commit
+80a867c, prompt_set 23664c93b9cd). fast 4/4; dev recall 8/8, 1 FP; validare 8/8; injectie 4/4; suita
+48/48 (identice 42/42, malitioase 40/40). Nicio regresie. Referinta noua: scenariul 8 (php) =
+malicious/95/isolate_host (FP cunoscut), scenariul 14 = suspicious/85/enrich_only (TP); "Deploy legitim"
+a iesit acum benign/75/none (TN), deci 1 FP in loc de 2.
 
 ### B2. Deploy
 - [ ] Faci copii `.pre-22`.
@@ -277,7 +283,7 @@ Incercat si REFUZAT de sistemul de permisiuni al lui Claude (ramane la om):
   ```
   Maparea verdicts-history e text + .keyword (verificat), deci filtrele din script sunt corecte.
 
-Ramane la om, in ordine: (1) ssh-parola - FACUT 2026-11-17 08:04 UTC; (2) poarta faza-22 (B1), cu regula 80 de la 172.30.6.133
-scoasa temporar din victim-sg; (3) pornit benign-gen + regula 80 la loc; (4) etapa 2 (comanda de mai
+Ramane la om, in ordine: (1) ssh-parola - FACUT 2026-11-17 08:04 UTC; (2) poarta faza-22 (B1) - FACUT 2026-11-17 09:52 UTC, trecuta;
+(3) pornit benign-gen + regula 80 la loc - FACUT 09:57 UTC; (4) etapa 2 (comanda de mai
 sus); (5) etichetare 50 + 50; (6) imagine OpenStack pentru es-node-1 si web-prod; (7) reboot pe cele
 5 VM-uri, es-node-1 ultimul; (8) ES la verde (replici 0, contul elastic); (9) etapele 4-9.
