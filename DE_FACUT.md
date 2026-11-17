@@ -308,3 +308,30 @@ sus); (5) etichetare 50 + 50; (6) imagine OpenStack pentru es-node-1 si web-prod
   (comenzile sunt in lista etapei 8).
 - **Imagini OpenStack**: `web-prod-2026-11-17` activa; `es-node-1-2026-11-17` in curs la 10:56 UTC.
 
+### Stare la 2026-11-17 ~11:50 UTC
+
+Facut azi: poarta faza-22 (trecuta), push in main, imagini OpenStack pentru web-prod si es-node-1 (ambele
+active), ssh-parola scos, runner ART nou pe web-prod, etapa 2 masurata (10 din 17, max 3 pe zi).
+Poarta pentru etapa 5 (o ruleaza omul; `deploy/poarta.sh` inlocuieste make, verificat cu `--verifica`):
+
+    # elastic-lab: opreste benign-gen si scoate regula 80 de la atacator
+    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl stop benign-gen"
+    export OS_CLOUD=openstack
+    openstack security group rule list victim-sg --long | grep 172.30.6.133      # iei ID-ul regulii de port 80
+    openstack security group rule delete <ID>
+    # es-node-1, dupa 5 minute, in tmux:
+    tmux new -s poarta5
+    ~/lab-faza23/deploy/poarta.sh dev validation injection
+    # la sfarsit, elastic-lab:
+    openstack security group rule create victim-sg --protocol tcp --dst-port 80 --remote-ip 172.30.6.133/32
+    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl start benign-gen"
+
+Referinta de comparat: cea din 2026-11-17 (dev recall 8/8, 1 FP php; validare 8/8; injectie 4/4). Regula
+poate doar sa escaladeze in plus: un TN de sweep care devine undetermined apare ca FP nou si se raporteaza,
+nu se ajusteaza. Dupa poarta, in aceeasi fereastra cu benign-gen oprit: determinismul
+(`cd ~/lab && set -a; . ./soc.env; set +a; source env.sh; venv/bin/python -u regression.py determinism --n 40`).
+Etapa 7: pe GPU exista DOAR qwen3:14b (verificat cu /api/tags); candidatii (Qwen3.5 9B, Qwen 3.6 27B,
+Gemma 4 12B) trebuie descarcati de om inainte de orice experiment.
+Ramane la om: decizia pe etapa 5 (regula la poarta? pair_in_baseline?), etichetarea 50 + 50, Kibana e/f/g,
+Fleet soc.benign_actions, etapa 6, cele 5 tehnici ART in plus, reboot-urile, ES la verde.
+
