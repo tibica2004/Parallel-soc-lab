@@ -73,9 +73,14 @@ def main(argv=None) -> int:
     from elasticsearch import Elasticsearch
     ap = argparse.ArgumentParser()
     ap.add_argument("--zile", type=int, default=30)
+    ap.add_argument("--cheie-urme", default="ES_READER_API_KEY",
+                    help="NUMELE variabilei de mediu cu cheia care poate citi soc-traces (cheia de "
+                         "citire da 403 pe soc-traces la 2026-11-17; omul alege cheia)")
     a = ap.parse_args(argv)
     es = Elasticsearch(os.environ.get("ES_URL", "http://localhost:9200"),
                        api_key=os.environ["ES_READER_API_KEY"], request_timeout=60)
+    es_traces = es if a.cheie_urme == "ES_READER_API_KEY" else Elasticsearch(
+        os.environ.get("ES_URL", "http://localhost:9200"), api_key=os.environ[a.cheie_urme], request_timeout=60)
     since = (datetime.now(timezone.utc) - timedelta(days=a.zile)).isoformat()
     verdicts = _search(es, "verdicts-history", {"bool": {"filter": [
         {"term": {"source_path.keyword": "hunt"}}, {"term": {"classification.keyword": "benign"}},
@@ -88,7 +93,7 @@ def main(argv=None) -> int:
     ids = sorted({v["investigation_id"] for v in verdicts if v.get("chain_id") not in tier1})
     traces: dict[str, list[dict]] = {}
     for i in range(0, len(ids), CHUNK):
-        for t in _search(es, "soc-traces", {"bool": {"filter": [
+        for t in _search(es_traces, "soc-traces", {"bool": {"filter": [
                 {"terms": {"investigation_id.keyword": ids[i:i + CHUNK]}}]}},
                 ["investigation_id", "events.type", "events.rows", "@timestamp"]):
             traces.setdefault(t["investigation_id"], []).append(t)

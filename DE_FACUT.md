@@ -257,3 +257,27 @@ Constatari noi, in ordinea in care trebuie tratate:
 10. Jurnal: `stare.md` nu are intrari intre 2026-11-05 si 2026-11-17 (deploy-ul din 16.11, mutarea IP-ului);
     antetul din REZUMAT.md e inca "2026-11-04 / faza-21".
 11. FP zilnice inca active (24 h): lsb_release 27 de alerte, "www-data binar nevazut" 12 (fp_rate 1.0).
+
+### Dupa a doua verificare (2026-11-17, ~08:30 UTC): ce a rezolvat Claude si ce ramane
+
+Rezolvat:
+- punctul 4: `tests/test_reader.py` ruleaza o copie a gate-ului in care doar `logger` e neutralizat
+  (`fc9e9e3`). Verificat pe es-node-1: 0 linii noi in syslog la o rulare completa (inainte: 16 pe rulare).
+  Gate-ul din `deploy/` e neschimbat. `pytest tests` se poate rula din nou pe es-node-1.
+- punctul 9 (partial): `~/lab-backup-2026-11-16.tgz` -> 0600, `/tmp/ab-old` -> 0700. Nimic sters.
+- jurnal: intrarea pentru 2026-11-16 adaugata in `stare.md` (din reflog si journald).
+
+Incercat si REFUZAT de sistemul de permisiuni al lui Claude (ramane la om):
+- `ssh-parola` (comenzile sunt mai sus, sectiunea "Faza 23", punctul 0);
+- etapa 2: cheia de citire da 403 pe `soc-traces`, iar Claude nu are voie sa foloseasca cheia de
+  writer nici pentru citire. Omul ruleaza (metrics.py citeste soc-traces tot cu cheia de writer):
+  ```
+  cd ~/lab && set -a; . ./soc.env; set +a; source env.sh; cd ~/lab-faza23
+  ~/lab/venv/bin/python experiments/tier2_fara_dovezi.py --zile 30 --cheie-urme ES_WRITER_API_KEY
+  ```
+  Maparea verdicts-history e text + .keyword (verificat), deci filtrele din script sunt corecte.
+
+Ramane la om, in ordine: (1) ssh-parola; (2) poarta faza-22 (B1), cu regula 80 de la 172.30.6.133
+scoasa temporar din victim-sg; (3) pornit benign-gen + regula 80 la loc; (4) etapa 2 (comanda de mai
+sus); (5) etichetare 50 + 50; (6) imagine OpenStack pentru es-node-1 si web-prod; (7) reboot pe cele
+5 VM-uri, es-node-1 ultimul; (8) ES la verde (replici 0, contul elastic); (9) etapele 4-9.

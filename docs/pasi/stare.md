@@ -560,3 +560,24 @@ Etapa 1 (fara GPU, fara poarta, nu atinge verdictul):
 Etapa 2: `experiments/tier2_fara_dovezi.py` (citire), NERULAT, asteapta aprobarea.
 Teste: 1241 verzi (si cu HOME fara ~/lab). Audit OpenStack: `ssh-parola` (22 + ICMP de la 0.0.0.0/0)
 pe 4 VM-uri; comenzile de inlocuire in DE_FACUT.md, neaplicate.
+
+## 2026-11-16 (reconstituit pe 2026-11-17 din `git reflog` si journald; nu exista intrare la zi)
+
+13:53 UTC: `~/lab` pe es-node-1 mutat de pe `faza-01-sbom-vulnwatch` (82feeb4, clona din 26.10) pe
+`faza-22-igiena-si-corectii` (4521a2c); copie inainte: `~/lab-backup-2026-11-16.tgz`. 13:57: `soc-orchestrator`
+repornit pe codul faza-22 (prompt_set 23664c93b9cd), 0 restarturi de atunci. 14:00-14:26: commit 4917ca9
+(rezultate si notite) + patru pull-uri pana la 80a867c (doar docs, logrotate web-prod, docker-compose
+restart unless-stopped; niciun fisier .py). Deploy-ul (B2) s-a facut deci INAINTEA portii (B1), care nu a
+rulat inca. IP-ul flotant 172.30.6.210 mutat de pe benign-gen pe lab-sink (in CLAUDE.md).
+
+## 2026-11-17 ~08:00 UTC: a doua verificare (citire) + reparatii mici
+
+Stare: 5 VM ACTIVE, toate cu reboot-required; es-node-1: servicii si timere active, coada 0, shadow=true,
+integritate ok, snapshot SLM 16 si 17.11 SUCCESS; GPU reparat (qwen3:14b in VRAM, Tier 1 p50 17 s, hunt 22 s,
+0 esecuri in 24 h). ES galben (14 shard-uri nealocate). benign-gen oprit din 04.11 14:23 (0 documente in
+benign-ground-truth de atunci; readiness c1 0/169 ore). Etichete umane: 2 (attack, hunt). Alerte 24 h: 156,
+din care 112 "soc-reader: comanda refuzata de gate" = testele unitare rulate pe es-node-1 (96 de la cele 6
+rulari pytest ale lui Claude de azi 07:xx, 16 din 16.11), 27 lsb_release, 12 "www-data binar nevazut".
+Reparat: test_reader.py fara logger real (fc9e9e3; 0 linii in syslog, 1242 teste verzi); tgz-ul cu secrete
+0600, /tmp/ab-old 0700. Refuzat lui Claude (ramane la om): ssh-parola, etapa 2 (403 pe soc-traces cu cheia de
+citire). Lista ordonata: DE_FACUT.md, sfarsit.
