@@ -96,7 +96,8 @@ def test_finalize_nu_reinterogheaza_si_aplica_podeaua_din_contextul_salvat(monke
 def test_finalize_fara_context_salvat_cade_pe_apelul_actual(monkeypatch):
     calls = []
     monkeypatch.setattr(hunt_path, "prefetch_context", lambda x: (calls.append(1), {})[1])
-    state = {"finding": _finding(), "investigation_id": "i",
+    # nonempty_a=1: faza 23, un benign de sweep fara dovezi nu mai ramane benign (test_tier2_asimetric)
+    state = {"finding": _finding(), "investigation_id": "i", "nonempty_a": 1,
              "merged_draft": {"classification": "benign", "confidence": 95, "proposed_action": "none"}}
     v = hunt_path.node_finalize(state)["verdict"]
     assert calls == [1] and v.classification.value == "benign"

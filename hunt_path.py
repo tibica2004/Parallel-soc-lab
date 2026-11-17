@@ -130,6 +130,7 @@ class InvestigatorState(TypedDict, total=False):
     evidence_snippets: list[str]
     hit_budget: bool
     prefetch_ctx: dict   # contextul preadus in seed; finalize il refoloseste (o singura interogare)
+    nonempty_results: int   # faza 23: cate rezultate de unealta au intors randuri (regula asimetrica)
 
 
 
@@ -493,6 +494,7 @@ def _i_seed(state: InvestigatorState) -> dict:
         ctx_note += HUNT_FACT_RULES
     return {
         "tool_calls_made": 0, "tokens": 0, "queries_run": [], "hit_budget": False,
+        "nonempty_results": 0,
         "prefetch_ctx": ctx,
         "messages": [
             SystemMessage(content=HUNT_PROMPT + state.get("role_note", "") + ctx_note
@@ -569,21 +571,44 @@ def _make_conclude(llm):
     return _i_conclude
 
 
+def result_has_rows(content) -> bool:
+    """Faza 23 (regula asimetrica): rezultatul unei unelte a intors cel putin un rand? Aceeasi
+    definitie ca `rows` din urma (tracing.extract_refs): lista `rows` sau `events` nevida. Orice nu
+    se poate determina (eroare, text, JSON stricat, alt format) = fara randuri. Pur."""
+    if isinstance(content, str):
+        try:
+            content = json.loads(content)
+        except ValueError:
+            return False
+    if not isinstance(content, dict):
+        return False
+    for k in ("rows", "events"):
+        if isinstance(content.get(k), list):
+            return len(content[k]) > 0
+    return False
+
+
 def _i_wrap_tools(state: InvestigatorState) -> dict:
     """Principiul 10 (pasul 6.1): rezultatele noi ale uneltelor ajung la investigator DOAR intre
     delimitatori, cu delimitatorii falsi neutralizati. Acelasi id -> add_messages inlocuieste
     mesajul (nu-l dubleaza). Dovezile (EvidenceRef) sunt extrase inainte, in traced_tool."""
     from l1_agent import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, strip_delimiters
     out = []
+    nonempty = 0
     for m in reversed(state.get("messages") or []):
         if not isinstance(m, ToolMessage):
             break
         c = m.content if isinstance(m.content, str) else json.dumps(m.content, default=str)
         if c.startswith(UNTRUSTED_OPEN):
             continue
+        # Numarat in STAREA grafului, nu in urma: harness-ul apeleaza graful fara urma activa.
+        nonempty += 1 if result_has_rows(c) else 0
         out.append(ToolMessage(content=f"{UNTRUSTED_OPEN}\n{strip_delimiters(c)}\n{UNTRUSTED_CLOSE}",
                                tool_call_id=m.tool_call_id, id=m.id, name=m.name))
-    return {"messages": list(reversed(out))} if out else {}
+    if not out:
+        return {}
+    return {"messages": list(reversed(out)),
+            "nonempty_results": int(state.get("nonempty_results") or 0) + nonempty}
 
 
 def _build_investigator(llm):
@@ -663,6 +688,8 @@ class HuntState(TypedDict, total=False):
     evidence_b: list[str]
     tokens_b: int
     tool_calls_b: int
+    nonempty_a: int     # faza 23: rezultate de unealta cu randuri, pe investigator
+    nonempty_b: int
     corroboration_status: str
     secondary_failed: bool
     merged_draft: dict
@@ -671,6 +698,24 @@ class HuntState(TypedDict, total=False):
     verdict: Verdict
     narrative: str
     prefetch_ctx: dict   # din seed-ul investigatorului A; node_finalize nu reinterogheaza
+
+
+def _as_count(x) -> int:
+    """Numarul de rezultate nevide din starea investigatorului; ce nu se poate determina = 0."""
+    return x if isinstance(x, int) and not isinstance(x, bool) and x > 0 else 0
+
+
+def sweep_benign_supported(nonempty_results: int, ctx: dict) -> bool:
+    """Faza 23, regula asimetrica la Tier 2. Un finding de sweep poate ramane benign doar daca
+    (a) cel putin un apel de unealta a intors randuri, SAU (b) exista un fapt determinist benign in
+    contextul preadus: pair_in_baseline adevarat, sau in_maintenance_window impreuna cu
+    ran_by_known_admin. Altfel modelul a inchis fara sa fi vazut nimic. Pur."""
+    if _as_count(nonempty_results) > 0:
+        return True
+    ctx = ctx if isinstance(ctx, dict) else {}
+    if ctx.get("pair_in_baseline") is True:
+        return True
+    return ctx.get("in_maintenance_window") is True and ctx.get(ADMIN_MARK) is True
 
 
 def _input(state: HuntState) -> dict:
@@ -690,6 +735,7 @@ def node_primary(state: HuntState) -> dict:
         "draft_a": res.get("draft", {}), "evidence_a": res.get("evidence_snippets", []),
         "tokens_a": res.get("tokens", 0), "tool_calls_a": res.get("tool_calls_made", 0),
         "budget_a": res.get("hit_budget", False),
+        "nonempty_a": _as_count(res.get("nonempty_results")),
         "queries_run": res.get("queries_run", []),
         "prefetch_ctx": res.get("prefetch_ctx") if isinstance(res.get("prefetch_ctx"), dict) else {},
     }
@@ -718,6 +764,7 @@ def node_secondary(state: HuntState) -> dict:
     return {
         "draft_b": res.get("draft", {}), "evidence_b": res.get("evidence_snippets", []),
         "tokens_b": res.get("tokens", 0), "tool_calls_b": res.get("tool_calls_made", 0),
+        "nonempty_b": _as_count(res.get("nonempty_results")),
         "queries_run": state.get("queries_run", []) + res.get("queries_run", []),
     }
 
@@ -825,7 +872,21 @@ def node_finalize(state: HuntState) -> dict:
         if os.environ.get("VERBOSE") == "1":
             print("      podea 4 Tier 2: serverul web a pornit un proces -> malicious, escaladat", flush=True)
 
-    # Doar pentru cazurile din Tier 1; calea pentru findings ramane neschimbata.
+    # Faza 23, regula asimetrica: DOAR pentru findings de sweep (cazurile din Tier 1 raman neatinse).
+    # Benign fara nicio dovada vazuta si fara fapt determinist benign = nu se inchide automat.
+    if (f is not None and c is None and p.get("classification") == "benign"
+            and not sweep_benign_supported(
+                _as_count(state.get("nonempty_a")) + _as_count(state.get("nonempty_b")), _ctx)):
+        p = dict(p)
+        p["classification"] = "undetermined"
+        p["narrative"] = ("Inchidere benign fara dovezi (nicio unealta nu a intors randuri, niciun fapt "
+                          "determinist benign). Escaladat. | " + str(p.get("narrative", "")))
+        conf = min(conf, 40)
+        action = ActionType.ESCALATE_HUMAN
+        if os.environ.get("VERBOSE") == "1":
+            print("      regula asimetrica Tier 2: benign fara dovezi -> undetermined, escaladat", flush=True)
+
+    # Doar pentru cazurile din Tier 1.
     if c is not None and f is None:
         floored = tier1_case_action_floor(p.get("classification", "undetermined"), action)
         if floored is not action and os.environ.get("VERBOSE") == "1":
