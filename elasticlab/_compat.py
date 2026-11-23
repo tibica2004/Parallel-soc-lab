@@ -28,6 +28,14 @@ MOVED: dict[str, str] = {
     "tracing": "elasticlab.core.tracing",
     "cases": "elasticlab.store.cases",
     "state": "elasticlab.store.state",
+    "behavioral_rules": "elasticlab.tier1.behavioral_rules",
+    "defend_native": "elasticlab.tier1.defend_native",
+    "enrich": "elasticlab.tier1.enrich",
+    "fast_path": "elasticlab.tier1.fast_path",
+    "l1_agent": "elasticlab.tier1.l1_agent",
+    "rag": "elasticlab.tier1.rag",
+    "sensor_rules": "elasticlab.tier1.sensor_rules",
+    "threat_intel": "elasticlab.tier1.threat_intel",
 }
 
 
