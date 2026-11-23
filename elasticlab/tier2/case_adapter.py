@@ -5,6 +5,7 @@ Functie pura: fara model, fara Elasticsearch. Ce trece:
   - identitatea cazului (chain_id, host, process.entity_id, parinte, copil, regula)
   - motivele escaladarii (enumerare inchisa, decise de cod)
   - fapte calculate de cod (raritatea perechii fata de baseline)
+  - momentul alertei / al finding-ului (observed_at, ancora ferestrelor Tier 2, faza 25)
   - referinte opace la documente (evidence_refs)
 Ce NU trece, niciodata: classification, confidence, narrative de la Tier 1
 (principiul 7 — un investigator care vede "suspicious/70" se ancoreaza in el).
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import re
 
+from elasticlab.core import eventtime
 from elasticlab.core.escalation import EscalationDecision
 from elasticlab.contracts.schemas import ENTITY_ID_RE, Case, EvidenceRef, RarityFinding
 
@@ -72,6 +74,7 @@ def from_alert(alert: dict, escalation: EscalationDecision, chain_id: str,
         escalation_reasons=list(escalation.reasons),
         evidence_refs=[r for r in refs if r is not None][:50],
         rarity_score=0.0 if pair is True else 1.0,
+        observed_at=eventtime.alert_time(alert),
     )
 
 
@@ -86,4 +89,5 @@ def from_finding(finding: RarityFinding, chain_id: str) -> Case:
         child=_clean(d.get("child"), 255),
         evidence_refs=list(finding.evidence_refs)[:50],
         rarity_score=finding.rarity_score,
+        observed_at=finding.observed_at,
     )

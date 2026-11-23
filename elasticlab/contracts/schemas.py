@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MITRE_RE = re.compile(r"^T\d{4}(\.\d{3})?$")
 # Identificatorul lantului: acelasi caz, prin toate nivelurile (Tier 1 -> 2 -> 3).
@@ -286,6 +286,9 @@ class RarityFinding(BaseModel):
     detail: dict
     rarity_score: float = Field(ge=0.0, le=1.0)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    # Faza 25: cand a produs sweep-ul finding-ul. Ancora ferestrelor Tier 2 (core/eventtime);
+    # None = ferestrele vechi, relative la NOW().
+    observed_at: AwareDatetime | None = None
 
 
 class PlanStep(BaseModel):
@@ -425,6 +428,10 @@ class Case(BaseModel):
     rarity_score: float | None = Field(default=None, ge=0.0, le=1.0)
     # Doar pentru origin=tier3_hunt: ce a gasit sablonul.
     hunt_match: HuntMatch | None = None
+    # Faza 25: momentul alertei (ora evenimentului) sau al finding-ului din care vine cazul.
+    # Ancora ferestrelor Tier 2 (core/eventtime), ca verdictul sa nu depinda de cat a asteptat
+    # cazul pana la prelucrare. None = ferestrele vechi, relative la NOW(). Nu ajunge la model.
+    observed_at: AwareDatetime | None = None
 
     @field_validator("host")
     @classmethod
