@@ -36,6 +36,11 @@ MOVED: dict[str, str] = {
     "rag": "elasticlab.tier1.rag",
     "sensor_rules": "elasticlab.tier1.sensor_rules",
     "threat_intel": "elasticlab.tier1.threat_intel",
+    "anomalies": "elasticlab.tier2.anomalies",
+    "case_adapter": "elasticlab.tier2.case_adapter",
+    "elastic_tools": "elasticlab.tier2.elastic_tools",
+    "hunt_path": "elasticlab.tier2.hunt_path",
+    "risk": "elasticlab.tier2.risk",
 }
 
 

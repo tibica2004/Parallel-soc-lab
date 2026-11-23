@@ -33,8 +33,8 @@ from elasticlab.tier1 import defend_native
 from elasticlab.core import honeytokens
 from elasticlab.core import maintenance
 from elasticlab.tier1 import sensor_rules
-from elastic_tools import ES, _esql
-from hunt_path import (
+from elasticlab.tier2.elastic_tools import ES, _esql
+from elasticlab.tier2.hunt_path import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
 )
 from elasticlab.core.llm import NO_THINK, get_llm, parse_json_response
