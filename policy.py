@@ -31,11 +31,12 @@ THRESHOLDS: dict[ActionType, int] = {
     ActionType.BLOCK_IP_TTL: 85,     # firewall, expira singur
     ActionType.FREEZE_PROCESS: 85,   # SIGSTOP, pastreaza dovada
     ActionType.QUARANTINE_FILE: 90,  # mutare cu backup
-    # scumpe
-    ActionType.ISOLATE_HOST: 95,     # taie hostul din retea
-    ActionType.ROTATE_CREDENTIALS: 95,
-    # ireversibile — niciodata automat
-    ActionType.KILL_PROCESS: 101,    # distruge payload-ul din memorie
+    # ireversibile — niciodata automat (CLAUDE.md; decizia omului din 2026-11-23, faza 0:
+    # isolate_host si rotate_credentials erau la 95 si au trecut de prag la auto-atacul din 03.11,
+    # oprite doar de shadow)
+    ActionType.ISOLATE_HOST: 101,        # taie hostul din retea
+    ActionType.ROTATE_CREDENTIALS: 101,
+    ActionType.KILL_PROCESS: 101,        # distruge payload-ul din memorie
 }
 
 # Cand actiunea propusa nu e permisa, coboram la asta (nu direct la "nimic":
