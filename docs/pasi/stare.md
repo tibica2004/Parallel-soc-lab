@@ -680,3 +680,17 @@ Ce reiese:
    pe un atac nu se vede in cifra portii. Nereparat: atinge poarta, decizia e a omului.
 
 Regula din etapa 5 NU e pusa in productie (`~/lab` ramane 80a867c). Decizia ramane la om.
+
+
+## 2026-11-23: faza 0 (decizii) si faza 24 (structura de pachet), pe ramuri, NEDEPLOYATE
+
+Worktree `~/lab-refactor` (`~/lab` neatins, ramane 80a867c). Planul: docs/plan-refactorizare.md.
+- `faza-23-decizii` (din faza-23): revert `cada43f` (regula din etapa 5 scoasa), `isolate_host` /
+  `rotate_credentials` la prag 101, `action_target` invalid -> None + escalate_human (si harness-ul
+  puncteaza exceptiile din graf ca escaladare). ATINGE DECIZIA: poarta o ruleaza omul, devine referinta.
+  pytest 1265 verzi, prompt_set 23664c93b9cd neschimbat.
+- `faza-24-structura-pachet` (din faza-23-decizii): 55 de module mutate intregi in elasticlab/<strat>/,
+  fisiere subtiri la vechile cai (acelasi obiect de modul; scripturile trec prin runpy), radacina din
+  elasticlab/paths.py. pytest 1387 verzi (cele 1265 de plecare + 122 noi), prompt_set neschimbat,
+  --help identic pe 14 scripturi, regula de importuri: tier1 <-> tier2 incalcata de 3 importuri
+  (docs/faza-24-importuri.md).
