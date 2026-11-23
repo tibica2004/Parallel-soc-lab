@@ -158,7 +158,7 @@ def evaluate(now: datetime) -> ReadinessResult:
     crit: list[Criterion] = []
     # c1
     try:
-        from labeling import outcome
+        from elasticlab.eval.labeling import outcome
         v = es.search(index="verdicts-history", size=1000, query={"bool": {"filter": [
             {"term": {"label_source.keyword": "human"}}, _since(now, timedelta(days=30))]}},
             source=["classification", "proposed_action", "ground_truth"])["hits"]["hits"]
