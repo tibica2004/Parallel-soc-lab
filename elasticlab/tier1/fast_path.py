@@ -31,7 +31,7 @@ from langgraph.graph import END, START, StateGraph
 
 from elasticlab.tier1 import defend_native
 from elasticlab.core import honeytokens
-from elasticlab.core import maintenance
+from elasticlab.core import eventtime, maintenance
 from elasticlab.tier1 import sensor_rules
 from elasticlab.tier2.elastic_tools import ES, _esql
 from elasticlab.tier2.hunt_path import (
@@ -190,12 +190,15 @@ def lookup_guide(rule_name: str) -> str | None:
     return None
 
 
-def lookup_history(rule_name: str) -> tuple[list[dict], float | None]:
+def lookup_history(rule_name: str, at=None) -> tuple[list[dict], float | None]:
     """Verdicte anterioare pe aceeasi regula. Rata de fals pozitive se calculeaza
     DOAR din cele cu ground_truth completat de om — altfel sistemul si-ar citi
-    propriile verdicte ca adevar (bucla de auto-confirmare)."""
+    propriile verdicte ca adevar (bucla de auto-confirmare).
+    `at` = momentul alertei (faza 25): doar verdictele scrise pana atunci, nu cele scrise
+    cat a asteptat alerta. Fara moment: interogarea veche."""
     if not rule_name:
         return [], None
+    upto = eventtime.until(at)
     try:
         r = ES.search(index="verdicts-history", size=10,
                       query={"bool": {
@@ -206,7 +209,7 @@ def lookup_history(rule_name: str) -> tuple[list[dict], float | None]:
                               # doar etichete umane: null-urile nu sunt indexate,
                               # deci exists exclude verdictele scrise automat
                               {"exists": {"field": "ground_truth"}},
-                          ],
+                          ] + ([upto] if upto else []),
                       }},
                       sort=[{"@timestamp": "desc"}])
     except Exception:
@@ -261,7 +264,7 @@ def build_context(alert: dict, history: bool = True) -> dict:
     admins = asset.get("normal_admins") or []
     exe = facts["executable"]
     cmd = facts["command_line"].lower()
-    past, fp_rate = lookup_history(rule) if history else ([], None)
+    past, fp_rate = lookup_history(rule, at=eventtime.alert_time(alert)) if history else ([], None)
     fpath = (_g(alert, "file.path") or "")
     fext = (_g(alert, "file.extension") or fpath.rsplit(".", 1)[-1]).lower()
     webroot_write = fpath.startswith(WEBROOTS) and fext in WEB_EXEC_EXT
