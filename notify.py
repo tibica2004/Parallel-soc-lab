@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 import requests
+from elasticlab.paths import REPO_ROOT
 
 logger = logging.getLogger("soc.notify")
 
@@ -35,7 +36,7 @@ WEBHOOK = os.environ.get("SOC_DISCORD_WEBHOOK", "").strip()
 # Starea de dedup: cand a plecat ultima data fiecare cheie. In data/ (ignorat de git),
 # langa celelalte artefacte de rulare. Un esec de citire/scriere = fail-open (trimite).
 _STATE = Path(os.environ.get(
-    "SOC_NOTIFY_STATE", str(Path(__file__).resolve().parent / "data" / "notify-dedup.json")))
+    "SOC_NOTIFY_STATE", str(REPO_ROOT / "data" / "notify-dedup.json")))
 
 # Escaladarile pentru care paginam un om. Lucruri CONCRETE care s-au intamplat, nu doar
 # opinia modelului: momeala atinsa, senzor propriu, detectie nativa Elastic Defend.

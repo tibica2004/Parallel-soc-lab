@@ -55,12 +55,13 @@ from enum import Enum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.static")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 RULES_DIR = ROOT / "static" / "semgrep"
 PROMPT_FILE = ROOT / "prompts" / "static_triage.v2.txt"
 PROMPT_VERSION = "static_triage.v2"

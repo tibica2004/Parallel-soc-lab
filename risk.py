@@ -22,8 +22,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from schemas import EntityType, EvidenceRef, RarityFinding
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 STATE = Path(os.environ.get("RISK_STATE", str(ROOT / "data" / "risk-state.json")))
 WINDOW_H = 24
 HALF_LIFE_H = 6.0

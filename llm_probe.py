@@ -25,12 +25,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.llm_probe")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 STATE = Path(os.environ.get("LLM_PROBE_STATE", str(ROOT / "data" / "llm_probe.json")))
 TAGS_TIMEOUT_S = 5
 GEN_TIMEOUT_S = 60

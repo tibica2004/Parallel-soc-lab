@@ -20,8 +20,9 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 MANIFEST = ROOT / "prompts" / "MANIFEST.json"
 CHANGELOG = ROOT / "prompts" / "CHANGELOG.md"
 

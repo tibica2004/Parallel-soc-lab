@@ -25,8 +25,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import yaml
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 RAG_FILE = ROOT / "kb" / "rag_cases.yml"
 OTHER_SETS = ("scenarios.yml", "scenarios_fast.yml", "scenarios_validation.yml")
 

@@ -24,12 +24,13 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.coverage")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 OUT = Path(os.environ.get("COVERAGE_OUT", str(ROOT / "data" / "coverage")))
 EMU_IDX = "logs-soc.emulation-*"
 ALERTS = ".alerts-security.alerts-*"

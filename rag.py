@@ -23,8 +23,9 @@ from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 CASES_FILE = ROOT / "kb" / "rag_cases.yml"
 VERDICTS_IDX = "verdicts-history"
 

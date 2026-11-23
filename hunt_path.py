@@ -134,12 +134,13 @@ class InvestigatorState(TypedDict, total=False):
 
 
 from pathlib import Path as _Path
+from elasticlab.paths import REPO_ROOT
 
 # Implicit: detections/ din repo (langa acest fisier), nu ~/lab/detections; o clona in alt
 # director (sau pe alt host) gaseste ghidurile fara configurare. GUIDES_DIR din mediu ramane.
 def guides_dir(env: Mapping[str, str]) -> _Path:
     """Directorul ghidurilor de investigatie. Pur (primeste mediul ca argument)."""
-    return _Path(env.get("GUIDES_DIR") or _Path(__file__).resolve().parent / "detections")
+    return _Path(env.get("GUIDES_DIR") or REPO_ROOT / "detections")
 
 
 GUIDES_DIR = guides_dir(os.environ)

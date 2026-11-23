@@ -30,12 +30,13 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from policy import is_protected
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.readiness")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 WINDOW = timedelta(days=7)
 # Regulile de retea (au source.ip) care ar putea propune block_ip_ttl.
 BLOCK_RULES = ("Suricata: tentativa de atac web (IDS)", "Tentativa de SQL injection (web)",

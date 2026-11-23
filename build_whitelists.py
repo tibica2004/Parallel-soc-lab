@@ -23,12 +23,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from elasticsearch import Elasticsearch
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.whitelists")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 OUT_FILE = ROOT / "data" / "behavioral-whitelists.json"
 
 # Binare de descoperire/shell/transfer pe care un cont de serviciu web NU are de ce sa

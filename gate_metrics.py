@@ -11,6 +11,7 @@ import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
 
 def gate_summary(scenario_set: str, confusion: dict, results: list[tuple], *, commit: str | None,
@@ -35,7 +36,7 @@ def gate_summary(scenario_set: str, confusion: dict, results: list[tuple], *, co
 def git_commit() -> str | None:
     try:
         return subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True,
-                              timeout=5, cwd=Path(__file__).resolve().parent).stdout.strip() or None
+                              timeout=5, cwd=REPO_ROOT).stdout.strip() or None
     except Exception:  # noqa: BLE001
         return None
 

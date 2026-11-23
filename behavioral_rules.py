@@ -30,6 +30,7 @@ import json
 from pathlib import Path
 
 import honeytokens
+from elasticlab.paths import REPO_ROOT
 
 TAG = "soc-behavioral"
 SHADOW_TAG = "shadow-review"          # calibrare 7 zile inainte de promovare (pasul 3.5)
@@ -53,7 +54,7 @@ DEFAULT_WWWDATA_EXEC = (
     "/usr/local/bin/wp", "/bin/sh", "/usr/bin/dash",
 )
 
-WHITELIST_FILE = Path(__file__).resolve().parent / "data" / "behavioral-whitelists.json"
+WHITELIST_FILE = REPO_ROOT / "data" / "behavioral-whitelists.json"
 
 # WordPress/PHP trimite mail prin `sh -c -- /usr/sbin/sendmail -t -i`: shell legitim, nu webshell.
 # Il excludem DOAR cand e strict apelul MTA, fara metacaractere de inlantuire (; | & backtick $(),

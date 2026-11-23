@@ -43,6 +43,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 import cases as C
 from labeling import DOC_ID_RE, LabelInput, build_label_update, outcome
+from elasticlab.paths import REPO_ROOT
 
 VERDICTS_IDX = "verdicts-history"
 AUDIT_IDX = "soc-audit"
@@ -97,7 +98,7 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
     # delogheaza pe toata lumea. Acceptabil pentru un singur om in laborator.
     secret = session_secret or os.environ.get("LABEL_UI_SECRET") or secrets.token_hex(32)
 
-    env = Environment(loader=FileSystemLoader(str(Path(__file__).parent / "templates")),
+    env = Environment(loader=FileSystemLoader(str(REPO_ROOT / "templates")),
                       autoescape=True)   # fortat: tot ce afisam poate veni din telemetrie
     templates = Jinja2Templates(env=env)
     fails: dict[str, deque] = defaultdict(deque)

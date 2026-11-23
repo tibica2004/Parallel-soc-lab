@@ -57,6 +57,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 import notify
 import reader
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
@@ -92,7 +93,7 @@ RESTORE_MAX_DAYS = float(os.environ.get("ABSENCE_RESTORE_MAX_DAYS", "35"))
 KIBANA_URL = os.environ.get("KIBANA_URL", "http://localhost:5601")
 KIBANA_FLEET_API_KEY = os.environ.get("KIBANA_FLEET_API_KEY", "")
 AGENT_CHECKIN_MAX_MIN = float(os.environ.get("ABSENCE_AGENT_CHECKIN_MAX_MIN", "5"))
-_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+_DATA = os.path.join(str(REPO_ROOT), "data")
 CANARY_REF = os.environ.get("INTEGRITY_CANARY_REF", os.path.join(_DATA, "canary.sha256"))
 CRON_STATE = os.environ.get("INTEGRITY_CRON_STATE", os.path.join(_DATA, "cron.sha256"))
 

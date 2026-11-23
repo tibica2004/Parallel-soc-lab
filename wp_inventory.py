@@ -27,8 +27,9 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 sys.path.insert(0, str(ROOT))
 import exposure as E  # noqa: E402
 

@@ -30,12 +30,13 @@ import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.fp_rate")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 ALERTS = ".alerts-security.alerts-*"
 GT_INDEX = "benign-ground-truth"
 ACTIONS_INDEX = "logs-soc.benign_actions-*"

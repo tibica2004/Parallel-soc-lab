@@ -40,6 +40,7 @@ from pathlib import Path
 
 import yaml
 from elasticsearch import Elasticsearch
+from elasticlab.paths import REPO_ROOT
 
 ES = Elasticsearch(
     os.environ.get("ES_URL", "http://localhost:9200"),
@@ -298,7 +299,7 @@ def main() -> int:
                                         prompt_set=gate_metrics.current_prompt_set(),
                                         model_tag=os.environ.get("MODEL_FAST", "qwen3:14b"),
                                         started=gate_started, finished=datetime.now(timezone.utc))
-        err = gate_metrics.persist(doc, Path(__file__).resolve().parent / "results")
+        err = gate_metrics.persist(doc, REPO_ROOT / "results")
         print(f"\n[poarta] inregistrata: recall={doc['recall']} fp_rate={doc['fp_rate']} "
               f"commit={doc['commit']} prompt_set={doc['prompt_set']}" + (f" ({err})" if err else ""))
     except Exception as e:  # noqa: BLE001

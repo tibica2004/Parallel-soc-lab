@@ -50,8 +50,9 @@ import uuid
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 CONFIG_NAMES = ("A", "B", "C", "D")
 WAIT_S = 360   # ca harness-ul pe calea rapida: indexare + intervalul regulii EQL
 

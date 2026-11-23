@@ -26,8 +26,9 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 GOLDEN = ROOT / "data" / "golden" / "golden_v1.ndjson"
 OUT = ROOT / "data" / "regression"
 MIN_PER_CLASS = 50

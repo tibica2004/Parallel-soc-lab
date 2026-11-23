@@ -20,8 +20,9 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 LOCAL_FILE = ROOT / "kb" / "wp_vulns.yml"
 
 SEVERITIES = ("low", "medium", "high", "critical")

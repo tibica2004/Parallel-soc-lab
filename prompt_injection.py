@@ -33,8 +33,9 @@ import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 ALERTS = ".alerts-security.alerts-*"
 BASES = {
     "M1": ("edea56bbaf56304de8458680c3ed39eb6f5363b2bc39a977a930dd0ca971e852", "malicious"),

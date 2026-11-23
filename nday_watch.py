@@ -46,12 +46,13 @@ from elasticsearch import Elasticsearch
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from exposure import in_range, parse_version
+from elasticlab.paths import REPO_ROOT
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s",
                     stream=sys.stderr)
 log = logging.getLogger("soc.nday")
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 
 # --- configuratie din mediu (implicite sigure) --------------------------------
 SBOM_INDEX = os.environ.get("NDAY_SBOM_INDEX", "logs-soc.sbom-*")

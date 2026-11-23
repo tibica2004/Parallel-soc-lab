@@ -48,8 +48,9 @@ import rules as R
 from elastic_tools import ES
 from llm import NO_THINK, get_llm, model_name, parse_json_response, strip_thinking
 from schemas import CHAIN_ID_RE
+from elasticlab.paths import REPO_ROOT
 
-ROOT = Path(__file__).resolve().parent
+ROOT = REPO_ROOT
 NARRATIVE_TIMEOUT_S = 120
 MAX_SHOWN = 30
 
@@ -377,7 +378,7 @@ def _hunt_template(plan: HU.HuntPlan, src: str, perr: str | None, write: bool, s
     return rec, status, len(gs)
 
 
-GAP_LIST = Path(os.environ.get("COVERAGE_GAP_LIST", str(Path(__file__).resolve().parent
+GAP_LIST = Path(os.environ.get("COVERAGE_GAP_LIST", str(REPO_ROOT
                                                        / "data" / "coverage" / "gap_list.json")))
 
 
