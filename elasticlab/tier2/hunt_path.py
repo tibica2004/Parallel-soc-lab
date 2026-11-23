@@ -38,7 +38,7 @@ from langgraph.prebuilt import ToolNode
 
 import time
 
-from elasticlab.core import maintenance
+from elasticlab.core import eventtime, maintenance
 from elasticlab.tier2.elastic_tools import HUNT_TOOLS, ES, _esql
 from elasticlab.core.tracing import record_llm
 from elasticlab.core.llm import get_llm, parse_json_response, NO_THINK
@@ -151,6 +151,11 @@ _RULE_GUIDE = {
 }
 
 
+def _anchor(x) -> "datetime | None":
+    """Momentul cazului (faza 25): alerta / finding-ul, nu prelucrarea. None = ferestre vechi."""
+    return getattr(x, "observed_at", None)
+
+
 def _subject(x: RarityFinding | Case) -> tuple[str, str | None, str | None, str | None]:
     """(host, parinte, copil, process.entity_id) pentru un finding sau un Case."""
     if isinstance(x, Case):
@@ -191,15 +196,17 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
             | LIMIT 3
     """
     rows = []
+    at = _anchor(finding)
     if entity_id:
         # Cazul vine din Tier 1 cu procesul exact: il luam dupa entity_id (stabil),
         # nu dupa parinte-copil (care poate potrivi alt proces cu acelasi nume).
+        win, wp = eventtime.esql_window(at, ENTITY_LOOKBACK_H, "hours")
         try:
             rows = _esql(f"""
                 FROM logs-endpoint.events.process-*
-                | WHERE @timestamp >= NOW() - {int(ENTITY_LOOKBACK_H)} hours
+                | WHERE {win}
                 | WHERE host.name == ? AND process.entity_id == ?
-            """ + keep, params=[host, entity_id])
+            """ + keep, params=[*wp, host, entity_id])
         except Exception as e:
             print(f"[execution_facts] cautare dupa entity_id esuata: {e}", file=sys.stderr)
             rows = []
@@ -214,14 +221,15 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
         return facts
     if not (parent and child):
         return facts
+    win, wp = eventtime.esql_window(at, FINDING_LOOKBACK_MIN, "minutes")
     try:
         rows = _esql(f"""
             FROM logs-endpoint.events.process-*
-            | WHERE @timestamp >= NOW() - {int(FINDING_LOOKBACK_MIN)} minutes
+            | WHERE {win}
             | WHERE host.name == ?
               AND process.parent.name == ?
               AND process.name == ?
-        """ + keep, params=[host, parent, child])
+        """ + keep, params=[*wp, host, parent, child])
     except Exception as e:
         # Nu inghitim tacut: o interogare stricata trebuie sa se vada in log.
         print(f"[execution_facts] interogare esuata: {e}", file=sys.stderr)
@@ -234,9 +242,9 @@ def execution_facts(finding: RarityFinding | Case) -> dict:
         try:
             rows = _esql(f"""
                 FROM logs-endpoint.events.process-*
-                | WHERE @timestamp >= NOW() - {int(FINDING_LOOKBACK_MIN)} minutes
+                | WHERE {win}
                 | WHERE host.name == ? AND STARTS_WITH(process.name, ?)
-            """ + keep, params=[host, child])
+            """ + keep, params=[*wp, host, child])
             matched_by = "child_only"
         except Exception as e:
             print(f"[execution_facts] fallback esuat: {e}", file=sys.stderr)
@@ -302,20 +310,22 @@ SENSITIVE_CMD = (
 )
 
 
-def recent_host_alerts(host: str, minutes: int = 60) -> int:
+def recent_host_alerts(host: str, minutes: int = 60, at: "datetime | None" = None) -> int:
     """Cate alerte de securitate a avut hostul recent. Un host care tocmai a avut
     un webshell merita suspiciune sporita pentru orice altceva — dar asta trebuie
-    sa fie un FAPT explicit, nu zgomot cules intamplator prin unelte."""
+    sa fie un FAPT explicit, nu zgomot cules intamplator prin unelte.
+    `at` = momentul cazului (faza 25): fereastra se socoteste fata de el, nu fata de acum."""
     minutes = int(minutes)  # numar, nu text: singura valoare formatata in interogare
+    win, wp = eventtime.esql_window(at, minutes, "minutes")
     try:
         rows = _esql(f"""
             FROM .alerts-security.alerts-*
-            | WHERE @timestamp >= NOW() - {minutes} minutes
+            | WHERE {win}
               AND host.name == ?
               AND kibana.alert.workflow_status != "closed"
             | STATS n = COUNT(*)
             | LIMIT 1
-        """, params=[host])
+        """, params=[*wp, host])
         return int(rows[0]["n"]) if rows else 0
     except Exception:
         return 0
@@ -325,6 +335,7 @@ def prefetch_context(finding: RarityFinding | Case) -> dict:
     """Context determinist inainte de investigatie. Acelasi principiu ca pe
     calea rapida: fara asta modelul judeca orb si nu poate inchide benign."""
     host, _, child, _ = _subject(finding)
+    at = _anchor(finding)
     ctx = {"host": host}
     a: dict = {}
     try:
@@ -345,8 +356,12 @@ def prefetch_context(finding: RarityFinding | Case) -> dict:
             ctx["investigation_guide"] = p.read_text(encoding="utf-8")[:1500]
     # verdicte anterioare pe aceeasi entitate
     try:
+        # Faza 25: doar verdictele scrise pana la momentul cazului, nu cele scrise cat a
+        # asteptat cazul (fara moment: interogarea veche, neschimbata).
+        upto = eventtime.until(at)
         r = ES.search(index="verdicts-history", size=5,
-                      query={"term": {"entity_id": host}},
+                      query=({"term": {"entity_id": host}} if upto is None else
+                             {"bool": {"filter": [{"term": {"entity_id": host}}, upto]}}),
                       sort=[{"@timestamp": "desc"}])
         ctx["past_verdicts"] = [
             {"classification": h["_source"].get("classification"),
@@ -369,7 +384,7 @@ def prefetch_context(finding: RarityFinding | Case) -> dict:
         ctx[WEBSVC_MARK] = bool(user in WEB_SVC_USERS)
         ctx["ran_from_temp_dir"] = any(exe.startswith(d) for d in TEMP_DIRS)
         cmd = (facts.get("command_line") or "").lower()
-        ctx["recent_host_alerts"] = recent_host_alerts(host)
+        ctx["recent_host_alerts"] = recent_host_alerts(host, at=at)
         ctx["sensitive_action"] = (child in SENSITIVE_CHILD
                                    or any(k in cmd for k in SENSITIVE_CMD)
                                    or ctx["ran_from_temp_dir"])
@@ -681,11 +696,17 @@ def _input(state: HuntState) -> dict:
     return {"case": state["case"]}
 
 
+def _state_anchor(state: HuntState):
+    return _anchor(state.get("finding") if state.get("finding") is not None else state.get("case"))
+
+
 def node_primary(state: HuntState) -> dict:
-    res = INVESTIGATOR_A.invoke(
-        {**_input(state), "role_note": PRIMARY_NOTE},
-        config={"recursion_limit": 40},
-    )
+    # Faza 25: uneltele chemate de model isi socotesc ferestrele fata de momentul cazului.
+    with eventtime.anchored(_state_anchor(state)):
+        res = INVESTIGATOR_A.invoke(
+            {**_input(state), "role_note": PRIMARY_NOTE},
+            config={"recursion_limit": 40},
+        )
     return {
         "investigation_id": state.get("investigation_id") or str(uuid.uuid4()),
         "draft_a": res.get("draft", {}), "evidence_a": res.get("evidence_snippets", []),
@@ -709,10 +730,11 @@ def node_secondary(state: HuntState) -> dict:
     # si poate cadea separat. Atunci zona gri nu poate fi coroborata: nu inchidem pe
     # baza lui A singur, marcam esecul si node_corroborate escaladeaza.
     try:
-        res = INVESTIGATOR_B.invoke(
-            {**_input(state), "role_note": SECONDARY_NOTE},
-            config={"recursion_limit": 40},
-        )
+        with eventtime.anchored(_state_anchor(state)):
+            res = INVESTIGATOR_B.invoke(
+                {**_input(state), "role_note": SECONDARY_NOTE},
+                config={"recursion_limit": 40},
+            )
     except Exception as e:
         print(f"[investigator_b] esuat: {type(e).__name__}: {e}", file=sys.stderr)
         return {"draft_b": None, "secondary_failed": True}
