@@ -542,7 +542,7 @@ def run_exposure(hours: int, write: bool, state_path: Path, host: str | None = N
     raman in soc-hunts pentru om. Esecul oricarui pas escaladeaza prin status, nu opreste."""
     import uuid
 
-    import exposure as EXP
+    from elasticlab.extras import exposure as EXP
     from elasticlab.tier2.elastic_tools import ES, _esql
     host = host or os.environ.get("WP_HOST", "web-prod")
     if hours not in HU.WINDOWS:

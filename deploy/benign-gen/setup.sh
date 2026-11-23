@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Instalarea generatorului pe VM-ul benign-gen (Ubuntu 24.04), ca root (sudo). Idempotent.
-# Fisierele benign_gen.py si benign-gen.service sunt copiate inainte in /tmp/soc-benign/.
+# Fisierele benign_gen.py (din elasticlab/extras/, NU fisierul subtire din radacina) si
+# benign-gen.service sunt copiate inainte in /tmp/soc-benign/.
 set -euo pipefail
 SRC=/tmp/soc-benign
 id soc-benign >/dev/null 2>&1 || useradd --system --shell /usr/sbin/nologin --home-dir /opt/soc-benign/home soc-benign
