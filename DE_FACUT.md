@@ -362,3 +362,14 @@ De refacut dupa rulari (elastic-lab):
     export OS_CLOUD=openstack
     openstack security group rule create victim-sg --protocol tcp --dst-port 80 --remote-ip 172.30.6.133/32
     ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl start benign-gen"
+
+
+### Decizii ale omului, 2026-11-23 (faza 0 din docs/plan-refactorizare.md)
+
+Ramura `faza-23-decizii` (worktree `~/lab-refactor`), din faza-23, NEDEPLOYATA:
+- Regula din etapa 5: scoasa (varianta c), revert `cada43f`.
+- `action_target` invalid: reparat in cod (tinta -> None + escalate_human); harness-ul puncteaza
+  exceptiile din graf ca escaladare si listeaza scenariile nepunctate.
+- Pragul 6.1: `isolate_host` si `rotate_credentials` la 101 in `policy.THRESHOLDS`.
+- Instabilitatea Tier 2: poarta se ruleaza de 3 ori, FP raportat ca interval (regula din plan).
+Ramane la om: poarta pe `faza-23-decizii` (noua referinta), apoi revizuirea fazei 24.
