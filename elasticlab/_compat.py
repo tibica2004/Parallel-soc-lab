@@ -14,7 +14,9 @@ import sys
 from types import ModuleType
 
 # cale veche (nume de modul in radacina) -> modulul nou. Sursa unica pentru fisierele subtiri si teste.
-MOVED: dict[str, str] = {}
+MOVED: dict[str, str] = {
+    "schemas": "elasticlab.contracts.schemas",
+}
 
 
 def alias(old: str, new: str) -> ModuleType:
