@@ -22,6 +22,7 @@ from elasticsearch import Elasticsearch
 from langchain_core.tools import tool
 
 from elasticlab.core import honeytokens
+from elasticlab.core import eventtime
 from elasticlab.contracts.schemas import ContextPack, EntityType, EvidenceRef, RarityFinding
 from elasticlab.core.tracing import traced_tool
 
@@ -771,6 +772,9 @@ def _sweep_entity_risk(window_hours: int = 1) -> list[RarityFinding]:
 
 
 def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
+    # Faza 25: momentul sweep-ului e momentul finding-urilor (sfarsitul ferestrei cercetate).
+    # Tier 2 isi socoteste ferestrele fata de el, nu fata de cand ajunge finding-ul la rand.
+    at = datetime.now(timezone.utc)
     findings: list[RarityFinding] = []
     from elasticlab.tier2 import anomalies
     for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
@@ -783,13 +787,15 @@ def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
         except Exception as exc:  # un sweep cazut nu trebuie sa omoare restul
             print(f"[sweep] {fn.__name__} a esuat: {exc}")
     findings.sort(key=lambda f: f.rarity_score, reverse=True)
-    return findings
+    return [f if f.observed_at else f.model_copy(update={"observed_at": at}) for f in findings]
 
 
 # --------------------------------------------------------------------------
 # TOOL-uri expuse agentului de hunting.
 # Aici NU preaduci — tocmai fiindca nu stii dinainte ce va vrea sa intrebe.
 # Toate read-only. Toate cu LIMIT. Toate cu fereastra maxima.
+# Faza 25: "ultimele N minute" se socotesc fata de momentul cazului (eventtime.current(), pus de
+# hunt_path in jurul investigatorului), nu fata de acum. Fara caz in curs: NOW(), ca inainte.
 # --------------------------------------------------------------------------
 
 
@@ -802,17 +808,18 @@ def tool_process_tree(host_name: str, entity_id: str, minutes: int = 30) -> dict
     NU corela dupa PID brut — PID-urile se refolosesc si la volum vei atribui
     actiuni procesului gresit. process.entity_id e stabil.
     """
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
     rows = _esql(
         f"""
         FROM {PROC_IDX} METADATA _id, _index
-        | WHERE host.name == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes
+        | WHERE host.name == ? AND {win}
           AND (process.entity_id == ? OR process.parent.entity_id == ?)
         | KEEP _id, _index, @timestamp, process.name, process.command_line, process.entity_id,
                process.parent.name, process.parent.entity_id, user.name
         | SORT @timestamp ASC
         | LIMIT 200
         """,
-        params=[host_name, entity_id, entity_id],
+        params=[host_name, *wp, entity_id, entity_id],
     )
     return {"rows": rows, "count": len(rows)}
 
@@ -823,17 +830,18 @@ def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
     """Conexiunile outbound (egress) ale unui host in ultimele N minute, agregate
     pe destinatie si proces. Foloseste asta ca sa vezi cu ce IP-uri externe a
     comunicat hostul — util pentru a depista C2 sau exfiltrare."""
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
     rows = _esql(
         f"""
         FROM {NET_IDX}
-        | WHERE host.name == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes
+        | WHERE host.name == ? AND {win}
           AND network.direction == "egress"
         | STATS bytes = SUM(network.bytes), cnt = COUNT(*)
             BY destination.ip, destination.port, destination.as.organization.name, process.name
         | SORT bytes DESC
         | LIMIT 50
         """,
-        params=[host_name],
+        params=[host_name, *wp],
     )
     return {"rows": rows}
 
@@ -843,11 +851,12 @@ def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
 def tool_apache_requests(host_name: str, minutes: int = 30, status: int | None = None) -> dict:
     """Cereri catre serverul web. Pentru corelarea request -> proces."""
     extra = "AND http.response.status_code == ?" if status else ""
-    params: list[Any] = [host_name] + ([status] if status else [])
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
+    params: list[Any] = [host_name, *wp] + ([status] if status else [])
     rows = _esql(
         f"""
         FROM {APACHE_IDX} METADATA _id, _index
-        | WHERE host.name == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes {extra}
+        | WHERE host.name == ? AND {win} {extra}
         | KEEP _id, _index, @timestamp, source.ip, url.path, http.request.method,
                http.response.status_code, http.response.body.bytes, user_agent.original
         | SORT @timestamp DESC
@@ -874,7 +883,7 @@ def tool_eql_pattern(pattern_id: str, host_name: str, minutes: int = 30) -> dict
     resp = ES.eql.search(
         index=pat["index"], query=pat["query"], size=50,
         filter={"bool": {"filter": [{"term": {"host.name": host_name}},
-                                    {"range": {"@timestamp": {"gte": f"now-{m}m"}}}]}},
+                                    {"range": {"@timestamp": eventtime.dsl_range(eventtime.current(), m, "minutes")}}]}},
     )
     return {
         "pattern": pat["title"], "minutes": m,
@@ -889,15 +898,16 @@ def tool_suricata_alerts(source_ip: str, minutes: int = 60) -> dict:
     """Alertele Suricata (IDS) generate de un IP sursa in ultimele N minute.
     Foloseste asta ca sa vezi daca traficul de la un IP a declansat semnaturi
     de retea cunoscute."""
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
     rows = _esql(
         f"""
         FROM {SURICATA_IDX} METADATA _id, _index
-        | WHERE source.ip == ? AND @timestamp >= NOW() - {_minutes(minutes)} minutes
+        | WHERE source.ip == ? AND {win}
           AND event.kind == "alert"
         | KEEP _id, _index, @timestamp, rule.name, rule.category, destination.ip, destination.port
         | LIMIT 100
         """,
-        params=[source_ip],
+        params=[source_ip, *wp],
     )
     return {"rows": rows}
 
@@ -919,10 +929,14 @@ def tool_rarity_of(field: str, value: str, host_name: str | None = None) -> dict
     if host_name:
         where += " AND host.name == ?"
         params.append(host_name)
+    # Faza 25: cele 90 de zile se socotesc pana la momentul cazului (plus DUPA_EVENIMENT),
+    # ca aparitiile de dupa alerta sa nu schimbe raritatea la o prelucrare intarziata.
+    win, wp = eventtime.esql_window(eventtime.current(), 90, "days")
+    params += wp
     rows = _esql(
         f"""
         FROM {idx}
-        | {where} AND @timestamp >= NOW() - 90 days
+        | {where} AND {win}
         | STATS cnt = COUNT(*), first_seen = MIN(@timestamp), last_seen = MAX(@timestamp)
         """,
         params=params,

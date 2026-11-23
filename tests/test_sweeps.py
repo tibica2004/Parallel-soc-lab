@@ -110,7 +110,10 @@ def test_un_sweep_cazut_nu_le_opreste_pe_celelalte(monkeypatch):
               "sweep_new_listening_ports", "sweep_response_size_outliers"):
         monkeypatch.setattr(E, n, boom)
     monkeypatch.setattr(E, "sweep_new_url_paths", lambda h: [ok])
-    assert E.run_full_sweep(1) == [ok]
+    out = E.run_full_sweep(1)
+    # faza 25: run_full_sweep pune momentul sweep-ului pe fiecare finding (ancora Tier 2)
+    assert [f.model_copy(update={"observed_at": None}) for f in out] == [ok]
+    assert all(f.observed_at is not None and f.observed_at.tzinfo is not None for f in out)
 
 
 # ---------------- orchestratorul si Tier 2 ----------------
