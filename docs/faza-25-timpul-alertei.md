@@ -98,8 +98,9 @@ testul chiar pune ancora la incercare.
 
 ## Riscuri ramase
 
-- **`TO_DATETIME(?)` cu parametru** nu a rulat pe Elasticsearch-ul real; testele sunt fara ES.
-  `l1_agent` foloseste aceeasi forma. Verificarea (doar citire) e in raport.
+- ~~`TO_DATETIME(?)` cu parametru nerulat pe ES-ul real~~: verificat de om pe 2026-11-23 (doar citire,
+  `.alerts-security.alerts-*`, ultimele 60 de minute): forma ancorata si `NOW() - 60 minutes` dau
+  acelasi numar (12 = 12), fara eroare.
 - **Starea care nu are timp:**
   - `workflow_status != closed` la alertele recente: omul inchide alerte intre timp;
   - baseline-ul perechilor (transform);

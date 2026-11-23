@@ -102,8 +102,8 @@ Poarta: fast, dev, validare, injectie, suita. Oprire: orice verdict schimbat fat
 
 Stare 2026-11-23: cod si teste pe `faza-25-timpul-alertei` (inventar si decizii in
 docs/faza-25-timpul-alertei.md). Testul de intarziere trece. Omul a cerut faza 25 inainte de
-portile pe `faza-23-decizii` si `faza-24-structura-pachet`: portile, determinismul si verificarea
-`TO_DATETIME(?)` pe ES-ul real raman de rulat.
+portile pe `faza-23-decizii` si `faza-24-structura-pachet`: portile si determinismul raman de rulat
+(`TO_DATETIME(?)` verificat pe ES-ul real: 12 = 12).
 
 ## Faza 26 — contracte de mesaje si plicul de rezultat (`faza-26-contracte-unelte`)
 
