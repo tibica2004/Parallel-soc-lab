@@ -26,6 +26,8 @@ MOVED: dict[str, str] = {
     "prompts": "elasticlab.core.prompts",
     "sdnotify": "elasticlab.core.sdnotify",
     "tracing": "elasticlab.core.tracing",
+    "cases": "elasticlab.store.cases",
+    "state": "elasticlab.store.state",
 }
 
 
