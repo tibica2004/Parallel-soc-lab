@@ -394,3 +394,20 @@ def test_calea_rapida_nu_depinde_de_intarziere(monkeypatch):
     assert o2["context"]["fp_rate_same_rule"] == 1.0
     assert any({"range": {"@timestamp": {"lte": eventtime.iso(T)}}} in q["bool"]["filter"]
                for q in lume.search_calls)
+
+
+# ---------------- referintele finding-ului de sweep ----------------
+
+def test_referintele_perechii_fata_de_momentul_finding_ului(monkeypatch):
+    from elasticlab.tier2 import elastic_tools
+    seen = []
+
+    class _ES:
+        def search(self, **kw):
+            seen.append(kw["query"]["bool"]["filter"][-1]["range"]["@timestamp"])
+            return {"hits": {"hits": []}}
+    monkeypatch.setattr(elastic_tools, "ES", _ES())
+    elastic_tools.pair_event_refs("web-prod", "apache2", "sh", window_hours=2)
+    elastic_tools.pair_event_refs("web-prod", "apache2", "sh", window_hours=2, at=T)
+    assert seen == [{"gte": "now-2h"},
+                    {"gte": eventtime.iso(T - 120 * M), "lte": eventtime.iso(T + eventtime.DUPA_EVENIMENT)}]

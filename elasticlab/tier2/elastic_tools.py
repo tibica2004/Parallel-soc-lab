@@ -580,17 +580,19 @@ def sweep_wp_recon_path(window_hours: int = 1) -> list[RarityFinding]:
     ]
 
 
-def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, limit: int = 10) -> list[EvidenceRef]:
+def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, limit: int = 10,
+                    at=None) -> list[EvidenceRef]:
     """Evenimentele de pornire ale perechii gasite de sweep, ca referinte (doar ID-uri).
     Le ataseaza codul la verdict, ca Tier 3 sa stie ce proces a fost cazul.
-    Filtre term: valorile din telemetrie nu ajung in text de interogare."""
+    Filtre term: valorile din telemetrie nu ajung in text de interogare.
+    `at` = momentul finding-ului (faza 25); fara el, fereastra veche fata de acum."""
     r = ES.search(index=PROC_IDX, size=limit, sort=[{"@timestamp": "asc"}], source=["@timestamp"],
                   query={"bool": {"filter": [
                       {"term": {"host.name": host}},
                       {"term": {"process.parent.name": parent}},
                       {"term": {"process.name": child}},
                       {"term": {"event.type": "start"}},
-                      {"range": {"@timestamp": {"gte": f"now-{int(window_hours)}h"}}},
+                      {"range": {"@timestamp": eventtime.dsl_range(at, int(window_hours), "hours")}},
                   ]}})
     return _refs(r["hits"]["hits"])
 

@@ -570,7 +570,8 @@ def finding_pair_refs(f) -> list:
         return []
     try:
         from elasticlab.tier2.elastic_tools import pair_event_refs
-        return pair_event_refs(f.entity_id, d["parent"], d["child"], window_hours=2)
+        return pair_event_refs(f.entity_id, d["parent"], d["child"], window_hours=2,
+                               at=getattr(f, "observed_at", None))
     except Exception as e:
         print(f"  [dovezi sweep] {type(e).__name__}: {e}", flush=True)
         return []
