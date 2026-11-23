@@ -97,16 +97,28 @@ def _fetch_alert(rule_name: str, since_min: int = 15, since: datetime | None = N
     return hits[0]["_source"] if hits else None
 
 
+class ScenarioSetupError(RuntimeError):
+    """Scenariul n-a ajuns la sistem (fara rule_name, alerta negasita). Nu e un verdict:
+    nu se puncteaza, dar se listeaza in raport, ca sa nu dispara din cifra portii."""
+
+
+def processing_error_verdict(scenario: dict):
+    """Ce scrie orchestratorul cand graful arunca (PROCESSING_ERROR): undetermined + escalate_human."""
+    import degraded
+    host = (scenario.get("finding") or {}).get("host")
+    return degraded.no_model_verdict(host, "hunt" if scenario.get("path") == "hunt" else "fast")
+
+
 def run_fast(scenario: dict, since: datetime | None = None):
     """Ruleaza un scenariu prin calea rapida, pe ALERTA REALA produsa de regula.
     Scenariul trebuie sa dea `rule_name` (regula care se declanseaza)."""
     from fast_path import build_fast_path
     rule = scenario.get("rule_name")
     if not rule:
-        raise ValueError(f"scenariul '{scenario.get('name')}' nu are rule_name")
+        raise ScenarioSetupError(f"scenariul '{scenario.get('name')}' nu are rule_name")
     alert = _fetch_alert(rule, since=since)
     if alert is None:
-        raise RuntimeError(f"nicio alerta '{rule}' dupa generarea scenariului "
+        raise ScenarioSetupError(f"nicio alerta '{rule}' dupa generarea scenariului "
                            f"(regula nu s-a declansat inca sau nu exista)")
     graph = build_fast_path()
     return graph.invoke({"alert": alert}, config={"recursion_limit": 25})["verdict"]
@@ -123,10 +135,10 @@ def run_chain(scenario: dict, since: datetime | None = None):
     from hunt_path import build_hunt_path
     rule = scenario.get("rule_name")
     if not rule:
-        raise ValueError(f"scenariul '{scenario.get('name')}' nu are rule_name")
+        raise ScenarioSetupError(f"scenariul '{scenario.get('name')}' nu are rule_name")
     alert = _fetch_alert(rule, since=since)
     if alert is None:
-        raise RuntimeError(f"nicio alerta '{rule}' dupa generarea scenariului")
+        raise ScenarioSetupError(f"nicio alerta '{rule}' dupa generarea scenariului")
     out = build_fast_path().invoke({"alert": alert}, config={"recursion_limit": 25})
     v1 = out["verdict"]
     esc = should_escalate(v1, floor_applied=bool(out.get("floor_applied")),
@@ -184,6 +196,8 @@ def main() -> int:
     by_band = defaultdict(lambda: {"correct": 0, "total": 0})
     results = []
     missed_attacks = []
+    not_scored = []        # scenariul n-a ajuns la sistem
+    processing_errors = []  # graful a aruncat: punctat ca escaladare, ca in productie
     gate_started = datetime.now(timezone.utc)
 
     for i, sc in enumerate(scenarios, 1):
@@ -204,9 +218,14 @@ def main() -> int:
                 verdict = run_chain(sc, since) if args.chain else run_fast(sc, since)
             else:
                 verdict = run_hunt(sc)
-        except Exception as e:
-            print(f"    EROARE: {e}")
+        except ScenarioSetupError as e:
+            print(f"    NEPUNCTAT: {e}")
+            not_scored.append(name)
             continue
+        except Exception as e:  # noqa: BLE001
+            print(f"    EROARE DE PRELUCRARE: {type(e).__name__}: {e} -> undetermined + escalate_human")
+            processing_errors.append(name)
+            verdict = processing_error_verdict(sc)
         dt = (datetime.now() - t0).total_seconds()
 
         outcome = score_verdict(verdict, gt)
@@ -254,6 +273,15 @@ def main() -> int:
         acc = b["correct"] / b["total"] if b["total"] else 0
         print(f"  {band:3d}-{band+9}:  {acc:.0%}  ({b['correct']}/{b['total']})")
     print("  -> pragul pentru actiuni automate = prima banda cu precizie >= 95%")
+
+    if processing_errors:
+        print(f"\nERORI DE PRELUCRARE ({len(processing_errors)}), punctate ca escaladare:")
+        for m in processing_errors:
+            print(f"     - {m}")
+    if not_scored:
+        print(f"\n!!! SCENARII NEPUNCTATE ({len(not_scored)}), lipsesc din cifre:")
+        for m in not_scored:
+            print(f"     - {m}")
 
     if missed_attacks:
         print(f"\n!!! ATACURI RATATE ({len(missed_attacks)}):")

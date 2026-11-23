@@ -26,6 +26,27 @@ CHAIN_ID_RE = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 ENTITY_ID_RE = re.compile(r"^[A-Za-z0-9+/=_\-]{1,128}$")
 HOST_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,253}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# Identificator care poate ajunge intr-o comanda de sistem (entity_id, action_target).
+IDENT_RE = re.compile(r"^[A-Za-z0-9_.:\-/]+$")
+_NULL_TARGETS = ("", "null", "none")
+
+
+def is_valid_identifier(v: str) -> bool:
+    return len(v) <= 253 and bool(IDENT_RE.match(v))
+
+
+def screen_action_target(target: object) -> tuple[str | None, bool]:
+    """Tinta propusa de model -> (tinta, respinsa). Lipsa ("null", "", None) nu e respingere.
+    O tinta care nu e identificator valid (ex. entity_id de proces in base64, cu `+`) devine None
+    si respinsa=True: apelantul escaladeaza la om in loc sa arunce exceptie in Verdict
+    (decizia omului, faza 0, 2026-11-23)."""
+    if target is None:
+        return None, False
+    if not isinstance(target, str):
+        return None, True
+    if target.strip().lower() in _NULL_TARGETS:
+        return None, False
+    return (target, False) if is_valid_identifier(target) else (None, True)
 
 
 class Classification(str, Enum):
@@ -188,7 +209,7 @@ class Verdict(BaseModel):
     def _null_target_is_none(cls, v):
         """Modelul scrie uneori "null"/"none"/"" ca sir: inseamna lipsa tintei, nu o tinta.
         (Cauza deciziei block_ip_ttl cu action_target "null" din 2026-11-02.)"""
-        if isinstance(v, str) and v.strip().lower() in ("", "null", "none"):
+        if isinstance(v, str) and v.strip().lower() in _NULL_TARGETS:
             return None
         return v
 
@@ -201,7 +222,7 @@ class Verdict(BaseModel):
         """
         if v is None:
             return v
-        if len(v) > 253 or not re.match(r"^[A-Za-z0-9_.:\-/]+$", v):
+        if not is_valid_identifier(v):
             raise ValueError(f"identificator respins: {v!r}")
         return v
 

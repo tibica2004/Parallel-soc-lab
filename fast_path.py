@@ -38,7 +38,7 @@ from hunt_path import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
 )
 from llm import NO_THINK, get_llm, parse_json_response
-from schemas import MITRE_RE, ActionType, Classification, EntityType, Verdict
+from schemas import MITRE_RE, ActionType, Classification, EntityType, Verdict, screen_action_target
 from tracing import record_llm
 
 BASELINE_PC = "baseline-entity-parentchild"
@@ -615,6 +615,15 @@ def node_finalize(state: FastState) -> dict:
         if os.environ.get("VERBOSE") == "1":
             print("      podea 4: serverul web a pornit un proces -> malicious, escaladat", flush=True)
 
+    # Tinta invalida propusa de model: fara tinta, la om (inainte arunca exceptie in Verdict).
+    target = None
+    if action != "none":
+        target, rejected = screen_action_target(v.get("action_target"))
+        if rejected:
+            action = "escalate_human"
+            if os.environ.get("VERBOSE") == "1":
+                print("      tinta actiunii respinsa (identificator invalid) -> escalate_human", flush=True)
+
     verdict = Verdict(
         investigation_id=str(uuid.uuid4()), source_path="fast",
         entity_type=EntityType.HOST, entity_id=ctx.get("host", "unknown"),
@@ -623,7 +632,7 @@ def node_finalize(state: FastState) -> dict:
         mitre_techniques=[t for t in (v.get("mitre_techniques") or [])
                           if isinstance(t, str) and MITRE_RE.match(t)][:10],
         proposed_action=ActionType(action),
-        action_target=v.get("action_target") if action != "none" else None,
+        action_target=target,
         model_id=os.environ.get("MODEL_FAST", "qwen3:14b"),
     )
     return {"verdict": verdict, "narrative": v.get("narrative", ""),

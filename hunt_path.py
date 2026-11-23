@@ -42,7 +42,7 @@ import maintenance
 from elastic_tools import HUNT_TOOLS, ES, _esql
 from tracing import record_llm
 from llm import get_llm, parse_json_response, NO_THINK
-from schemas import MITRE_RE
+from schemas import MITRE_RE, screen_action_target
 from schemas import (
     ActionType,
     Classification,
@@ -832,6 +832,13 @@ def node_finalize(state: HuntState) -> dict:
             print(f"      podea Tier 2: {p.get('classification')} cu {action.value} -> escalate_human", flush=True)
         action = floored
 
+    # Tinta invalida propusa de model: fara tinta, la om (inainte arunca exceptie in Verdict).
+    target, rejected = screen_action_target(p.get("action_target"))
+    if rejected:
+        action = ActionType.ESCALATE_HUMAN
+        if os.environ.get("VERBOSE") == "1":
+            print("      tinta actiunii respinsa (identificator invalid) -> escalate_human", flush=True)
+
     verdict = Verdict(
         investigation_id=state["investigation_id"], source_path="hunt",
         entity_type=f.entity_type if f is not None else EntityType.HOST,
@@ -840,7 +847,7 @@ def node_finalize(state: HuntState) -> dict:
         confidence=conf,
         rarity_score=f.rarity_score if f is not None else (c.rarity_score if c.rarity_score is not None else 1.0),
         mitre_techniques=[t for t in (p.get("mitre_techniques") or []) if isinstance(t, str) and MITRE_RE.match(t)][:10], evidence_refs=subject.evidence_refs,
-        proposed_action=action, action_target=p.get("action_target"),
+        proposed_action=action, action_target=target,
         model_id=llm_primary.model_name if hasattr(llm_primary, "model_name") else "qwen3:14b",
         tokens_used=state.get("tokens_a", 0) + state.get("tokens_b", 0),
         tool_calls_made=state.get("tool_calls_a", 0) + state.get("tool_calls_b", 0),
