@@ -100,6 +100,11 @@ momentul prelucrarii. Conditie pentru cozi: o alerta poate fi prelucrata cu inta
 Gata cand: testul de intarziere trece; determinismul pe calea rapida ramane >= 98%.
 Poarta: fast, dev, validare, injectie, suita. Oprire: orice verdict schimbat fata de referinta.
 
+Stare 2026-11-23: cod si teste pe `faza-25-timpul-alertei` (inventar si decizii in
+docs/faza-25-timpul-alertei.md). Testul de intarziere trece. Omul a cerut faza 25 inainte de
+portile pe `faza-23-decizii` si `faza-24-structura-pachet`: portile, determinismul si verificarea
+`TO_DATETIME(?)` pe ES-ul real raman de rulat.
+
 ## Faza 26 — contracte de mesaje si plicul de rezultat (`faza-26-contracte-unelte`)
 
 Scop: forme fixe pentru ce va circula prin cozi si pentru ce intorc uneltele.

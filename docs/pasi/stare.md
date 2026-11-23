@@ -694,3 +694,9 @@ Worktree `~/lab-refactor` (`~/lab` neatins, ramane 80a867c). Planul: docs/plan-r
   elasticlab/paths.py. pytest 1387 verzi (cele 1265 de plecare + 122 noi), prompt_set neschimbat,
   --help identic pe 14 scripturi, regula de importuri: tier1 <-> tier2 incalcata de 3 importuri
   (docs/faza-24-importuri.md).
+- `faza-25-timpul-alertei` (din faza-24-structura-pachet), la cererea omului inainte de porti:
+  ferestrele logicii de verdict fata de momentul alertei (elasticlab/core/eventtime.py). Tier 2
+  (contextul preadus, cele 6 unelte, istoricul), istoricul etichetat din calea rapida, momentul pe
+  finding-uri (sweep si harness). Fara ancora, interogarile sunt cele vechi. Test de intarziere
+  simulata 60 min, cap la cap. pytest 1418 verzi, prompt_set neschimbat, regula de importuri ca in
+  faza 24. Inventar si decizii: docs/faza-25-timpul-alertei.md. ATINGE VERDICTUL: porti nerulate.
