@@ -15,6 +15,8 @@ from types import ModuleType
 
 # cale veche (nume de modul in radacina) -> modulul nou. Sursa unica pentru fisierele subtiri si teste.
 MOVED: dict[str, str] = {
+    "label_ui": "elasticlab.apps.label_ui",
+    "orchestrator": "elasticlab.apps.orchestrator",
     "schemas": "elasticlab.contracts.schemas",
     "degraded": "elasticlab.core.degraded",
     "escalation": "elasticlab.core.escalation",

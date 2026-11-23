@@ -7,6 +7,7 @@ import uuid
 import orchestrator
 from escalation import EscalationDecision
 from schemas import AuditRecord, EscalationReason as R, Verdict
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 
 def _verdict(cls="benign", conf=95, source="fast"):
@@ -40,7 +41,7 @@ def test_escaladarea_ajunge_in_persist(monkeypatch):
         {"verdict": _verdict("suspicious", 60), "narrative": "", "floor_applied": True,
          "context": {"pair_in_baseline": True}},
     ]
-    monkeypatch.setitem(sys.modules, "fast_path", _fast(outs))
+    swap_module(monkeypatch, "fast_path", _fast(outs))
     monkeypatch.setattr(orchestrator, "show", lambda *a, **k: None)
     rec = Rec()
     monkeypatch.setattr(orchestrator, "persist", rec)
@@ -56,7 +57,7 @@ def test_escaladarea_ajunge_in_persist(monkeypatch):
 
 def test_lipsa_faptelor_nu_inchide(monkeypatch):
     # Fara context/floor_applied in iesire, pair_in_baseline=None -> benign escaladeaza.
-    monkeypatch.setitem(sys.modules, "fast_path", _fast([{"verdict": _verdict("benign", 95), "narrative": ""}]))
+    swap_module(monkeypatch, "fast_path", _fast([{"verdict": _verdict("benign", 95), "narrative": ""}]))
     monkeypatch.setattr(orchestrator, "show", lambda *a, **k: None)
     rec = Rec()
     monkeypatch.setattr(orchestrator, "persist", rec)
@@ -106,7 +107,7 @@ def test_main_manual_foloseste_aceleasi_functii(monkeypatch):
                         lambda alerts, seen, stats=None, model_ok=True, t2_limit=0: calls.setdefault("alerts", (alerts, seen, t2_limit)))
     monkeypatch.setattr(orchestrator, "process_findings",
                         lambda findings, seen, limit, model_ok=True: calls.setdefault("findings", (findings, limit)))
-    monkeypatch.setitem(sys.modules, "elastic_tools",
+    swap_module(monkeypatch, "elastic_tools",
                         types.SimpleNamespace(run_full_sweep=lambda h: ["F"]))
     monkeypatch.setattr(sys, "argv", ["orchestrator.py", "--minutes", "60", "--sweep", "--limit", "7"])
     assert orchestrator.main() == 0
@@ -119,7 +120,7 @@ def test_sweep_trece_prin_decide_si_persist(monkeypatch):
     from schemas import EntityType, RarityFinding
     f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
                       detail={"parent": "dash", "child": "id"}, rarity_score=1.0)
-    monkeypatch.setitem(sys.modules, "hunt_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "hunt_path", types.SimpleNamespace(
         build_hunt_path=lambda: types.SimpleNamespace(
             invoke=lambda inp, config=None: {"verdict": _verdict("malicious", 95, "hunt"), "narrative": ""})))
     decided = Rec()

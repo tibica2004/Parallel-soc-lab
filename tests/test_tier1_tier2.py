@@ -13,6 +13,7 @@ import hunt_path
 import orchestrator
 from escalation import EscalationDecision
 from schemas import Case, EntityType, EscalationReason as R, RarityFinding, Verdict
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 CID = str(uuid.uuid4())
 ESC = EscalationDecision(escalate=True, reasons=[R.SUSPICIOUS, R.LOW_CONFIDENCE])
@@ -188,7 +189,7 @@ def rec(monkeypatch):
 
 def _fast(monkeypatch, classes):
     it = iter(classes)
-    monkeypatch.setitem(sys.modules, "fast_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "fast_path", types.SimpleNamespace(
         build_fast_path=lambda: types.SimpleNamespace(invoke=lambda inp, config=None: {
             "verdict": _verdict(next(it)), "narrative": "T1 crede ca e suspect",
             "context": {"pair_in_baseline": True, "execution": {"parent": "dash", "process": "id"}}}),
@@ -213,7 +214,7 @@ def test_tier2_cu_buget(monkeypatch, rec):
 
 
 def test_neescaladat_nu_merge_la_tier2(monkeypatch, rec):
-    monkeypatch.setitem(sys.modules, "fast_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "fast_path", types.SimpleNamespace(
         build_fast_path=lambda: types.SimpleNamespace(invoke=lambda inp, config=None: {
             "verdict": Verdict(investigation_id="x", source_path="fast", entity_type="host",
                                entity_id="web-prod", classification="benign", confidence=95,
@@ -233,7 +234,7 @@ def test_esecul_tier1_merge_la_tier2(monkeypatch, rec):
 
 
 def test_huntrunner_pastreaza_lantul(monkeypatch, rec):
-    monkeypatch.setitem(sys.modules, "hunt_path", types.SimpleNamespace(build_hunt_path=lambda: types.SimpleNamespace(
+    swap_module(monkeypatch, "hunt_path", types.SimpleNamespace(build_hunt_path=lambda: types.SimpleNamespace(
         invoke=lambda inp, config=None: {"verdict": _verdict("benign", "hunt"), "narrative": "benign"})))
     r = orchestrator.HuntRunner(model_ok=True)
     assert r.run({"case": _case()}, "TIER2", "e", "web-prod", chain_id=CID) is None

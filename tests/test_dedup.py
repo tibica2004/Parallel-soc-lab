@@ -5,6 +5,7 @@ import orchestrator
 from schemas import Verdict
 import state
 from orchestrator import BoundedSeen
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 
 class Clock:
@@ -94,7 +95,7 @@ def test_alerta_esuata_e_escaladata_si_marcata(monkeypatch):
         if inp["alert"]["process"]["entity_id"] == "E1":
             raise RuntimeError("model cazut")
         return {"verdict": _verdict(), "narrative": ""}
-    monkeypatch.setitem(__import__("sys").modules, "fast_path",
+    swap_module(monkeypatch, "fast_path",
                         types.SimpleNamespace(build_fast_path=lambda: types.SimpleNamespace(invoke=invoke)))
     monkeypatch.setattr(orchestrator, "decide", lambda v: None)
     monkeypatch.setattr(orchestrator, "show", lambda *a, **k: None)
@@ -116,7 +117,7 @@ def test_finding_esuat_nu_e_marcat(monkeypatch):
         if inp["finding"] is f_bad:
             raise TimeoutError("timeout")
         return {"verdict": _verdict(), "narrative": ""}
-    monkeypatch.setitem(__import__("sys").modules, "hunt_path",
+    swap_module(monkeypatch, "hunt_path",
                         types.SimpleNamespace(build_hunt_path=lambda: types.SimpleNamespace(invoke=invoke)))
     monkeypatch.setattr(orchestrator, "decide", lambda v: None)
     monkeypatch.setattr(orchestrator, "show", lambda *a, **k: None)

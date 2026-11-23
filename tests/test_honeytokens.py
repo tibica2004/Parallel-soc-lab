@@ -13,6 +13,7 @@ import orchestrator
 from escalation import should_escalate
 from schemas import ActionType as A, Case, EscalationReason as R, Verdict
 from tests.test_tier1_tier2 import CID, FakeHunt, _alert, rec  # noqa: F401  (fixture)
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 
 def V(cls="benign", conf=99):
@@ -125,7 +126,7 @@ def test_model_cazut_pastreaza_motivul(rec):
 
 
 def test_benign_de_la_model_tot_escaladeaza(monkeypatch, rec):
-    monkeypatch.setitem(sys.modules, "fast_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "fast_path", types.SimpleNamespace(
         build_fast_path=lambda: types.SimpleNamespace(invoke=lambda inp, config=None: {
             "verdict": V("benign", 99), "narrative": "", "context": {"pair_in_baseline": True}}),
         lookup_asset=lambda h: {}))

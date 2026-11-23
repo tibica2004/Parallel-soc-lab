@@ -369,7 +369,7 @@ def _hunt_template(plan: HU.HuntPlan, src: str, perr: str | None, write: bool, s
     print(f"  rezultat: {status} ({len(gs)} potriviri)" + (f" — {err}" if err else ""), flush=True)
     if write:
         try:
-            import orchestrator
+            from elasticlab.apps import orchestrator
             if orchestrator.WRITER is not None:
                 orchestrator.WRITER.index(index=HUNT_INDEX, document=rec)
         except Exception as e:
@@ -405,7 +405,7 @@ def run_hunts(n: int, write: bool, state_path: Path, technique: str | None = Non
     techs = [technique] if technique else HU.pick_techniques(tech_state, n, priority=gap_techniques())
     budget = {"left": tier2_budget}
     if write and runner is None:
-        import orchestrator
+        from elasticlab.apps import orchestrator
         runner = orchestrator.HuntRunner()
     results = []
     for tech in techs:
@@ -456,7 +456,7 @@ def nday_hypothesis(cves: list[str], t: HU.Template) -> str:
 
 def run_nday_hunts(write: bool, state_path: Path, runner=None, es=None) -> list[dict]:
     if es is None:
-        import orchestrator
+        from elasticlab.apps import orchestrator
         es = orchestrator.WRITER
     if es is None:
         print("[N-DAY] fara cheie ES (ES_WRITER_API_KEY): cererile raman pending", flush=True)
@@ -469,7 +469,7 @@ def run_nday_hunts(write: bool, state_path: Path, runner=None, es=None) -> list[
     if not reqs:
         return []
     if write and runner is None:
-        import orchestrator
+        from elasticlab.apps import orchestrator
         runner = orchestrator.HuntRunner()
     state = HU.load_state(state_path)
     seen = HU.prune_seen(state.get("seen", {}), HU.now())
@@ -577,7 +577,7 @@ def run_exposure(hours: int, write: bool, state_path: Path, host: str | None = N
     matches: list[dict] = []
     budget = tier2_budget
     if write and correlations and runner is None:
-        import orchestrator
+        from elasticlab.apps import orchestrator
         runner = orchestrator.HuntRunner()
     for c in correlations:
         key = EXP.correlation_key(host, c)
@@ -621,7 +621,7 @@ def run_exposure(hours: int, write: bool, state_path: Path, host: str | None = N
     print(f"  rezultat: {status} ({len(correlations)} corelatii)", flush=True)
     if write:
         try:
-            import orchestrator
+            from elasticlab.apps import orchestrator
             if orchestrator.WRITER is not None:
                 orchestrator.WRITER.index(index=HUNT_INDEX, document=rec)
         except Exception as e:

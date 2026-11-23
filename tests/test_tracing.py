@@ -14,6 +14,7 @@ import elastic_tools
 import orchestrator
 import tracing
 from schemas import EvidenceRef, Verdict
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 TS = "2026-10-09T10:00:00.000Z"
 
@@ -149,7 +150,7 @@ def test_alerta_si_urma_devin_evidence_refs(monkeypatch):
         tool()
         tracing.record_llm("fast.verdict", 300, 1200)
         return {"verdict": _verdict(), "narrative": "", "context": {"pair_in_baseline": True}}
-    monkeypatch.setitem(sys.modules, "fast_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "fast_path", types.SimpleNamespace(
         build_fast_path=lambda: types.SimpleNamespace(invoke=invoke), lookup_asset=lambda h: {}))
     alert = {"@timestamp": TS, "host": {"name": "web-prod"}, "kibana.alert.rule.name": "R",
              "process": {"entity_id": "E1"}, "_soc_ref": {"index": ".internal.alerts-x", "id": "AL1"}}
