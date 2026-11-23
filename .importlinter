@@ -1,0 +1,48 @@
+# Regula de importuri (faza 24, docs/plan-refactorizare.md). Rulare: `lint-imports` din radacina.
+# Pana in faza 33 incalcarile se LISTEAZA (docs/faza-24-importuri.md), nu se repara; in faza 33
+# regula devine obligatorie. import-linter nu e in requirements: se instaleaza separat, nu in venv-ul
+# de productie.
+[importlinter]
+root_package = elasticlab
+
+[importlinter:contract:contracts]
+name = contracts nu importa din restul pachetului
+type = forbidden
+source_modules =
+    elasticlab.contracts
+forbidden_modules =
+    elasticlab.core
+    elasticlab.intake
+    elasticlab.tier1
+    elasticlab.tier2
+    elasticlab.tier3
+    elasticlab.store
+    elasticlab.bus
+    elasticlab.ops
+    elasticlab.extras
+    elasticlab.eval
+    elasticlab.apps
+
+[importlinter:contract:core]
+name = core importa doar din contracts
+type = forbidden
+source_modules =
+    elasticlab.core
+forbidden_modules =
+    elasticlab.intake
+    elasticlab.tier1
+    elasticlab.tier2
+    elasticlab.tier3
+    elasticlab.store
+    elasticlab.bus
+    elasticlab.ops
+    elasticlab.extras
+    elasticlab.eval
+    elasticlab.apps
+
+[importlinter:contract:tier1-tier2]
+name = tier1 si tier2 nu se importa intre ele
+type = independence
+modules =
+    elasticlab.tier1
+    elasticlab.tier2

@@ -50,3 +50,16 @@ def test_caile_din_execstart_exista():
     scripts = _execstart_scripts()
     assert ("soc-orchestrator.service", "orchestrator.py") in scripts
     assert [s for s in scripts if not (REPO_ROOT / s[1]).exists()] == []
+
+
+def test_elasticlab_nu_importa_pe_caile_vechi():
+    """Altfel regula de importuri (.importlinter) nu ar vedea dependenta: numele vechi sunt module
+    din afara pachetului. (prompts.REGISTRY numeste modulele ca siruri; trece prin fisierele subtiri.)"""
+    import ast
+    bad = []
+    for p in REPO_ROOT.glob("elasticlab/**/*.py"):
+        for n in ast.walk(ast.parse(p.read_text(encoding="utf-8"))):
+            names = ([a.name for a in n.names] if isinstance(n, ast.Import)
+                     else [n.module] if isinstance(n, ast.ImportFrom) and n.level == 0 else [])
+            bad += [f"{p.relative_to(REPO_ROOT)}:{n.lineno} {m}" for m in names if m and m.split(".")[0] in MOVED]
+    assert bad == []
