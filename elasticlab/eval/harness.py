@@ -165,6 +165,8 @@ def run_hunt(scenario: dict):
         entity_type=EntityType.HOST,
         entity_id=d["host"], detail=d["detail"],
         rarity_score=d.get("rarity_score", 1.0), evidence_refs=[],
+        # faza 25: ca run_full_sweep, finding-ul poarta momentul in care e produs
+        observed_at=datetime.now(timezone.utc),
     )
     graph = build_hunt_path()
     res = graph.invoke({"finding": finding}, config={"recursion_limit": 80})
