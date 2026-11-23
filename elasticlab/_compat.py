@@ -41,6 +41,11 @@ MOVED: dict[str, str] = {
     "elastic_tools": "elasticlab.tier2.elastic_tools",
     "hunt_path": "elasticlab.tier2.hunt_path",
     "risk": "elasticlab.tier2.risk",
+    "hunt": "elasticlab.tier3.hunt",
+    "incidents": "elasticlab.tier3.incidents",
+    "kibana_rules": "elasticlab.tier3.kibana_rules",
+    "rules": "elasticlab.tier3.rules",
+    "tier3": "elasticlab.tier3.tier3",
 }
 
 
