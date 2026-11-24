@@ -111,6 +111,9 @@ class EscalationReason(str, Enum):
     # Momeala atinsa de pe un IP propriu (WP_SELF_IPS) sau al generatorului benign
     # (BENIGN_GEN_IPS): eroare de configurare, nu intruziune. Tot la om, fara paginare.
     HONEYTOKEN_CONFIG_ERROR = "honeytoken_config_error"
+    # Faza 26: o regula a produs, de la aceeasi sursa, mai multe cazuri distincte decat pragul de
+    # potop (intake.grouping): restul ferestrei merge la om ca UN incident, fara model.
+    FLOOD = "flood"
     # Detectie a unui senzor propriu (sensor_rules.RULES: YARA pe webroot sau Suricata
     # IDS pe atac web): poate fi fals pozitiva, dar nu o inchide Tier 1 singur.
     SENSOR_DETECTION = "sensor_detection"
