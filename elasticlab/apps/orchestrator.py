@@ -21,6 +21,11 @@ Un ciclu (run_positioned):
   9. Sweep-ul de raritate (run_full_sweep) la fiecare --sweep-every cicluri -> findings -> Tier 2
      (--hunt-limit per ciclu).
 
+Faza 26: SOC_PIPELINE (din mediu) alege intrarea. `legacy` (implicit) = pasii 2-3 de mai sus,
+neschimbati. `intake` = citire paginata a ferestrei intregi (intake.adapter), grupare cu potop
+si contabilitate (intake.grouping), clasele critice notificate la intrare (intake.critical);
+judecata (pasii 4-6) e aceeasi.
+
 SHADOW_MODE e fortat in ExecStart (deploy/soc-orchestrator.service): decide() calculeaza si
 logheaza, nu executa. Rularea manuala (fara --loop) foloseste aceleasi functii, dedup doar in
 memorie, si nu atinge pozitia serviciului:
@@ -32,12 +37,16 @@ memorie, si nu atinge pozitia serviciului:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import os
 import time
 import uuid
 from datetime import datetime, timezone
 
+# Faza 26: cheia de deduplicare, gruparea, plafonul si cheile vazute stau in intake.grouping
+# (mutate, nu rescrise); raman importabile de aici sub aceleasi nume.
+from elasticlab.intake.grouping import (CASE_MAX_REFS, SEEN_TTL_HOURS, BoundedSeen,  # noqa: F401
+                                        FloodTracker, case_extra, dedup_key_alert, group_alerts,
+                                        plan_cycle, take_until_cap)
 from elasticlab.tier2 import case_adapter
 from elasticlab.core import degraded
 from elasticlab.tier1 import behavioral_rules
@@ -90,6 +99,18 @@ def _g(d: dict, path: str):
 # proaspata si inca nemasurata nu are voie sa inunde triajul (rules.py).
 SHADOW_RULE_TAG = "tier3-shadow"
 
+# Comutatorul caii de intrare (din mediu, nu din ExecStart):
+#   legacy  — calea de azi: o pagina de --fetch-limit alerte, take_until_cap, paginare dupa verdict.
+#   intake  — faza 26, in acelasi proces: citire paginata (intake.adapter), grupare cu potop si
+#             contabilitate (intake.grouping), notificarea claselor critice la intrare (intake.critical).
+#   queue   — faza cozilor; nu exista inca, orchestratorul refuza sa porneasca.
+# `legacy` ramane implicit pana trece testul de incarcare.
+PIPELINES = ("legacy", "intake")
+
+
+def pipeline() -> str:
+    return os.environ.get("SOC_PIPELINE", "legacy").strip().lower() or "legacy"
+
 
 def fetch_alerts_between(since, until, limit: int) -> list[dict]:
     """Alertele deschise din intervalul (since, until], cele mai vechi intai.
@@ -114,67 +135,6 @@ def fetch_new_alerts(minutes: int, limit: int) -> list[dict]:
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
     return fetch_alerts_between(now - timedelta(minutes=minutes), now, limit)
-
-
-def dedup_key_alert(a: dict) -> str:
-    """Doua alerte de la aceeasi regula, pe aceeasi entitate de proces, sunt
-    acelasi caz — nu-l investigam de doua ori. Alertele fara proces si fara
-    fisier (cereri web, autentificari) se separa dupa IP-ul sursa: altfel un al
-    doilea atacator pe aceeasi regula ar fi sarit ca duplicat 24 de ore.
-    Alertele din jurnal (YARA, AIDE, MySQL, auditd) n-au nici proces, nici fisier,
-    nici IP: se separa dupa hash-ul mesajului, altfel a doua potrivire YARA pe alt
-    fisier ar fi sarita ca duplicat 24 de ore (gasit la testul 3.E)."""
-    msg = _g(a, "message")
-    return "|".join(str(x) for x in [
-        _g(a, "kibana.alert.rule.name"),
-        _g(a, "host.name"),
-        _g(a, "process.entity_id") or _g(a, "file.path") or _g(a, "source.ip")
-        or (hashlib.sha256(msg.encode()).hexdigest()[:16] if isinstance(msg, str) and msg else ""),
-    ])
-
-
-CASE_MAX_REFS = 50
-
-
-def group_alerts(alerts: list[dict]) -> list[tuple[str, list[dict]]]:
-    """Pasul 10.2: alertele lotului grupate dupa cheia de deduplicare (aceeasi regula, acelasi
-    host, acelasi proces / fisier / IP sursa), in ordinea primei aparitii. Un grup = un caz:
-    se judeca o data (prima alerta), iar ID-urile celorlalte devin dovezi ale aceluiasi verdict.
-    Alertele de host fara proces/fisier/IP raman separate (cheia lor include hash-ul mesajului).
-    Pur."""
-    groups: dict[str, list[dict]] = {}
-    for a in alerts:
-        groups.setdefault(dedup_key_alert(a), []).append(a)
-    return list(groups.items())
-
-
-def take_until_cap(alerts: list[dict], seen, cap: int) -> list[dict]:
-    """Prefixul lotului (in ordinea timpului) care contine cel mult `cap` cazuri NOI.
-    Duplicatele (cheie deja in `seen`) nu costa nimic si nu consuma plafonul: un flood de
-    alerte identice se dreneaza intr-un ciclu, nu in ore. Masurat 2026-11-03: 1797 de alerte
-    din auto-atac, cele mai multe duplicate, tineau cursorul 2 h 40 min in urma cu plafonul
-    pe alerte brute -> un atac real ar fi fost vazut abia dupa. Pur."""
-    if cap <= 0:
-        return list(alerts)
-    new_keys: set[str] = set()
-    out: list[dict] = []
-    for a in alerts:
-        k = dedup_key_alert(a)
-        if k not in seen and k not in new_keys:
-            if len(new_keys) >= cap:
-                break
-            new_keys.add(k)
-        out.append(a)
-    return out
-
-
-def case_extra(members: list[dict]) -> dict:
-    """Ce se adauga in audit/verdict cand un caz are mai multe alerte. Pur."""
-    if len(members) < 2:
-        return {}
-    ts = sorted(t for t in (_g(a, "@timestamp") for a in members) if t)
-    return {"case_alert_count": len(members), "case_first_ts": ts[0] if ts else None,
-            "case_last_ts": ts[-1] if ts else None}
 
 
 # Ce identifica un finding, pe tip (fara contoare, care cresc de la un sweep la altul).
@@ -373,6 +333,9 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     # 0.4: pagineaza omul DOAR pentru escaladarile critice (momeala/senzor/detectie
     # nativa). Merge si in shadow (vrei sa stii ca s-a atins momeala, chiar fara actiune).
     # Garda: o eroare de notificare nu are voie sa strice calea de audit.
+    # Faza 26 (SOC_PIPELINE=intake): omul a fost notificat deja la intrare -> nu se pagineaza iar.
+    if (extra or {}).get("notified_at_intake"):
+        return
     try:
         notify.maybe_notify_escalation(verdict, narrative, escalation, failure,
                                        rule_name=(extra or {}).get("rule_name"),
@@ -383,7 +346,7 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
 
 _CASES_ES = None
 _cases_warned = False
-_ORIGIN = {"RAPID": "tier1_alert", "TIER2": "tier1_alert", "LENT": "rarity_sweep",
+_ORIGIN = {"RAPID": "tier1_alert", "TIER2": "tier1_alert", "POTOP": "tier1_alert", "LENT": "rarity_sweep",
            "VANATOARE": "tier3_hunt", "N-DAY": "tier3_hunt"}
 
 
@@ -431,56 +394,6 @@ def show(kind: str, entity: str, verdict, narrative: str, decision=None,
         print(f"    {narrative[:180]}")
 
 
-
-
-from collections import OrderedDict
-
-
-# Cat timp ramane o cheie "vazuta". Dupa expirare, acelasi caz (ex. aceeasi
-# pereche parinte-copil) se investigheaza din nou: un atac de saptamana viitoare
-# nu are voie sa fie sarit doar pentru ca perechea a mai aparut o data.
-SEEN_TTL_HOURS = float(os.environ.get("SEEN_TTL_HOURS", "24"))
-
-
-class BoundedSeen:
-    """Chei deja procesate, cu memorie limitata: un proces care ruleaza saptamani
-    nu trebuie sa creasca la nesfarsit. Se uita cele mai vechi si cele expirate."""
-    def __init__(self, maxlen: int = 5000, ttl_hours: float = SEEN_TTL_HOURS,
-                 entries: list[tuple[str, float]] | None = None, clock=time.time):
-        self._d: OrderedDict = OrderedDict()   # cheie -> epoch cand a fost marcata
-        self.maxlen = maxlen
-        self.ttl = ttl_hours * 3600
-        self._clock = clock
-        for k, t in sorted(entries or [], key=lambda e: e[1]):
-            self._put(k, t)
-        self._expire()
-
-    def _put(self, k, t: float) -> None:
-        self._d[k] = t
-        self._d.move_to_end(k)
-        if len(self._d) > self.maxlen:
-            self._d.popitem(last=False)
-
-    def _expire(self) -> None:
-        limit = self._clock() - self.ttl
-        while self._d and next(iter(self._d.values())) < limit:
-            self._d.popitem(last=False)
-
-    def __contains__(self, k) -> bool:
-        self._expire()
-        return k in self._d
-
-    def __len__(self) -> int:
-        self._expire()
-        return len(self._d)
-
-    def add(self, k) -> None:
-        self._put(k, self._clock())
-
-    def entries(self) -> list[tuple[str, float]]:
-        """Cele mai vechi primele, ca la reincarcare sa se pastreze ordinea."""
-        self._expire()
-        return list(self._d.items())
 
 
 def _save_seen(seen: BoundedSeen) -> None:
@@ -624,6 +537,47 @@ OVER_BUDGET_NARRATIVE = ("Peste bugetul de investigatii al sweep-ului: escaladat
                          "verdict de model, ca sa nu fie pierdut (R9).")
 
 
+def flood_narrative(fc) -> str:
+    return (f"Potop: {len(fc.distinct_keys)} cazuri distincte ({len(fc.members)} alerte) din aceeasi "
+            f"regula de la aceeasi sursa, in fereastra care incepe la {fc.window}, peste pragul de "
+            f"cazuri pe (regula, sursa). Escaladat la om ca un singur incident, fara verdict de model.")
+
+
+def process_floods(floods, seen, stats: dict | None = None) -> None:
+    """Faza 26: un incident de potop = UN verdict scris de cod (undetermined + escalate_human,
+    motiv `flood`), cu referinte la primele CASE_MAX_REFS alerte si contorul tuturor. Marcat
+    vazut doar dupa ce s-a scris; altfel se reemite la ciclul urmator (nu se pierde)."""
+    from elasticlab.contracts.schemas import EscalationReason
+    for fc in floods:
+        sdnotify.watchdog()
+        entity = f"{fc.host} · {fc.rule} (potop de la {fc.source}, {len(fc.members)} alerte)"
+        try:
+            ts = sorted(t for t in (_g(a, "@timestamp") for a in fc.members) if t)
+            _record("POTOP", entity, degraded.no_model_verdict(fc.host, "fast"), flood_narrative(fc),
+                    datetime.now(timezone.utc),
+                    {"rule_name": fc.rule, "case_alert_count": len(fc.members),
+                     "case_first_ts": ts[0] if ts else None, "case_last_ts": ts[-1] if ts else None},
+                    escalation=EscalationDecision(escalate=True, reasons=[EscalationReason.FLOOD]),
+                    refs=[alert_ref(x) for x in fc.members[:CASE_MAX_REFS]])
+            seen.add(fc.key)
+            if stats is not None:
+                stats["flood_cases"] = stats.get("flood_cases", 0) + 1
+        except Exception as e:
+            print(f"  [EROARE la inregistrarea potopului, se reia la ciclul urmator] {entity}: {e}",
+                  flush=True)
+
+
+def intake_cycle(since, until, seen, cap: int, flood: FloodTracker, *, max_alerts: int,
+                 page_size: int):
+    """Faza 26: citire paginata + normalizare + grupare + potop + contabilitate (fara model).
+    Intoarce PlanCiclu (intake.grouping)."""
+    from elasticlab.intake import adapter
+    fetched, pages, truncated = adapter.read_window(ES, since, until, page_size=page_size,
+                                                    max_alerts=max_alerts)
+    return plan_cycle(fetched, seen, cap, normalize=adapter.normalize, flood=flood,
+                      truncated=truncated, pages=pages)
+
+
 INTEGRITY_MAX_AGE_MIN = float(os.environ.get("INTEGRITY_MAX_AGE_MIN", "5"))
 _integrity_warned = False
 
@@ -658,12 +612,74 @@ def _integrity_watch(now: datetime) -> None:
             _integrity_warned = True
 
 
+def _run_legacy(since, until, seen, stats: dict, args, cycle: int, stamp: str) -> list[dict]:
+    """Calea de azi (SOC_PIPELINE=legacy), neschimbata. Intoarce alertele consumate."""
+    # Citim mai mult decat judecam: plafonul --limit e pe CAZURI NOI (judecate cu
+    # model), nu pe alerte brute; duplicatele se dreneaza gratis (take_until_cap).
+    fetched = fetch_alerts_between(since, until, max(args.fetch_limit, args.limit))
+    alerts = take_until_cap(fetched, seen, args.limit)
+    left = len(fetched) - len(alerts)
+    print(f"[{stamp}] ciclu {cycle}: {len(alerts)} alerte in "
+          f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]"
+          + (f" (+{left} ramase pentru ciclul urmator)" if left else ""), flush=True)
+    fast_ok = degraded.llm_healthy("fast") if alerts else True
+    last_ts = process_alerts(alerts, seen, stats, model_ok=fast_ok, t2_limit=args.t2_limit)
+    _save_seen(seen)
+    if (left or len(fetched) >= max(args.fetch_limit, args.limit)) and last_ts:
+        # fereastra nu s-a golit: continuam exact de la ultima alerta consumata
+        save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
+    else:
+        save_cursor(until)   # fereastra golita (sau goala): avansam
+    return alerts
+
+
+def _run_intake(since, until, seen, stats: dict, flood: FloodTracker, args, cycle: int,
+                stamp: str) -> list[dict]:
+    """Faza 26 (SOC_PIPELINE=intake): intrarea noua, apoi ACEEASI judecata ca pe calea veche.
+
+    1. citire paginata a ferestrei intregi; normalizare; grupare; potop; contabilitate;
+    2. clasele critice notificate ACUM, inainte de model si de plafon;
+    3. process_alerts pe cazurile obisnuite (neschimbat), process_floods pe incidentele de potop;
+    4. cursorul: capatul ferestrei daca s-a golit, altfel ultima alerta consumata.
+    Intoarce alertele consumate (fara cele absorbite in potop)."""
+    from elasticlab.intake import adapter, critical
+    plan = intake_cycle(since, until, seen, args.limit, flood, max_alerts=args.intake_max,
+                        page_size=args.intake_page)
+    acct = plan.acct
+    print(f"[{stamp}] ciclu {cycle}: citite {acct.citite} in "
+          f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}] -> {acct.cazuri} cazuri, "
+          f"{acct.grupate} grupate, {acct.in_potop} in potop ({acct.incidente_potop} incidente), "
+          f"{acct.amanate} amanate" + (" [citire trunchiata]" if acct.trunchiat else ""), flush=True)
+    if not acct.ok():                       # nu se intampla; daca se intampla, se vede
+        print(f"  [contabilitate] NEECHILIBRATA: {acct.model_dump()}", flush=True)
+    notified: set[str] = set()
+    if plan.critical:
+        notified = critical.notify_critical(plan.critical, send=notify.notify_human,
+                                            recent=notify.recent, shadow=shadow_mode())
+        acct.critice_notificate = len(notified)
+        print(f"  CRITICE la intrare: {len(plan.critical)} cazuri noi, {len(notified)} notificate",
+              flush=True)
+    fast_ok = degraded.llm_healthy("fast") if plan.alerts else True
+    process_alerts(plan.alerts, seen, stats, model_ok=fast_ok, t2_limit=args.t2_limit,
+                   notified=notified)
+    process_floods(plan.floods, seen, stats)
+    _save_seen(seen)
+    save_cursor(adapter.next_cursor(since, until, plan.last_ts, acct.amanate, acct.trunchiat))
+    stats["intake"] = acct.model_dump()
+    return plan.alerts
+
+
 def run_positioned(args) -> int:
     """Mod autonom. La fiecare ciclu: alertele de la pozitie pana la (acum - lag),
     apoi, la fiecare `sweep_every` cicluri, sweep-ul pe calea lenta. O eroare
     intr-un ciclu (Elasticsearch cazut, model indisponibil) nu opreste bucla."""
     seen = BoundedSeen(entries=load_seen())
     print(f"[dedup] {len(seen)} chei incarcate din soc-state", flush=True)
+    mode = pipeline()
+    flood = FloodTracker()
+    print(f"[intrare] SOC_PIPELINE={mode}"
+          + (f" (potop: prag {flood.threshold} cazuri / (regula, sursa) / {flood.window})"
+             if mode == "intake" else ""), flush=True)
     sdnotify.ready()
     tracing.take_llm_totals()        # porneste de la zero (verificarile de pornire pot fi apelat deja modelul)
     cycle = 0
@@ -674,27 +690,15 @@ def run_positioned(args) -> int:
         alerts, stats, run_sweep, cycle_error = [], {}, False, None
         try:
             since, until = load_cursor(), window_end()
-            # Citim mai mult decat judecam: plafonul --limit e pe CAZURI NOI (judecate cu
-            # model), nu pe alerte brute; duplicatele se dreneaza gratis (take_until_cap).
-            fetched = fetch_alerts_between(since, until, max(args.fetch_limit, args.limit))
-            alerts = take_until_cap(fetched, seen, args.limit)
-            left = len(fetched) - len(alerts)
-            print(f"[{stamp}] ciclu {cycle}: {len(alerts)} alerte in "
-                  f"[{since.strftime('%H:%M:%S')}, {until.strftime('%H:%M:%S')}]"
-                  + (f" (+{left} ramase pentru ciclul urmator)" if left else ""), flush=True)
             stats = {"total": 0, "escalated": 0, "no_model": 0}
-            fast_ok = degraded.llm_healthy("fast") if alerts else True
-            last_ts = process_alerts(alerts, seen, stats, model_ok=fast_ok, t2_limit=args.t2_limit)
-            _save_seen(seen)
+            if mode == "intake":
+                alerts = _run_intake(since, until, seen, stats, flood, args, cycle, stamp)
+            else:
+                alerts = _run_legacy(since, until, seen, stats, args, cycle, stamp)
             if stats["total"]:
                 print(f"  escaladare Tier 1 -> Tier 2: {stats['escalated']}/{stats['total']}"
                       f" (fara model: {stats['no_model']}; Tier 2: {stats.get('tier2', 0)} investigate, "
                       f"{stats.get('tier2_skipped', 0)} peste buget)", flush=True)
-            if (left or len(fetched) >= max(args.fetch_limit, args.limit)) and last_ts:
-                # fereastra nu s-a golit: continuam exact de la ultima alerta consumata
-                save_cursor(datetime.fromisoformat(last_ts.replace("Z", "+00:00")))
-            else:
-                save_cursor(until)   # fereastra golita (sau goala): avansam
 
             if args.metrics_every > 0 and (cycle - 1) % args.metrics_every == 0:
                 _metrics_snapshot()
@@ -719,6 +723,10 @@ def run_positioned(args) -> int:
             sweep_ran=bool(run_sweep), interval_s=args.interval)
         doc["error"] = cycle_error
         doc["prompt_set"] = PROMPT_SET or _prompt_set()
+        doc["pipeline"] = mode
+        if "intake" in stats:
+            doc["intake"] = stats["intake"]          # faza 26: contabilitatea intrarii
+            doc["flood_cases"] = int(stats.get("flood_cases", 0))
         err = cycle_metrics.write(WRITER, doc)
         if err:
             print(f"  [metrici ciclu] nescrise: {err}", flush=True)
@@ -732,7 +740,7 @@ def run_positioned(args) -> int:
 
 def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = None,
                    model_ok: bool = True, t2_limit: int = 0,
-                   hunt: HuntRunner | None = None) -> str | None:
+                   hunt: HuntRunner | None = None, notified: set[str] | None = None) -> str | None:
     """Trece fiecare alerta prin calea rapida + politica + escaladare + audit.
     Folosita si de modul manual si de cel cu pozitie (o singura implementare).
 
@@ -743,6 +751,9 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
     Tier 2: primele `t2_limit` alerte escaladate (in ordinea cozii) devin Case
     (case_adapter, FARA verdictul Tier 1) si trec prin calea lenta, cu acelasi
     chain_id; restul raman escaladate la om, marcate tier2=skipped_budget.
+
+    `notified` (faza 26) = cheile cazurilor deja notificate la intrare: verdictul lor nu mai
+    pagineaza omul a doua oara (persist).
 
     Intoarce cel mai nou @timestamp din lot (pentru avansarea pozitiei).
     `stats`, daca e dat, numara alertele procesate, escaladate, fara model si Tier 2."""
@@ -839,7 +850,8 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                 if esc.escalate:
                     tier2 = "investigated" if t2_used < t2_limit else "skipped_budget"
                 v = _record("RAPID", entity, v, narrative, t0,
-                            {"rule_name": rule, **case_extra(members)},
+                            {"rule_name": rule, **case_extra(members),
+                             **({"notified_at_intake": True} if notified and k in notified else {})},
                             escalation=esc, failure=failure, trace=tr,
                             refs=[alert_ref(x) for x in members[:CASE_MAX_REFS]], tier2=tier2)
                 # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
@@ -889,9 +901,22 @@ def main() -> int:
                     help="in --loop: instantaneu de metrici la fiecare N cicluri (30 x 120s = o ora); 0 = niciodata")
     ap.add_argument("--t2-limit", type=int, default=3,
                     help="cate alerte escaladate de Tier 1 merg la Tier 2 pe ciclu; restul raman la om")
+    ap.add_argument("--intake-page", type=int, default=int(os.environ.get("INTAKE_PAGE", "500")),
+                    help="SOC_PIPELINE=intake: alerte pe pagina la citire")
+    ap.add_argument("--intake-max", type=int, default=int(os.environ.get("INTAKE_MAX", "20000")),
+                    help="SOC_PIPELINE=intake: plasa de memorie (alerte citite pe ciclu); restul la ciclul urmator")
     args = ap.parse_args()
 
     if args.once or args.loop:
+        mode = pipeline()
+        if mode not in PIPELINES:
+            msg = (f"SOC_PIPELINE={mode!r} necunoscut sau inca neimplementat (valori: "
+                   f"{', '.join(PIPELINES)}). Orchestratorul NU porneste.")
+            print(f"[intrare] REFUZ: {msg}", flush=True)
+            notify.notify_human("Orchestratorul refuza sa porneasca: SOC_PIPELINE", msg,
+                                severity="critical", dedup_key="pipeline:unknown",
+                                dedup_minutes=60, host="es-node-1")
+            return 4
         # Pasul 8.2: un prompt schimbat fara bump de versiune (prompts/MANIFEST.json) -> refuz.
         ok, bad, pset = prompts.verify()
         if not ok:
