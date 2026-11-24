@@ -44,7 +44,33 @@ al Tier 2) pe `faza-23-decizii` inainte ca o faza care atinge verdictul (25+) sa
 - Pana la faza 33 exista un comutator `SOC_PIPELINE=legacy|queue`. `legacy` e calea de azi si
   ramane implicita pana cand `queue` trece toate portile.
 
-## Ordinea si dependentele
+## Sarcina pentru firma (2026-11-24): ordinea care se aplica de acum
+
+Omul a dat pe 2026-11-24 "Sarcina pentru firma: SOC care rezista la trafic mare" (test de incarcare
+cu sase conditii: nicio alerta pierduta, clasele critice la om in tinta, restul cu verdict sau
+escaladate pana la termen, coada se goleste singura, caderile nu pierd nimic, verdictele de
+referinta). Ea inlocuieste ordinea fazelor 26-33 de mai jos; fazele 24 si 25 sunt deja facute pe
+ramuri, iar numerotarea din depozit continua de la ele:
+
+| Faza (depozit) | Faza (sarcina) | Ce | Stare |
+|---|---|---|---|
+| 24 `faza-24-structura-pachet` | — (sarcina spune "fisierele nu se muta"; mutarea era deja facuta, cu cai vechi aliate) | structura de pachet | pe ramura, porti nerulate |
+| 25 `faza-25-timpul-alertei` | 24 | timpul alertei | pe ramura, porti nerulate |
+| 26 `faza-26-intrare-grupare` | 25 | intrare fara pierderi, grupare, potop, critice la intrare | pe ramura (docs/faza-26-intrare-grupare.md) |
+| 27 `faza-27-cozi-workeri` | 26 | RabbitMQ (PROPUS), patru procese, reincercari, esuate, termen de varsta | urmeaza |
+| 28 `faza-28-inferenta-paralela` | 27 | poarta de inferenta (PROPUSA), debit la 1/2/4/8 | |
+| 29 `faza-29-test-incarcare` | 28 | `eval/replay.py`, trei profiluri, trei defecte, comparatie cu legacy | |
+| 30 `faza-30-pregatire-firma` | 29 | profil de host si harta de campuri din configurare, citire/scriere separate | |
+
+Raman pentru dupa (nu tin la rafala): plicul de rezultat al uneltelor, lantul de audit, starea pe
+pas la Tier 2, pachetul de dovezi, agregatele pe entitate. In afara sarcinii: data lake-ul,
+capcanele, scorul ieftin, inchiderea fara model, Arcanna.
+
+Deschise, de stabilit de om cu firma inainte de faza 29: in cat timp ajunge o alerta critica la om;
+termenul pentru restul alertelor; marimea rafalei de dimensionat (alerte pe minut la varf).
+Structura modulelor si regulile de import: docs/arhitectura-monolit-modular.md.
+
+## Ordinea si dependentele (planul initial, 2026-11-23; inlocuit de tabelul de mai sus)
 
 | Faza | Ce face | Atinge verdictul | Cere instalari |
 |---|---|---|---|
