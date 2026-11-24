@@ -46,3 +46,46 @@ type = independence
 modules =
     elasticlab.tier1
     elasticlab.tier2
+
+# Faza 26: modulele noi intra direct sub regula (fara incalcari de listat).
+[importlinter:contract:intake]
+name = intake depinde doar de contracts, core, store si de predicatele din tier1
+type = forbidden
+source_modules =
+    elasticlab.intake
+forbidden_modules =
+    elasticlab.tier2
+    elasticlab.tier3
+    elasticlab.bus
+    elasticlab.ops
+    elasticlab.extras
+    elasticlab.eval
+    elasticlab.apps
+
+[importlinter:contract:bus]
+name = bus nu cunoaste logica de verdict
+type = forbidden
+source_modules =
+    elasticlab.bus
+forbidden_modules =
+    elasticlab.intake
+    elasticlab.tier1
+    elasticlab.tier2
+    elasticlab.tier3
+    elasticlab.ops
+    elasticlab.extras
+    elasticlab.eval
+    elasticlab.apps
+
+# Doar importurile directe: indirect, tier3.tier3 -> apps.orchestrator -> intake (dependenta
+# tier3 -> apps e deja listata in docs/faza-24-importuri.md si dispare odata cu workerii).
+[importlinter:contract:verdict-fara-intrare]
+name = calea de verdict nu cunoaste intrarea (tier1/tier2/tier3 nu importa intake)
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    elasticlab.tier1
+    elasticlab.tier2
+    elasticlab.tier3
+forbidden_modules =
+    elasticlab.intake
