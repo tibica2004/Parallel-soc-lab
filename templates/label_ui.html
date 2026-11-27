@@ -46,7 +46,8 @@
   <header><h1>SOC · etichetare</h1></header>
   <div class="card">
     <form method="post" action="/login">
-      <p><label>Parola<br><input type="password" name="password" autocomplete="current-password" autofocus></label></p>
+      {% if multi %}<p><label>Utilizator<br><input name="username" autocomplete="username" autofocus maxlength="32"></label></p>{% endif %}
+      <p><label>Parola<br><input type="password" name="password" autocomplete="current-password" {{ '' if multi else 'autofocus' }}></label></p>
       {% if error %}<p class="err">{{ error }}</p>{% endif %}
       <button type="submit">Intra</button>
     </form>
@@ -54,13 +55,99 @@
 
 {% else %}
   <header>
-    <h1><a href="/">SOC · etichetare</a> <span class="mut">·</span> <a href="/cases">cazuri</a></h1>
+    <h1><a href="/">SOC · etichetare</a> <span class="mut">·</span> <a href="/buckets">grupuri</a>
+      <span class="mut">·</span> <a href="/cases">cazuri</a>{% if user %} <span class="mut">· {{ user }}</span>{% endif %}</h1>
     <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit">Iesire</button></form>
   </header>
 
   {% if view == "notfound" %}
     <p class="err">Verdictul nu exista.</p> <p><a href="/">Inapoi la lista</a></p>
+
+  {% elif view == "buckets" %}
+    {#- Faza 24: coada de etichetare pe grupuri, ordonata de cod (incertitudine x volum).
+        Verdictul sistemului NU apare aici: se vede doar dupa votul tau, in pagina grupului. -#}
+    {% if error %}<p class="err">{{ error }}</p>{% endif %}
+    <p class="mut">Grupuri fara consens, in ordinea data de cod (cele mai incerte si mai frecvente primele).
+      Eticheta ta se aplica GRUPULUI, nu alertelor din el; mai multi oameni = vot majoritar, egalitatea nu intra la antrenare.</p>
+    <form method="post" action="/buckets/label">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <div class="wrap"><table class="tbl">
+        <tr><th></th><th>Grup</th><th>Pipeline</th><th>Puncte de decizie</th><th>Alerte</th><th>Prima / ultima (UTC)</th><th>Voturi</th></tr>
+        {% for r in rows %}
+        <tr>
+          <td><input type="checkbox" name="bucket_ids" value="{{ r.bucket_id }}" aria-label="selecteaza {{ r.bucket_id }}"></td>
+          <td><a href="/b/{{ r.bucket_id }}">{{ r.bucket_id[:9] }}</a></td>
+          <td>{{ r.pipeline }} <span class="mut">v{{ r.dp_version }}</span></td>
+          <td>{% for k, v in (r["values"] or {}).items() %}<span class="pill">{{ k }}={{ v }}</span> {% endfor %}</td>
+          <td>{{ r.count }}</td>
+          <td>{{ (r.first_seen or "")[:16] }}<br>{{ (r.last_seen or "")[:16] }}</td>
+          <td>{{ (r.votes or []) | length }}{% if r.consensus == "tie" %} <span class="pill">egalitate</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </table></div>
+      <p><label>Note (optional, max 500)<br><textarea name="notes" maxlength="500"></textarea></label></p>
+      <div class="btns">
+        <button class="atk" type="submit" name="label" value="attack">Atac (grupurile bifate)</button>
+        <button class="ben" type="submit" name="label" value="benign">Benign (grupurile bifate)</button>
+      </div>
+    </form>
+
+  {% elif view == "bucket" %}
+    <p><a href="/buckets">← coada de grupuri</a></p>
+    <h2>Grup {{ b.bucket_id }}</h2>
+    <div class="card"><dl>
+      <dt>Pipeline</dt><dd>{{ b.pipeline }} (puncte de decizie v{{ b.dp_version }})</dd>
+      {% for k, v in (b["values"] or {}).items() %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}
+      <dt>Alerte</dt><dd>{{ b.count }}</dd>
+      <dt>Prima / ultima aparitie</dt><dd>{{ b.first_seen }} · {{ b.last_seen }}</dd>
+    </dl></div>
+
+    <h2>Rezumatul investigatiei (Tier 2)</h2>
+    <div class="card">
+      {% if b.tier2_summary %}
+        <p class="mut">{{ (b.tier2_summary.at or "")[:16] }} · lant {{ (b.tier2_summary.chain_id or "")[:8] }} ·
+          scris de model din date neincrezatoare; NU e eticheta</p>
+        <pre class="untrusted">{{ b.tier2_summary.text }}</pre>
+      {% else %}<p class="mut">Niciun caz din grup nu a ajuns inca la Tier 2.</p>{% endif %}
+    </div>
+
+    <h2>Exemple</h2>
+    <div class="card"><div class="wrap"><table class="tbl">
+      <tr><th>Moment (UTC)</th><th>Alerta</th><th>Lant</th>{% if voted %}<th>Verdict scris</th>{% endif %}</tr>
+      {% for e in b.examples or [] %}
+      <tr><td>{{ (e.at or "")[:19] }}</td><td><span class="mut">{{ e.index }}</span><br>{{ e.id }}</td>
+          <td>{{ (e.chain_id or "—")[:8] }}</td>
+          {% if voted %}<td class="{{ e.final_classification }}">{{ e.final_classification or "—" }}</td>{% endif %}</tr>
+      {% endfor %}
+    </table></div></div>
+
+    <h2>Eticheta ta</h2>
+    <div class="card">
+      {% if voted %}<p class="mut">Ai votat deja; un vot nou il inlocuieste pe al tau (istoricul ramane).</p>{% endif %}
+      <form class="lab" method="post" action="/b/{{ b.bucket_id }}/label">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label>Note (optional, max 500)<br><textarea name="notes" maxlength="500"></textarea></label>
+        <div class="btns">
+          <button class="atk" type="submit" name="label" value="attack">Atac</button>
+          <button class="ben" type="submit" name="label" value="benign">Benign</button>
+        </div>
+      </form>
+    </div>
+
+    {% if voted %}
+    <h2>Ce a decis sistemul</h2>
+    <div class="card">
+      <p>Consens: <b class="{{ b.consensus }}">{{ b.consensus }}</b> ({{ b.votes_attack }} attack / {{ b.votes_benign }} benign)
+        · inchis de cascada de {{ b.cascade_closed or 0 }} ori · esantion de control: {{ b.control_samples or 0 }}</p>
+      {% if system %}<dl>
+        <dt>Pasul cascadei</dt><dd>{{ system.step }} (mod {{ system.mode }}){% if system.applied %} · a inchis{% elif system.would_close %} · ar fi inchis{% endif %}</dd>
+        <dt>Model</dt><dd>{{ system.decision or "—" }} / {{ system.confidence if system.confidence is not none else "—" }}
+          {% if system.outlier %}<span class="pill">outlier</span>{% endif %} <span class="mut">{{ (system.model_hash or "")[:12] }} {{ system.model_state or "" }}</span></dd>
+      </dl>{% endif %}
+      {% if votes %}<p class="mut">Voturi:</p><ul>{% for v in votes %}<li>{{ v.user }}: <span class="{{ v.label }}">{{ v.label }}</span> · {{ (v.at or "")[:16] }}{% if v.notes %} · <span class="untrusted">{{ v.notes }}</span>{% endif %}</li>{% endfor %}</ul>{% endif %}
+    </div>
+    {% endif %}
 
   {% elif view == "list" %}
     <p class="mut">Etichetate: {{ labeled_count }}

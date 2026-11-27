@@ -651,6 +651,17 @@ def main() -> int:
     ap.add_argument("--fara-model", action="store_true", help="cu --vanatoare: planul implicit, fara model")
     ap.add_argument("--expunere", action="store_true",
                     help="expunere WordPress: inventar vs vulnerabilitati, corelat cu recon-ul (faza 18)")
+    # Faza 24: bucla de invatare (tier3/learning.py). Toate cer --once; fara --scrie nu schimba nimic.
+    ap.add_argument("--invatare", action="store_true",
+                    help="antreneaza candidatii pe etichete umane + controlorul de activare + metrici")
+    ap.add_argument("--invatare-garda", action="store_true",
+                    help="doar controlorul (retrogradari: control, drift, hash), fara antrenare")
+    ap.add_argument("--regresie-aur", action="store_true",
+                    help="regresia pe setul de aur cu modelele din umbra/active (doar cu sonda LLM sanatoasa)")
+    ap.add_argument("--pipeline", help="cu --invatare / --invatare-garda: doar acest pipeline")
+    ap.add_argument("--model-istoric", metavar="PIPELINE", help="istoricul modelelor unui pipeline")
+    ap.add_argument("--model-revenire", nargs=2, metavar=("PIPELINE", "HASH"),
+                    help="revenire la un model anterior (care a mai fost activ)")
     args = ap.parse_args()
     if not args.once:
         print("Deocamdata doar --once; timerul systemd vine dupa aprobare.")
@@ -668,6 +679,25 @@ def main() -> int:
         path = out_dir / f"{prefix}-{datetime.now():%Y-%m-%d-%H%M}.json"
         path.write_text(json.dumps(obj, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
         print(f"\nSalvat: {path.relative_to(ROOT)}")
+
+    if args.invatare or args.invatare_garda or args.regresie_aur or args.model_istoric or args.model_revenire:
+        from elasticlab.tier3 import learning as L
+        if args.model_istoric:
+            print(json.dumps(L.history(args.model_istoric), indent=1, default=str))
+            return 0
+        if args.model_revenire:
+            pid, h = args.model_revenire
+            if not re.fullmatch(r"[0-9a-f]{64}", h):
+                print("--model-revenire: hash-ul are 64 de caractere hex")
+                return 1
+            print(json.dumps(L.rollback_cmd(pid, h), indent=1, default=str))
+            return 0
+        if args.regresie_aur:
+            save("regresie-aur", L.regression_gold(write=args.scrie))
+            return 0
+        rep = L.run(write=args.scrie, train=not args.invatare_garda, only=args.pipeline)
+        save("invatare-garda" if args.invatare_garda else "invatare", rep)
+        return 1 if any("error" in r for r in rep) else 0
 
     kb = K.Kibana(dry_run=not args.scrie_kibana)
     if args.scrie_kibana and not os.environ.get("KIBANA_TIER3_API_KEY"):

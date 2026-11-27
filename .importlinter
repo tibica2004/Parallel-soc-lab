@@ -89,3 +89,35 @@ source_modules =
     elasticlab.tier3
 forbidden_modules =
     elasticlab.intake
+
+# Faza 24 (decizia invatata): straturile noi si "doar punctele de intrare leaga modulele".
+# Aceleasi reguli le verifica si tests/test_importuri_faza24.py (pe AST, fara import-linter).
+[importlinter:contract:store]
+name = store depinde doar de contracts si core
+type = forbidden
+source_modules =
+    elasticlab.store
+forbidden_modules =
+    elasticlab.intake
+    elasticlab.tier1
+    elasticlab.tier2
+    elasticlab.tier3
+    elasticlab.bus
+    elasticlab.ops
+    elasticlab.extras
+    elasticlab.eval
+    elasticlab.apps
+
+[importlinter:contract:verdict-fara-sus]
+name = tier1 si tier2 nu importa straturile de deasupra (tier3, ops, extras, eval, apps)
+type = forbidden
+source_modules =
+    elasticlab.tier1
+    elasticlab.tier2
+forbidden_modules =
+    elasticlab.tier3
+    elasticlab.ops
+    elasticlab.extras
+    elasticlab.eval
+    elasticlab.apps
+    elasticlab.bus

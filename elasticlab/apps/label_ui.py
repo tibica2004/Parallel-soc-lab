@@ -16,14 +16,25 @@ Securitate, pe scurt:
   - scrie cu ES_WRITER_API_KEY, doar campurile de eticheta, cu control de
     concurenta (if_seq_no), deci doua etichetari simultane nu se calca
 
+Faza 24 (decizia invatata): etichetarea pe GRUP (soc-buckets), unul cate unul sau in bloc, dintr-o
+coada ordonata de cod (incertitudine x volum); verdictul sistemului e ascuns pana cand omul curent a
+votat. Mai multi oameni: LABEL_UI_USERS="nume:sare:hash,..." (pbkdf2-sha256, generat cu
+--hash-parola); fiecare vot poarta numele din sesiune, consensul e votul majoritar. Fara
+LABEL_UI_USERS ramane parola unica (utilizatorul "operator"). API JSON autentificat cu token
+(LABEL_UI_API_TOKENS="nume:sha256(token),..."): POST /api/feedback, POST /api/train,
+GET /api/decision/{bucket_id}. Votul pe grup NU pune ground_truth pe alertele din grup (L2).
+
     source env.sh   # LABEL_UI_PASSWORD trebuie sa existe acolo
     python3 label_ui.py                       # LABEL_UI_HOST:8088 (es-node-1)
     python3 label_ui.py --host 127.0.0.1      # doar local
+    python3 label_ui.py --hash-parola NUME    # intrarea pentru LABEL_UI_USERS (parola citita ascuns)
+    python3 label_ui.py --token-nou NUME      # token API nou (afisat o singura data) + intrarea lui
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import os
 import re
@@ -35,15 +46,18 @@ from pathlib import Path
 
 from elasticsearch import ConflictError, Elasticsearch, NotFoundError
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 from starlette.middleware.sessions import SessionMiddleware
 
 from elasticlab.store import cases as C
-from elasticlab.eval.labeling import DOC_ID_RE, LabelInput, build_label_update, outcome
+from elasticlab.eval.labeling import (DOC_ID_RE, BucketLabelInput, LabelInput, USER_RE,
+                                     build_bucket_vote, build_label_update, outcome)
 from elasticlab.paths import REPO_ROOT
+from elasticlab.store import buckets as BK
+from elasticlab.store import writer as W
 
 VERDICTS_IDX = "verdicts-history"
 AUDIT_IDX = "soc-audit"
@@ -76,6 +90,45 @@ def _writer() -> Elasticsearch:
                          api_key=key, request_timeout=30)
 
 
+PBKDF2_ITER = 200_000
+LEGACY_USER = "operator"
+
+
+def hash_password(password: str, salt: bytes | None = None) -> str:
+    """`sare:hash` (hex) pentru LABEL_UI_USERS. pbkdf2-sha256, 200k iteratii."""
+    salt = salt or secrets.token_bytes(16)
+    return salt.hex() + ":" + hashlib.pbkdf2_hmac("sha256", password.encode(), salt, PBKDF2_ITER).hex()
+
+
+def check_password(password: str, entry: str) -> bool:
+    try:
+        salt_hex, h = entry.split(":", 1)
+        got = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt_hex), PBKDF2_ITER).hex()
+    except ValueError:
+        return False
+    return hmac.compare_digest(got, h)
+
+
+def parse_users(raw: str | None) -> dict[str, str]:
+    """LABEL_UI_USERS="nume:sare:hash,..." -> {nume: "sare:hash"}. Intrarile invalide se ignora."""
+    out: dict[str, str] = {}
+    for part in (raw or "").split(","):
+        bits = part.strip().split(":")
+        if len(bits) == 3 and USER_RE.match(bits[0]):
+            out[bits[0]] = f"{bits[1]}:{bits[2]}"
+    return out
+
+
+def parse_tokens(raw: str | None) -> dict[str, str]:
+    """LABEL_UI_API_TOKENS="nume:sha256hex,..." -> {sha256hex: nume}. Tokenul in clar nu se tine."""
+    out: dict[str, str] = {}
+    for part in (raw or "").split(","):
+        bits = part.strip().split(":")
+        if len(bits) == 2 and USER_RE.match(bits[0]) and re.fullmatch(r"[0-9a-f]{64}", bits[1]):
+            out[bits[1]] = bits[0]
+    return out
+
+
 def _list_query(status: str, source: str) -> dict:
     filt: list[dict] = []
     must_not: list[dict] = []
@@ -89,11 +142,25 @@ def _list_query(status: str, source: str) -> dict:
 
 
 def create_app(password: str | None = None, es: Elasticsearch | None = None,
-               session_secret: str | None = None) -> FastAPI:
+               session_secret: str | None = None, users: dict[str, str] | None = None,
+               learning_es=None, api_tokens: dict[str, str] | None = None,
+               on_attack_label=None, train=None) -> FastAPI:
+    users = users if users is not None else parse_users(os.environ.get("LABEL_UI_USERS"))
+    api_tokens = api_tokens if api_tokens is not None else parse_tokens(os.environ.get("LABEL_UI_API_TOKENS"))
     password = password if password is not None else os.environ.get("LABEL_UI_PASSWORD", "")
-    if len(password) < MIN_PASSWORD_LEN:
+    if not users and len(password) < MIN_PASSWORD_LEN:
         raise RuntimeError(f"LABEL_UI_PASSWORD lipseste sau are sub {MIN_PASSWORD_LEN} caractere")
     es = es or _writer()
+    # Grupurile (soc-buckets): cheia de invatare; fara ea, paginile de grupuri arata ca lipsesc.
+    les = learning_es if learning_es is not None else (W.learning_client() or es)
+    if on_attack_label is None:
+        def on_attack_label(pipeline, doc, label):
+            from elasticlab.tier3 import learning
+            return learning.on_human_label(pipeline, doc, label)
+    if train is None:
+        def train(pipeline):
+            from elasticlab.tier3 import learning
+            return learning.run(write=True, train=True, only=pipeline)
     # Fara LABEL_UI_SECRET, cheia sesiunii e noua la fiecare pornire: o repornire
     # delogheaza pe toata lumea. Acceptabil pentru un singur om in laborator.
     secret = session_secret or os.environ.get("LABEL_UI_SECRET") or secrets.token_hex(32)
@@ -122,7 +189,7 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
         return bool(expected) and hmac.compare_digest(expected, token or "")
 
     def _render(request: Request, view: str, status_code: int = 200, **ctx) -> HTMLResponse:
-        ctx.update(view=view, csrf=request.session.get("csrf", ""))
+        ctx.update(view=view, csrf=request.session.get("csrf", ""), user=request.session.get("user"))
         return templates.TemplateResponse(request, "label_ui.html", ctx, status_code=status_code)
 
     def _to_login() -> RedirectResponse:
@@ -132,24 +199,39 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
 
     @app.get("/login", response_class=HTMLResponse)
     def login_form(request: Request):
-        return _render(request, "login")
+        return _render(request, "login", multi=bool(users))
 
-    @app.post("/login")
-    def login(request: Request, password_in: str = Form("", alias="password")):
+    def _throttled(request: Request) -> bool:
         ip = request.client.host if request.client else "?"
         q = fails[ip]
         now = time.monotonic()
         while q and now - q[0] > LOGIN_WINDOW_S:
             q.popleft()
-        if len(q) >= LOGIN_MAX_FAILS:
-            return _render(request, "login", status_code=429,
+        return len(q) >= LOGIN_MAX_FAILS
+
+    def _fail(request: Request) -> None:
+        fails[request.client.host if request.client else "?"].append(time.monotonic())
+
+    @app.post("/login")
+    def login(request: Request, password_in: str = Form("", alias="password"),
+              username: str = Form("")):
+        if _throttled(request):
+            return _render(request, "login", status_code=429, multi=bool(users),
                            error="Prea multe incercari. Reincearca peste cateva minute.")
-        if not hmac.compare_digest(password_in.encode(), password.encode()):
-            q.append(now)
-            return _render(request, "login", status_code=401, error="Parola gresita.")
-        q.clear()
+        if users:
+            entry = users.get(username.strip())
+            ok = entry is not None and check_password(password_in, entry)
+            who = username.strip()
+        else:
+            ok = hmac.compare_digest(password_in.encode(), password.encode())
+            who = LEGACY_USER
+        if not ok:
+            _fail(request)
+            return _render(request, "login", status_code=401, multi=bool(users),
+                           error="Utilizator sau parola gresita." if users else "Parola gresita.")
+        fails[request.client.host if request.client else "?"].clear()
         request.session.clear()
-        request.session.update(auth=True, csrf=secrets.token_urlsafe(32))
+        request.session.update(auth=True, user=who, csrf=secrets.token_urlsafe(32))
         return RedirectResponse("/", status_code=303)
 
     @app.post("/logout")
@@ -241,8 +323,8 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
             return _render(request, "notfound", status_code=404)
         fields = build_label_update(doc["_source"], lab, datetime.now(timezone.utc))
         try:
-            es.update(index=VERDICTS_IDX, id=lab.doc_id, doc=fields,
-                      if_seq_no=doc["_seq_no"], if_primary_term=doc["_primary_term"])
+            W.update_verdict_label(es, lab.doc_id, fields, seq_no=doc["_seq_no"],
+                                   primary_term=doc["_primary_term"])
         except ConflictError:
             return RedirectResponse(f"/v/{lab.doc_id}?error=conflict", status_code=303)
         # Urmatorul neetichetat din aceeasi sursa, ca omul sa lucreze in sir.
@@ -291,6 +373,147 @@ def create_app(password: str | None = None, es: Elasticsearch | None = None,
         C.save(ces, C.close_by_human(rec, why, notes, datetime.now(timezone.utc)))
         return RedirectResponse("/cases", status_code=303)
 
+    # ---------------- faza 24: grupuri (soc-buckets) ----------------
+
+    def _user(request: Request) -> str:
+        return request.session.get("user") or LEGACY_USER
+
+    def _vote(user: str, lab: BucketLabelInput) -> tuple[list[str], list[str]]:
+        """Votul unui om autentificat pe grupuri. Intoarce (votate, negasite)."""
+        now = datetime.now(timezone.utc)
+        done, missing = [], []
+        for bid in lab.bucket_ids:
+            doc = W.add_bucket_vote(les, bid, build_bucket_vote(user, lab.label, lab.notes, now))
+            if doc is None:
+                missing.append(bid)
+                continue
+            done.append(bid)
+            if lab.label == "attack":
+                try:   # retrogradarea imediata: attack pe un grup inchis de cascada
+                    on_attack_label(doc.get("pipeline"), doc, "attack")
+                except Exception:  # noqa: BLE001 — votul e scris; controlorul il prinde si la ora
+                    pass
+        return done, missing
+
+    @app.get("/buckets", response_class=HTMLResponse)
+    def bucket_queue(request: Request, pipeline: str = ""):
+        if not _authed(request):
+            return _to_login()
+        pipeline = pipeline if re.fullmatch(r"[a-z][a-z0-9_]{0,39}", pipeline or "") else ""
+        try:
+            rows = BK.queue(les, pipeline or None)
+        except Exception:
+            return _render(request, "buckets", rows=[], pipeline=pipeline, error="indexul soc-buckets lipseste")
+        return _render(request, "buckets", rows=rows, pipeline=pipeline, error=None)
+
+    @app.get("/b/{bucket_id}", response_class=HTMLResponse)
+    def bucket_detail(request: Request, bucket_id: str):
+        if not _authed(request):
+            return _to_login()
+        doc = BK.load(les, bucket_id) if BK.valid_id(bucket_id) else None
+        if doc is None:
+            return _render(request, "notfound", status_code=404)
+        voted = BK.user_voted(doc, _user(request))
+        return _render(request, "bucket", b=doc, voted=voted,
+                       # verdictul sistemului si voturile celorlalti: ascunse pana la votul omului curent
+                       system=doc.get("system") if voted else None,
+                       votes=doc.get("votes") if voted else None)
+
+    def _next_in_queue(after: str) -> str:
+        try:
+            rows = [r for r in BK.queue(les, None, size=5) if r.get("bucket_id") != after]
+        except Exception:
+            rows = []
+        return f"/b/{rows[0]['bucket_id']}" if rows else "/buckets"
+
+    @app.post("/b/{bucket_id}/label")
+    def bucket_label(request: Request, bucket_id: str, label: str = Form(""), notes: str = Form(""),
+                     csrf: str = Form("")):
+        if not _authed(request):
+            return _to_login()
+        if not _csrf_ok(request, csrf):
+            return Response("CSRF invalid", status_code=403)
+        try:
+            lab = BucketLabelInput(bucket_ids=[bucket_id], label=label, notes=notes)
+        except ValidationError:
+            return Response("Eticheta invalida", status_code=400)
+        done, _missing = _vote(_user(request), lab)
+        if not done:
+            return _render(request, "notfound", status_code=404)
+        return RedirectResponse(_next_in_queue(bucket_id), status_code=303)
+
+    @app.post("/buckets/label")
+    async def bucket_bulk(request: Request):
+        if not _authed(request):
+            return _to_login()
+        form = await request.form()
+        if not _csrf_ok(request, str(form.get("csrf") or "")):
+            return Response("CSRF invalid", status_code=403)
+        try:
+            lab = BucketLabelInput(bucket_ids=[str(x) for x in form.getlist("bucket_ids")],
+                                   label=str(form.get("label") or ""), notes=str(form.get("notes") or ""))
+        except ValidationError:
+            return Response("Eticheta invalida", status_code=400)
+        _vote(_user(request), lab)
+        return RedirectResponse("/buckets", status_code=303)
+
+    # ---------------- API JSON (token; fara cookie, deci fara CSRF) ----------------
+
+    def _api_user(request: Request) -> str | None:
+        auth = request.headers.get("authorization") or ""
+        if not auth.lower().startswith("bearer ") or _throttled(request):
+            return None
+        tok = auth[7:].strip()
+        user = api_tokens.get(hashlib.sha256(tok.encode()).hexdigest()) if tok else None
+        if user is None:
+            _fail(request)
+        return user
+
+    def _denied() -> JSONResponse:
+        return JSONResponse({"error": "neautentificat"}, status_code=401)
+
+    @app.post("/api/feedback")
+    async def api_feedback(request: Request):
+        user = _api_user(request)
+        if user is None:
+            return _denied()
+        try:
+            body = await request.json()
+            lab = BucketLabelInput.model_validate(body if isinstance(body, dict) else {})
+        except Exception:
+            return JSONResponse({"error": "cerere invalida"}, status_code=400)
+        done, missing = _vote(user, lab)
+        return JSONResponse({"voted": done, "missing": missing, "user": user})
+
+    @app.post("/api/train")
+    async def api_train(request: Request):
+        user = _api_user(request)
+        if user is None:
+            return _denied()
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        pid = (body or {}).get("pipeline") if isinstance(body, dict) else None
+        if pid is not None and not re.fullmatch(r"[a-z][a-z0-9_]{0,39}", str(pid)):
+            return JSONResponse({"error": "pipeline invalid"}, status_code=400)
+        try:
+            rep = train(pid)
+        except Exception as e:
+            return JSONResponse({"error": f"antrenare esuata: {type(e).__name__}"}, status_code=500)
+        return JSONResponse({"requested_by": user, "report": rep}, status_code=200)
+
+    @app.get("/api/decision/{bucket_id}")
+    def api_decision(request: Request, bucket_id: str):
+        if _api_user(request) is None:
+            return _denied()
+        doc = BK.load(les, bucket_id) if BK.valid_id(bucket_id) else None
+        if doc is None:
+            return JSONResponse({"error": "grup inexistent"}, status_code=404)
+        return JSONResponse({k: doc.get(k) for k in (
+            "bucket_id", "pipeline", "dp_version", "values", "count", "first_seen", "last_seen",
+            "consensus", "votes_attack", "votes_benign", "system", "cascade_closed", "control_samples")})
+
     return app
 
 
@@ -298,7 +521,27 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--host", default=os.environ.get("LABEL_UI_HOST", "192.168.10.121"))
     ap.add_argument("--port", type=int, default=8088)
+    ap.add_argument("--hash-parola", metavar="NUME", help="intrarea LABEL_UI_USERS pentru NUME")
+    ap.add_argument("--token-nou", metavar="NUME", help="token API nou pentru NUME")
     args = ap.parse_args()
+    if args.hash_parola or args.token_nou:
+        name = args.hash_parola or args.token_nou
+        if not USER_RE.match(name):
+            print("nume invalid (litere mici, cifre, . _ -)")
+            return 1
+        if args.hash_parola:
+            import getpass
+            pw = getpass.getpass("parola: ")
+            if len(pw) < MIN_PASSWORD_LEN or pw != getpass.getpass("din nou: "):
+                print(f"parolele difera sau au sub {MIN_PASSWORD_LEN} caractere")
+                return 1
+            print(f"{name}:{hash_password(pw)}")
+            return 0
+        tok = secrets.token_urlsafe(32)
+        # Tokenul se afiseaza O SINGURA DATA, omului care l-a cerut; in soc.env intra doar hash-ul.
+        print(f"token (pastreaza-l, nu se mai afiseaza): {tok}")
+        print(f"intrare LABEL_UI_API_TOKENS: {name}:{hashlib.sha256(tok.encode()).hexdigest()}")
+        return 0
     import uvicorn
     uvicorn.run(create_app(), host=args.host, port=args.port,
                 server_header=False, proxy_headers=False, access_log=True)
