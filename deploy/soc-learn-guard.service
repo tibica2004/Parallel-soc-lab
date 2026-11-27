@@ -1,0 +1,19 @@
+[Unit]
+Description=Agentic SOC - faza 24: garda controlorului (retrogradari: control, drift, hash), la 5 min
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tiberiu
+WorkingDirectory=/home/tiberiu/lab
+EnvironmentFile=/home/tiberiu/lab/soc.env
+Environment=PYTHONUNBUFFERED=1
+# Fara antrenare: doar controlorul pe modelele existente (activ -> umbra imediat la un declansator).
+ExecStart=/usr/bin/env SHADOW_MODE=true /home/tiberiu/lab/venv/bin/python tier3.py --once --invatare-garda --scrie --iesire data/tier3
+TimeoutStartSec=4min
+Nice=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ReadWritePaths=/home/tiberiu/lab/data

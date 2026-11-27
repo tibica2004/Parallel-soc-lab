@@ -36,6 +36,21 @@ Principiul central: **codul decide, modelul judeca**. Escaladarea, podelele de i
 politicile, bugetele si rutarea sunt cod determinist; modelul propune doar verdicte si naratiuni,
 validate prin Pydantic (`extra="forbid"`). Esecul escaladeaza la om, nu inchide.
 
+## Domeniu
+
+Ce acopera si ce nu acopera sistemul (aceleasi limite se scriu si in lucrare).
+
+**Acopera:**
+- un singur host web Linux (web-prod: Apache + PHP + WordPress, Ubuntu 24.04);
+- detectia (senzori pe host si in retea, reguli Kibana, sweep-uri de raritate);
+- triajul (Tier 1) si investigatia (Tier 2), plus vanatoarea programata (Tier 3);
+- un plan de raspuns propus omului: actiunile raman in shadow mode, executorul face doar dry-run.
+
+**Nu acopera:**
+- executia raspunsului (izolare, blocare, rotirea cheilor: le face omul) si recuperarea dupa incident;
+- identitatea (AD / IdP / SSO), emailul, cloud-ul (control plane OpenStack sau alt furnizor), Windows;
+- mai multe hosturi monitorizate (corelarea intre hosturi e limitata la ce vede un singur senzor).
+
 ## Harta repo-ului
 
 | Unde | Ce |

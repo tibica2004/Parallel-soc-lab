@@ -2,6 +2,13 @@
 
 Diagrama din conversatia de proiectare (claude.ai, 2026-10-08).
 
+Actualizata 2026-11-27 (faza 24, decizia invatata, docs/pasi/pas-24.md): inaintea caii rapide sta
+cascada (faptele o singura data -> clasa critica/podea -> grupul cu consens uman -> modelul
+pipeline-ului -> pasul 4), cu T1_CASCADE=off|shadow|on. Grupurile (soc-buckets) le eticheteaza omul;
+Tier 3 antreneaza modelele doar pe etichete umane, iar controlorul le muta candidat -> umbra -> activ.
+Nivelurile comunica prin magistrala (elasticlab/bus: in proces, RabbitMQ optional); un singur modul
+(store/writer.py) scrie verdicte, audit, urme, cazuri si grupuri.
+
 Actualizata 2026-11-05 (faza 22 J): Tier 1 ruleaza pe Qwen3 14B, nu pe RedSage 8B (decizia
 2026-10-19: acelasi model pe toate rolurile; RedSage ramane optional prin MODEL_FAST), iar
 nodul "critic" din Tier 2 a fost scos din diagrama (oprit din faza 7, masurat daunator la 14B,
@@ -16,6 +23,23 @@ flowchart TD
     ALERTS["Alerte Elastic<br/>reguli EQL + Defend"]
     SWEEP["Sweep de raritate<br/>perechi noi"]
     SCHED["Scheduler<br/>programat, nu pe alerte"]
+  end
+
+  subgraph CAS["Tier 1 · cascada (faza 24)"]
+    C0["pasul 0: fapte<br/>build_context, o data"]
+    C1{"pasul 1: critic / podea?"}
+    C2{"pasul 2: grup cu<br/>consens uman?"}
+    C3{"pasul 3: model activ<br/>si sigur?"}
+    CCLOSE["Inchis de cascada<br/>doar mod on + pipeline activ"]
+    CTRL["esantion de control 10%<br/>-> la om"]
+  end
+
+  subgraph LEARN["Bucla de invatare (faza 24)"]
+    BKT[("soc-buckets<br/>grupuri + voturi")]
+    TRAIN["Tier 3: antrenare orara<br/>doar etichete umane"]
+    CTL{"controlor<br/>candidat -> umbra -> activ"}
+    REG[("data/models<br/>JSON + hash")]
+    TAGS["post-decizie<br/>eticheta prin API Kibana"]
   end
 
   subgraph T1["Tier 1 · triaj"]
@@ -75,11 +99,28 @@ flowchart TD
   OFF["Regulă oprită"]
 
   %% ============ TIER 1 ============
-  ALERTS --> T1_ENRICH --> T1_RAG --> T1_AGENT
+  ALERTS --> C0 --> C1
+  C1 -->|da| T1_ENRICH
+  C1 -->|nu| C2
+  C2 -->|benign| CCLOSE
+  C2 -->|attack: motiv| T1_ENRICH
+  C2 -->|fara consens| C3
+  C3 -->|benign >= prag| CCLOSE
+  C3 -->|atac probabil: motiv| T1_ENRICH
+  C3 -->|nesigur / outlier| T1_ENRICH
+  CCLOSE -.->|10%| CTRL --> T1_ENRICH
+  CCLOSE -.-> HIST
+  C0 -.->|grup| BKT
+  HUMAN -->|voturi pe grupuri| BKT
+  BKT --> TRAIN --> CTL --> REG --> C3
+  CTL -.->|retrogradare la declansator| REG
+  CCLOSE -.-> TAGS
+  T1_ENRICH --> T1_RAG --> T1_AGENT
   T1_AGENT -->|cere unealtă, buget ≤ 3| T1_TOOLS --> T1_AGENT
   T1_AGENT -->|gata| T1_VERD --> T1_FIN --> T1_ESC
   T1_ESC -->|clar benign| CLOSED
-  T1_ESC -->|motive, fără verdict| CASE
+  T1_ESC -->|motive + bucket_id, fără verdict| CASE
+  T2_FIN -.->|rezumat Tier 2, nu eticheta| BKT
 
   %% ============ TIER 2 ============
   SWEEP --> CASE
@@ -120,6 +161,7 @@ flowchart TD
   classDef store fill:#F1EFE8,stroke:#5F5E5A,color:#444441
   class T1_AGENT,T1_VERD,T2_A,T2_B,H1,H3,C2,R2 model
   class T1_ENRICH,T1_RAG,T1_TOOLS,T1_FIN,T1_ESC,CASE,T2_SEED,T2_TOOLS,T2_COR,T2_FIN,DECIDE,EXEC,H2,C1,C3,R1,R3,R4,R5 code
-  class HIST,AUDIT,INC,CLOSED,PROD,OFF store
+  class HIST,AUDIT,INC,CLOSED,PROD,OFF,BKT,REG,CCLOSE store
+  class C0,C1,C2,C3,CTRL,TRAIN,CTL,TAGS code
 
 ```

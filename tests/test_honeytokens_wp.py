@@ -12,6 +12,7 @@ import hunt_path
 import orchestrator
 from schemas import ActionType as A, Case, EscalationReason as R, Verdict
 from tests.test_tier1_tier2 import CID, FakeHunt, _alert, rec  # noqa: F401  (fixture)
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 ROOT = Path(__file__).resolve().parents[1]
 WP_RULES = ("soc-honey-wpconfig-read", "soc-honey-mysql-user", "soc-honey-wp-login",
@@ -122,7 +123,7 @@ def test_ip_urile_din_env(monkeypatch):
 
 
 def _benign_model(monkeypatch):
-    monkeypatch.setitem(sys.modules, "fast_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "fast_path", types.SimpleNamespace(
         build_fast_path=lambda: types.SimpleNamespace(invoke=lambda inp, config=None: {
             "verdict": V("benign", 99), "narrative": "", "context": {"pair_in_baseline": True}}),
         lookup_asset=lambda h: {}))

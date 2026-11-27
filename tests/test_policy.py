@@ -43,6 +43,20 @@ def test_kill_process_niciodata(conf):
     assert d.chosen == ActionType.ESCALATE_HUMAN
 
 
+
+IREVERSIBILE = (ActionType.KILL_PROCESS, ActionType.ISOLATE_HOST, ActionType.ROTATE_CREDENTIALS)
+
+
+def test_ireversibilele_au_prag_101():
+    """Decizia omului din faza 0 (2026-11-23): ireversibilul ramane la om, ca in CLAUDE.md."""
+    assert all(THRESHOLDS[a] == 101 for a in IREVERSIBILE)
+
+
+@pytest.mark.parametrize("action", IREVERSIBILE)
+def test_ireversibile_niciodata_automat(action):
+    d = policy.decide(V(action, conf=100))
+    assert d.chosen == ActionType.ESCALATE_HUMAN
+
 def test_actiune_fara_prag_niciodata(monkeypatch):
     monkeypatch.setitem(policy.THRESHOLDS, ActionType.ROTATE_CREDENTIALS, 101)
     d = policy.decide(V(ActionType.ROTATE_CREDENTIALS, target="root", conf=100))

@@ -541,3 +541,162 @@ intrerupt); 1099 teste verzi. Ramura faza-21-protectie urcata pe GitHub (75 comm
 prin fast-forward (126 commit-uri, bc3f185), la cererea omului, pentru analiza din claude.ai (Project cu GitHub).
 Secretele raman in afara repo-ului (env.sh, soc.env, .env ignorate; doar *.example in git). B.1 ramane oprita
 (GPU pe CPU, reboot cerut).
+
+## 2026-11-17: faza 23 (inchidere conceptuala), etapele 0-1
+
+Ramura `faza-23-inchidere-conceptuala` din `80a867c`, lucrata in worktree-ul `~/lab-faza23` (`~/lab`
+ramane pe faza-22, din el ruleaza orchestratorul). Etapa 0: 1217 teste verzi, `prompts.py --check`
+la zi (prompt_set 23664c93b9cd); cu HOME fara `~/lab` picau 3 teste (nota 2 din DE_FACUT.md era
+gresita, corectata). `main` local = `origin/main` = `a0f4a56` (nota 1 din DE_FACUT.md nu mai e valabila).
+Etapa 1 (fara GPU, fara poarta, nu atinge verdictul):
+- 1.1 `hunt_path.guides_dir()`: implicit `detections/` din repo; GUIDES_DIR din mediu ramane.
+- 1.2 `regression.wilson()` + intervale 95% pentru precizie / recall / rata FP in metrics() si in raportul .md.
+- 1.3 `regression.write_golden()`: tmp + os.replace, deci export() merge si peste fisierul 0440.
+- 1.4 `metrics`: first_look_s p50/p90 (doar label_source=human, prima eticheta din label_history),
+  escalated_per_day in soc-metrics, escaladari pe zi in CLI.
+- 1.5 `experiments/direct_baseline.py`: un apel get_llm("fast"), alerta bruta, prompt minim, esec ->
+  undetermined + escalate_human; set de aur + suita de injectie, 3 treceri; nu scrie in indici. NERULAT.
+- 1.6 README "Domeniu", REZUMAT sectiunea 7 "Limitari".
+Etapa 2: `experiments/tier2_fara_dovezi.py` (citire), NERULAT, asteapta aprobarea.
+Teste: 1241 verzi (si cu HOME fara ~/lab). Audit OpenStack: `ssh-parola` (22 + ICMP de la 0.0.0.0/0)
+pe 4 VM-uri; comenzile de inlocuire in DE_FACUT.md, neaplicate.
+
+## 2026-11-16 (reconstituit pe 2026-11-17 din `git reflog` si journald; nu exista intrare la zi)
+
+13:53 UTC: `~/lab` pe es-node-1 mutat de pe `faza-01-sbom-vulnwatch` (82feeb4, clona din 26.10) pe
+`faza-22-igiena-si-corectii` (4521a2c); copie inainte: `~/lab-backup-2026-11-16.tgz`. 13:57: `soc-orchestrator`
+repornit pe codul faza-22 (prompt_set 23664c93b9cd), 0 restarturi de atunci. 14:00-14:26: commit 4917ca9
+(rezultate si notite) + patru pull-uri pana la 80a867c (doar docs, logrotate web-prod, docker-compose
+restart unless-stopped; niciun fisier .py). Deploy-ul (B2) s-a facut deci INAINTEA portii (B1), care nu a
+rulat inca. IP-ul flotant 172.30.6.210 mutat de pe benign-gen pe lab-sink (in CLAUDE.md).
+
+## 2026-11-17 ~08:00 UTC: a doua verificare (citire) + reparatii mici
+
+Stare: 5 VM ACTIVE, toate cu reboot-required; es-node-1: servicii si timere active, coada 0, shadow=true,
+integritate ok, snapshot SLM 16 si 17.11 SUCCESS; GPU reparat (qwen3:14b in VRAM, Tier 1 p50 17 s, hunt 22 s,
+0 esecuri in 24 h). ES galben (14 shard-uri nealocate). benign-gen oprit din 04.11 14:23 (0 documente in
+benign-ground-truth de atunci; readiness c1 0/169 ore). Etichete umane: 2 (attack, hunt). Alerte 24 h: 156,
+din care 112 "soc-reader: comanda refuzata de gate" = testele unitare rulate pe es-node-1 (96 de la cele 6
+rulari pytest ale lui Claude de azi 07:xx, 16 din 16.11), 27 lsb_release, 12 "www-data binar nevazut".
+Reparat: test_reader.py fara logger real (fc9e9e3; 0 linii in syslog, 1242 teste verzi); tgz-ul cu secrete
+0600, /tmp/ab-old 0700. Refuzat lui Claude (ramane la om): ssh-parola, etapa 2 (403 pe soc-traces cu cheia de
+citire). Lista ordonata: DE_FACUT.md, sfarsit.
+
+## 2026-11-17 08:04 UTC: ssh-parola scos (om)
+
+Omul a adaugat TCP 22 de la 192.168.62.206/32 in es-sg, victim-sg si attacker-sg (reguli a2179831, 0fdd8fac,
+5494bcad) si a detasat `ssh-parola` de pe es-node-1, web-prod, atacator si benign-gen (grupul exista inca,
+neatasat). Verificat: SSH de pe elastic-lab spre toate cele 5 VM-uri merge; fiecare VM are doar grupul
+propriu + laptop-access. Nu mai exista SSH/ICMP de la 0.0.0.0/0. Starea dinainte:
+elastic-lab:~/lab-journal/backup-sg-2026-11-17-1004.txt. Rollback: `openstack server add security group <vm> ssh-parola`.
+
+## 2026-11-17 08:16-09:52 UTC: poarta faza-22 (B1) - TRECUTA (om)
+
+Rulata de om in tmux pe es-node-1, din `~/lab` (80a867c, prompt_set 23664c93b9cd), cu benign-gen oprit si
+regula TCP 80 de la 172.30.6.133 scoasa din victim-sg. Rezultate in `results/faza22-*-2026-11-17-0816.txt`:
+fast 4/4 (recall 3/3, 0 FP); dev recall 8/8, 1 FP din 6 (scenariul 8, php: malicious/95/isolate_host; banda
+90-99 are precizie 4/5); validare 8/8 (0 FP; "Reverse shell in Python" = undetermined/40/escalate_human,
+158 s); injectie 4/4; suita 48/48 (identice 42/42, malitioase pastrate 40/40, 1182 s). Fata de referinta:
+nicio regresie; "Deploy legitim" e acum TN (1 FP in loc de 2). Referinta noua pentru scenariile 8 si 14:
+malicious/95/isolate_host (FP) si suspicious/85/enrich_only (TP).
+Abateri de la procedura: (1) o prima pornire (08:11) a fost oprita, fiindca benign-gen si regula 80 fusesera
+repuse in timpul ei (benign-gen activ 08:13:50-08:15:49); rezultatele partiale sterse; (2) a doua pornire a
+inceput la cateva secunde dupa oprirea benign-gen, nu dupa 5 minute; (3) `make` nu e instalat pe es-node-1,
+s-a rulat direct cu python. Deploy-ul (B2) fusese facut inainte, pe 16.11; poarta il valideaza ulterior.
+09:57: regula 80 recreata (0835a0f9) si benign-gen pornit (om). De retinut pentru etapa 6.1: FP-ul php la
+95 ar fi izolat automat un host la pragul 95.
+
+## 2026-11-17 ~10:05-10:47 UTC: push in main (B4) + imagini OpenStack (incident: VM-uri inghetate)
+
+Push (Claude, la cererea omului): `origin/main` 2782119 -> 80a867c prin fast-forward; ramura faza-23 urcata,
+neunita. Facut de pe elastic-lab (cheia GitHub de pe es-node-1 e doar de citire).
+Imagini: `openstack server image create` pentru web-prod (`web-prod-2026-11-17`, activa, 40 GB) si es-node-1
+(`es-node-1-2026-11-17`, inca `saving` la 10:47). INCIDENT: snapshot-ul NU e live pe acest cloud; hipervizorul
+a inghetat VM-urile cat a copiat discul: es-node-1 ~11 min 40 s (real ~10:09-10:21), web-prod ~3 min 15 s.
+La revenire ceasurile au ramas in urma cu exact atat. es-node-1 s-a corectat singur (timesyncd) pe la 10:27
+real; web-prod la 10:23, dupa `systemctl restart systemd-timesyncd` (om). Efecte: ciclurile 561-563 ale
+orchestratorului au rulat cu ceas gresit (jurnalul lor arata 10:10-10:14, real 10:22-10:26); ferestrele sunt
+continue (ciclul 564 = [10:14:10, 10:27:35], 1 alerta), deci nicio fereastra sarita. Telemetria web-prod
+10:00-10:36 nu are goluri la 2 minute (agentul a retrimis), dar evenimentele web-prod din ~10:06-10:23 pot
+avea ora cu pana la 3 minute in urma. Servicii dupa: soc-orchestrator activ, es01 healthy, kibana up.
+Lectie: imaginea unui VM = pauza de minute; se face cu benign-gen oprit si anuntat, si urmata de
+`systemctl restart systemd-timesyncd` pe VM. Ceasul lui elastic-lab e cu ~16 s INAINTE si nesincronizat.
+
+## 2026-11-17 ~11:40 UTC: etapa 2 masurata (om) + runner ART nou pe web-prod
+
+Etapa 2 (`experiments/tier2_fara_dovezi.py --zile 30`, rulat de om, doar citire): 29 de verdicte hunt/benign
+in 30 de zile, din care 12 din cazuri Tier 1 (excluse) si 17 din findings de sweep. Din cele 17, **10 nu au
+niciun apel de unealta cu randuri** (toate au document de urma). Pe zi: 22.10=1, 30.10=3, 01.11=1, 02.11=3,
+12.11=1, 15.11=1, restul 0; maxim 3 pe zi, medie ~0,33 pe zi. E LIMITA SUPERIOARA a cresterii cozii omului
+sub regula din etapa 5 (faptul determinist din prefetch_ctx nu e in urma, deci unele ar ramane benign).
+In procente: 10/17 = 59% din inchiderile benign de sweep s-au facut fara ca modelul sa vada vreun rand.
+`/opt/soc/art_runner.py` pe web-prod inlocuit cu varianta care refuza testele distructive (om, 11:36);
+verificat: T1070.004 #8 -> "REFUZAT: distructiv".
+
+## 2026-11-17 ~11:50 UTC: OpenClaw scos de pe atacator (Claude, la cererea omului)
+
+Sters de pe atacator (10.10.0.220): serviciul de utilizator `openclaw-gateway` (tiberiu, port 18789), unitatea
+`openclaw-llm-tunnel` (autossh spre GPU, port local 11434), pachetul npm global `openclaw@2026.9.2` (525 MB),
+`~tiberiu/.openclaw` (57 MB: configuratie, agenti, workspace), `~ubuntu/.openclaw`, linia de completare din
+`.bashrc`. Fara copie: nu se mai poate reface decat reinstaland. Ramas neatins: containerul
+`opencyber-attacker` (healthy), volumul lui, `~tiberiu/.opencyber`, nodejs 22, wpscan, sqlmap.
+Consecinte: atacatorul nu mai are tunel spre GPU (un consumator mai putin pe GPU-ul partajat); regula
+"nu rula OpenClaw in timpul harness-ului" nu mai are obiect. CLAUDE.md (linia despre atacator) si REZUMAT
+inca descriu OpenClaw/RedAgent: de actualizat de om.
+
+
+## 2026-11-17 ~14:05 UTC: poarta etapei 5 (regresie FP), determinism, a doua rulare pe codul de productie
+
+Trei rulari in aceeasi zi pe aceleasi scenarii, acelasi model (qwen3:14b) si acelasi prompt_set 23664c93b9cd.
+benign-gen oprit de la 11:39 UTC, regula de port 80 de la atacator scoasa.
+
+| rulare | cod | dev recall | dev FP | validare recall | validare FP |
+|---|---|---|---|---|---|
+| 08:16 referinta | 80a867c | 8/8 | 1/6 (php) | 4/4 | 0/4 |
+| 11:44 etapa 5 | d255ce3 (cu regula) | 8/8 | 4/6 (curl, php, deploy, find) | 4/4 | 4/4 (apache, tar, ss, apt) |
+| 13:28 repetare | 80a867c | 7/7 + 1 eroare | 2/6 (deploy, cron sed) | 4/4 | 0/4 |
+
+Injectie la 11:44: 4/4. Determinism (`regression.py determinism --n 40`, 13:06, calea rapida): 100% identic,
+nicio rasturnare severa, trecut.
+
+Ce reiese:
+1. **Calea rapida e determinista, Tier 2 nu.** Pe codul de productie, fara nicio schimbare, FP pe dev a fost
+   1 dimineata (php) si 2 dupa-amiaza (deploy, cron sed): alte scenarii de fiecare data. `Cron ruleaza sed`
+   a iesit malicious/95/isolate_host la 13:28 si benign/90 la 08:16; php invers. Variaza si daca modelul
+   cheama unelte: acelasi scenariu are 0 apeluri intr-o rulare si 3-6 in alta.
+2. **Costul regulii din etapa 5 e structural, nu zgomot.** La 11:44 regula a rasturnat 3 inchideri benign
+   (curl, apache, apt), toate fara niciun apel de unealta. Numarand inchiderile benign cu 0 apeluri din cele
+   doua rulari pe codul de productie: 5 din 10 scenarii benigne la 08:16 (dev 7, 10, 11; validare 7, 8) si
+   5 din 10 la 13:28 (dev 8, 10, 12; validare 5, 8). Sub regula, toate acestea ar fi devenit
+   undetermined + escalate_human. Regula asa cum e scrisa costa deci 3-5 FP din 10 pe seturile portii,
+   pentru ca scenariile benigne sunt comenzi de admin pe care modelul le inchide fara sa interogheze nimic,
+   iar faptul determinist cerut (in_maintenance_window + ran_by_known_admin, sau pair_in_baseline) nu exista
+   pentru ele. Restul de 4 FP de la 11:44 (find, deploy, tar, ss) nu vin din regula.
+3. **Defect nou, gasit la 13:28 (dev 13, Persistenta cron):** modelul a pus in `action_target` un
+   entity_id de proces (base64, contine `+`), iar `Verdict` l-a respins ("identificator respins"), deci
+   `node_finalize` a aruncat exceptie. In productie exceptia e prinsa de orchestrator si cazul iese ca
+   PROCESSING_ERROR, escaladat la om (principiul 5 tine; 0 aparitii in jurnalul serviciului pe 21 de zile).
+   In harness insa scenariul e sarit cu `continue`: recall-ul apare 7/7 in loc de 8 scenarii, adica o eroare
+   pe un atac nu se vede in cifra portii. Nereparat: atinge poarta, decizia e a omului.
+
+Regula din etapa 5 NU e pusa in productie (`~/lab` ramane 80a867c). Decizia ramane la om.
+
+
+## 2026-11-23: faza 0 (decizii) si faza 24 (structura de pachet), pe ramuri, NEDEPLOYATE
+
+Worktree `~/lab-refactor` (`~/lab` neatins, ramane 80a867c). Planul: docs/plan-refactorizare.md.
+- `faza-23-decizii` (din faza-23): revert `cada43f` (regula din etapa 5 scoasa), `isolate_host` /
+  `rotate_credentials` la prag 101, `action_target` invalid -> None + escalate_human (si harness-ul
+  puncteaza exceptiile din graf ca escaladare). ATINGE DECIZIA: poarta o ruleaza omul, devine referinta.
+  pytest 1265 verzi, prompt_set 23664c93b9cd neschimbat.
+- `faza-24-structura-pachet` (din faza-23-decizii): 55 de module mutate intregi in elasticlab/<strat>/,
+  fisiere subtiri la vechile cai (acelasi obiect de modul; scripturile trec prin runpy), radacina din
+  elasticlab/paths.py. pytest 1387 verzi (cele 1265 de plecare + 122 noi), prompt_set neschimbat,
+  --help identic pe 14 scripturi, regula de importuri: tier1 <-> tier2 incalcata de 3 importuri
+  (docs/faza-24-importuri.md).
+- `faza-25-timpul-alertei` (din faza-24-structura-pachet), la cererea omului inainte de porti:
+  ferestrele logicii de verdict fata de momentul alertei (elasticlab/core/eventtime.py). Tier 2
+  (contextul preadus, cele 6 unelte, istoricul), istoricul etichetat din calea rapida, momentul pe
+  finding-uri (sweep si harness). Fara ancora, interogarile sunt cele vechi. Test de intarziere
+  simulata 60 min, cap la cap. pytest 1418 verzi, prompt_set neschimbat, regula de importuri ca in
+  faza 24. Inventar si decizii: docs/faza-25-timpul-alertei.md. ATINGE VERDICTUL: porti nerulate.

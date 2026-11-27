@@ -11,6 +11,7 @@ import degraded
 import orchestrator
 from degraded import llm_healthy as real_llm_healthy   # inainte de fixture-ul autouse
 from schemas import EscalationReason as R, FailureKind as F, Verdict
+from modswap import swap_module  # faza 24: fals pe numele vechi si nou
 
 
 def _alert(n, sev="high", host="web-prod"):
@@ -45,7 +46,7 @@ def _fast_module(monkeypatch, invoke, crit="high"):
     def build():
         built.append(1)
         return types.SimpleNamespace(invoke=invoke)
-    monkeypatch.setitem(sys.modules, "fast_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "fast_path", types.SimpleNamespace(
         build_fast_path=build, lookup_asset=lambda h: {"criticality": crit}))
     return built
 
@@ -190,7 +191,7 @@ def test_finding_cu_model_cazut_neinvestigat_si_nemarcat(monkeypatch, rec):
     from schemas import EntityType, RarityFinding
     f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
                       detail={"parent": "dash", "child": "id"}, rarity_score=1.0)
-    monkeypatch.setitem(sys.modules, "hunt_path", types.SimpleNamespace(
+    swap_module(monkeypatch, "hunt_path", types.SimpleNamespace(
         build_hunt_path=lambda: (_ for _ in ()).throw(AssertionError("nu trebuia construit"))))
     seen = orchestrator.BoundedSeen()
     orchestrator.process_findings([f], seen, limit=5, model_ok=False)

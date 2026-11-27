@@ -60,7 +60,7 @@ def test_doar_etichetarea_scrie_eticheta_umana():
     """Principiul 5: ground_truth si label_source nu se scriu automat nicaieri altundeva."""
     allowed = {"labeling.py", "label_ui.py"}
     bad = []
-    for p in ROOT.glob("*.py"):
+    for p in [*ROOT.glob("*.py"), *ROOT.glob("elasticlab/**/*.py")]:  # faza 24: si modulele mutate
         if p.name in allowed:
             continue
         s = p.read_text(encoding="utf-8")

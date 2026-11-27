@@ -257,10 +257,14 @@ def test_sweep_ataseaza_evenimentele_perechii(monkeypatch):
     from schemas import EntityType, RarityFinding
     calls = []
     monkeypatch.setattr(elastic_tools, "pair_event_refs",
-                        lambda h, p, c, window_hours: calls.append((h, p, c)) or ["ref"])
+                        lambda h, p, c, window_hours, at=None: calls.append((h, p, c, at)) or ["ref"])
     f = RarityFinding(kind="new_parent_child", entity_type=EntityType.HOST, entity_id="web-prod",
                       detail={"parent": "apache2", "child": "sh", "count": 1}, rarity_score=1.0)
-    assert orchestrator.finding_pair_refs(f) == ["ref"] and calls == [("web-prod", "apache2", "sh")]
+    assert orchestrator.finding_pair_refs(f) == ["ref"] and calls == [("web-prod", "apache2", "sh", None)]
+    # faza 25: momentul finding-ului ajunge la cautarea referintelor
+    t = datetime(2026, 11, 23, 10, 0, tzinfo=timezone.utc)
+    orchestrator.finding_pair_refs(f.model_copy(update={"observed_at": t}))
+    assert calls[-1][3] == t
 
 
 def test_sweep_fara_dovezi_nu_opreste(monkeypatch):

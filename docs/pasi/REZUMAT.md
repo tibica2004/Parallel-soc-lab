@@ -1,11 +1,14 @@
-# REZUMAT — starea proiectului la 2026-11-04
+# REZUMAT — starea proiectului la 2026-11-17
 
 Rezumat de sine statator: ce exista, ce merge, ce ramane. Jurnalul cronologic (cu toate
 constatarile, in ordinea in care au aparut) e `docs/pasi/stare.md`; detaliile A-E pe fiecare
 pas sunt in `docs/pasi/pas-NN.md`; planul original e `docs/plan-0day.md`.
-Ramura: `faza-21-protectie`, publicata pe GitHub si adusa in `main` prin fast-forward la 2026-11-05 (la cererea
-omului, pentru analiza din claude.ai cu integrarea GitHub). Lucrul continua pe `faza-21-protectie`; merge-urile
-urmatoare in `main` le face omul dupa revizuire.
+Ramuri (2026-11-17): `main` = `faza-22-igiena-si-corectii` = 80a867c, pe GitHub, trecuta prin poarta pe
+2026-11-17 (fast 4/4, dev recall 8/8 cu 1 FP, validare 8/8, injectie 4/4, suita 48/48) si in productie pe
+es-node-1 din 2026-11-16. Lucrul continua pe `faza-23-inchidere-conceptuala` (pe GitHub, neunita): contine
+si regula asimetrica Tier 2 (etapa 5), care ATINGE VERDICTUL si nu e in productie pana nu trece poarta.
+Sectiunile de mai jos descriu starea de la 2026-11-04 acolo unde nu spun altfel; ce s-a schimbat de atunci
+e in `stare.md` (intrarile 2026-11-16 si 2026-11-17) si in `DE_FACUT.md`.
 
 EXCLUSIV DEFENSIV. Shadow mode permanent: nicio actiune pe hosturi, executorul doar dry-run.
 
@@ -111,3 +114,14 @@ Abateri documentate (nu lipsuri): timesyncd in loc de chrony; backup fara copie 
 - Gotcha-uri de tinut minte: kernelul auditd e imuabil (regula noua = reboot web-prod);
   source.ip pe web-prod e IP-ul flotant al atacatorului (SNAT); never_block e lista de IP-uri,
   nu CIDR; benign-gen se opreste la harness; GPU-ul e partajat (nu rula OpenClaw in poarta).
+
+## 7. Limitari (si ce le compenseaza azi)
+
+Scrise si in lucrare (DE_FACUT.md F1). Domeniul (ce acopera / ce nu) e in `README.md`, sectiunea "Domeniu".
+
+| Limitare | Ce o compenseaza azi |
+|---|---|
+| **Notele umane ajung la model.** `lookup_history` pune ultimele 5 etichete ale regulii, cu notele trunchiate la 120 de caractere, in contextul Tier 1, IN AFARA blocului de telemetrie neincrezatoare. O nota gresita sau manipulata poate inclina verdictul. | Notele le scrie doar omul, prin `label_ui` (LabelInput: max 500 de caractere, fara caractere de control; portul 8088 deschis in nft doar pentru `admin_v4`). Modelul doar propune: podelele, `should_escalate()` si `policy.decide()` nu citesc notele (principiul 1). Suita de injectie (48/48) nu acopera canalul notelor: e un gol cunoscut. |
+| **Un singur model si un GPU al altcuiva.** Tier 1, Tier 2 si OpenClaw folosesc acelasi qwen3:14b pe GPU-ul 172.30.6.231, administrat de altcineva (vezi caderea din 04.11: driver nepotrivit, Ollama pe CPU). | Esecul escaladeaza, nu inchide (principiul 8): timeout / model cazut -> undetermined + escalate_human; mod degradat (R9) sub flood; `soc-llm-probe` la 1 min si `absence_check` alerteaza pe Discord; modelul si adresa se schimba per rol fara cod (`MODEL_<ROL>`, `LLM_BASE_URL_<ROL>`); shadow mode face ca un verdict gresit sa nu atinga hosturile. |
+| **Fara copie off-host.** Backup-ul (soc-backup-pull) si snapshot-ul SLM zilnic stau pe discul lui es-node-1; un singur disc, un singur proiect OpenStack. | Backup zilnic al lui web-prod tras pe es-node-1 (deci separat de tinta), snapshot SLM zilnic cu retentie 30 de zile, restore de test lunar (`soc-backup-restore-test`, verificat de `absence_check`); codul e pe GitHub. Datele (indici, etichete) nu au a doua copie: abatere documentata. |
+| **Un singur host si un set mic.** Un web-prod, 14 + 8 + 4 scenarii de poarta, setul de aur tinta de ~100 de etichete, ART de la 1 spre 20 de tehnici. | Intervale Wilson 95% in regresie si in linia de baza (`regression.py`, `experiments/direct_baseline.py`): cifrele se raporteaza cu incertitudinea lor; set de validare separat de dev; trafic benign real si etichetat automat ca adevar separat (benign-gen -> benign-ground-truth); suita de injectie; determinism >= 98%. Generalizarea la alte hosturi / medii nu e demonstrata. |

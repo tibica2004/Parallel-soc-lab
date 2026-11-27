@@ -1,0 +1,10 @@
+[Unit]
+Description=Agentic SOC - faza 24: antrenare + controlor, o data pe ora
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

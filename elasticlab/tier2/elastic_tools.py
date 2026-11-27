@@ -1,0 +1,958 @@
+"""
+Stratul de unelte. Se construieste si se testeaza INAINTEA agentilor.
+Daca astea nu returneaza ce trebuie cand le apelezi de mana, agentul n-are nicio sansa.
+
+Doua categorii, tinute strict separate:
+
+  LOOKUP  — determinist, fara LLM, preadus. Interogare previzibila cu una-doua
+            variabile. Nu bagi agent aici: e mai lent si mai scump degeaba.
+  TOOL    — expus agentului de hunting prin tool calling, pentru cand NU stii
+            dinainte ce sa ceri.
+
+Cheia API e read-only, cu privilegii pe indici anume. Nu superuser.
+"""
+
+from __future__ import annotations
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from elasticsearch import Elasticsearch
+from langchain_core.tools import tool
+
+from elasticlab.core import honeytokens
+from elasticlab.core import eventtime
+from elasticlab.contracts.schemas import ContextPack, EntityType, EvidenceRef, RarityFinding
+from elasticlab.core.tracing import traced_tool
+
+
+def _traced(fn):
+    """Fiecare apel al uneltei ajunge in urma cazului (tracing.py): argumente,
+    durata, ID-urile documentelor. Modelul primeste rezultatul fara _id/_index."""
+    return traced_tool(fn.__name__, fn)
+
+# Faza 24 (Arcanna): clientul de citire e in store/esread.py (comun cu tier1); acelasi obiect.
+from elasticlab.store.esread import ES  # noqa: E402
+
+PROC_IDX = "logs-endpoint.events.process-*"
+NET_IDX = "logs-endpoint.events.network-*"
+FILE_IDX = "logs-endpoint.events.file-*"
+APACHE_IDX = "logs-apache.access-*"
+SURICATA_IDX = "logs-suricata.eve-*"
+BASELINE_IDX = "baseline-entity-*"  # produs de transforms, vezi transforms/ in README
+
+WEB_PARENTS = ["apache2", "httpd", "php-fpm", "nginx"]
+SHELLS = ["sh", "bash", "dash", "zsh", "python3", "perl", "curl", "wget", "nc", "ncat"]
+
+
+def _refs(hits: list[dict]) -> list[EvidenceRef]:
+    """Doar identificatori. Niciodata continut."""
+    return [
+        EvidenceRef(
+            index=h["_index"],
+            doc_id=h["_id"],
+            timestamp=datetime.fromisoformat(h["_source"]["@timestamp"].replace("Z", "+00:00")),
+        )
+        for h in hits[:50]
+    ]
+
+
+MINUTES_MIN, MINUTES_MAX = 1, 1440
+
+
+def _minutes(minutes: Any) -> int:
+    """Fereastra uneltelor: int plafonat in [1, 1440]. Orice altceva decat un numar ridica
+    ValueError (modelul primeste eroarea uneltei, nu un text interpolat in interogare)."""
+    return max(MINUTES_MIN, min(MINUTES_MAX, int(minutes)))
+
+
+# Campurile pe care modelul poate intreba "cat de rar e X" (principiul 3: niciun camp ales de
+# model nu se interpoleaza in text; cheia alege indexul, valoarea merge ca parametru).
+_RARITY_INDEX: dict[str, str] = {
+    "process.name": PROC_IDX, "process.parent.name": PROC_IDX, "process.executable": PROC_IDX,
+    "process.command_line": PROC_IDX, "user.name": PROC_IDX,
+    "destination.ip": NET_IDX, "destination.port": NET_IDX, "dns.question.name": NET_IDX,
+    "url.path": APACHE_IDX, "file.path": FILE_IDX,
+}
+RARITY_FIELDS: frozenset[str] = frozenset(_RARITY_INDEX)
+
+# Catalog INCHIS de secvente EQL scrise de om (principiul 3). Hostul si fereastra intra prin
+# `filter` (term + range), niciodata in textul interogarii; indexul e fix per tipar.
+_ENDPOINT_FILE_PROC = f"{FILE_IDX},{PROC_IDX}"
+_ENDPOINT_PROC_NET = f"{PROC_IDX},{NET_IDX}"
+EQL_PATTERNS: dict[str, dict[str, str]] = {
+    "webshell_write_then_exec": {
+        "title": "fisier PHP scris in webroot, apoi serverul web porneste un proces (<= 10 min)",
+        "index": _ENDPOINT_FILE_PROC,
+        "query": (
+            'sequence by host.id with maxspan=10m\n'
+            '  [ file where event.action in ("creation", "modification", "rename")\n'
+            '      and file.path : "/var/www/*" and file.extension in ("php", "phtml", "phar") ]\n'
+            '  [ process where event.type == "start"\n'
+            '      and process.parent.name in ("apache2", "httpd", "php-fpm8.3", "php-fpm") ]'
+        ),
+    },
+    "web_child_then_egress": {
+        "title": "proces copil al serverului web, apoi conexiune de iesire (<= 5 min)",
+        "index": _ENDPOINT_PROC_NET,
+        "query": (
+            'sequence by host.id with maxspan=5m\n'
+            '  [ process where event.type == "start"\n'
+            '      and process.parent.name in ("apache2", "httpd", "php-fpm8.3", "php-fpm") ]\n'
+            '  [ network where network.direction == "egress" ]'
+        ),
+    },
+    "tmp_write_then_exec": {
+        "title": "fisier scris in /tmp, /var/tmp sau /dev/shm, apoi executat de acolo (<= 10 min)",
+        "index": _ENDPOINT_FILE_PROC,
+        "query": (
+            'sequence by host.id with maxspan=10m\n'
+            '  [ file where event.action in ("creation", "modification", "rename")\n'
+            '      and file.path : ("/tmp/*", "/var/tmp/*", "/dev/shm/*") ]\n'
+            '  [ process where event.type == "start"\n'
+            '      and process.executable : ("/tmp/*", "/var/tmp/*", "/dev/shm/*") ]'
+        ),
+    },
+    "cron_write_then_exec": {
+        "title": "fisier de cron scris, apoi cron porneste un proces (<= 60 min)",
+        "index": _ENDPOINT_FILE_PROC,
+        "query": (
+            'sequence by host.id with maxspan=60m\n'
+            '  [ file where event.action in ("creation", "modification", "rename")\n'
+            '      and file.path : ("/etc/cron*", "/var/spool/cron/*") ]\n'
+            '  [ process where event.type == "start" and process.parent.name == "cron" ]'
+        ),
+    },
+}
+
+
+def _esql(query: str, params: list[Any] | None = None) -> list[dict]:
+    resp = ES.esql.query(query=query, params=params or [], format="json")
+    cols = [c["name"] for c in resp["columns"]]
+    return [dict(zip(cols, row)) for row in resp["values"]]
+
+
+# --------------------------------------------------------------------------
+# LOOKUP-uri — preaduse, deterministe, fara LLM
+# --------------------------------------------------------------------------
+
+
+def lookup_investigation_guide(rule_id: str) -> str | None:
+    """
+    Ghidul per-regula pe care il scrii TU, in git, langa regula.
+    Instructiune primara pentru agent; protocolul generic e doar fallback.
+    Cea mai buna investitie de timp din proiect, si e gratis daca o faci din start.
+    """
+    path = f"detections/{rule_id}/investigation_guide.md"
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return None
+
+
+def lookup_asset_context(host_id: str) -> dict:
+    """Echivalentul lookup-ului lor in Workday: cine detine, cat de critic, ce e expus."""
+    rows = _esql(
+        """
+        FROM asset-inventory
+        | WHERE host.id == ?
+        | KEEP criticality, owner, exposed_services, open_cves
+        | LIMIT 1
+        """,
+        params=[host_id],
+    )
+    return rows[0] if rows else {}
+
+
+def lookup_entity_baseline(entity_type: EntityType, entity_id: str) -> dict:
+    """
+    Din indexul de baseline intretinut de transform. NU calculat la runtime —
+    ar dura secunde bune si l-ai plati la fiecare investigatie.
+    """
+    rows = _esql(
+        """
+        FROM baseline-entity-*
+        | WHERE entity_type == ? AND entity_id == ?
+        | KEEP first_seen, events_90d, common_parents, common_destinations
+        | LIMIT 1
+        """,
+        params=[entity_type.value, entity_id],
+    )
+    return rows[0] if rows else {}
+
+
+def lookup_past_verdicts(rule_id: str, days: int = 30) -> tuple[list[dict], float | None]:
+    """
+    Bucla de feedback. Daca regula a tras de 50 de ori si 48 au fost fals pozitive,
+    ala e cel mai important context pe care il poate primi agentul.
+
+    ATENTIE: la Elastic adevarul de referinta vine de la analistul care inchide cazul.
+    Tu n-ai analist. Aici trebuie sa pui verdictele confirmate din laborator
+    plus esantionul revizuit periodic — altfel bucla se auto-confirma.
+    """
+    rows = _esql(
+        """
+        FROM verdicts-history
+        | WHERE rule_id == ? AND @timestamp >= NOW() - 30 days
+        | KEEP classification, confidence, ground_truth, notes
+        | LIMIT 50
+        """,
+        params=[rule_id],
+    )
+    if not rows:
+        return [], None
+    labelled = [r for r in rows if r.get("ground_truth")]
+    if not labelled:
+        return rows, None
+    fp = sum(1 for r in labelled if r["ground_truth"] == "benign")
+    return rows, fp / len(labelled)
+
+
+def build_context_pack(
+    entity_type: EntityType, entity_id: str, rule_id: str | None = None
+) -> ContextPack:
+    """Tot ce stim despre entitate. Preadus intr-un singur pas, inainte de orice model."""
+    asset = lookup_asset_context(entity_id) if entity_type == EntityType.HOST else {}
+    base = lookup_entity_baseline(entity_type, entity_id)
+    past, fp_rate = lookup_past_verdicts(rule_id) if rule_id else ([], None)
+
+    return ContextPack(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        investigation_guide=lookup_investigation_guide(rule_id) if rule_id else None,
+        asset_criticality=asset.get("criticality"),
+        asset_owner=asset.get("owner"),
+        exposed_services=asset.get("exposed_services") or [],
+        open_cves=asset.get("open_cves") or [],
+        first_seen=base.get("first_seen"),
+        events_last_90d=base.get("events_90d") or 0,
+        common_parents=base.get("common_parents") or [],
+        common_destinations=base.get("common_destinations") or [],
+        past_verdicts_same_rule=past,
+        fp_rate_same_rule=fp_rate,
+    )
+
+
+# --------------------------------------------------------------------------
+# SWEEP-ul de raritate — al treilea punct de intrare, cel programat
+#
+# Un 0-day care nu genereaza nicio alerta nu intra NICIODATA intr-un sistem
+# declansat de evenimente. Asta e singura cale pe care il gasesti.
+# Zero ipoteze despre cum arata un atac. Doar: ce e nou fata de 90 de zile.
+# --------------------------------------------------------------------------
+
+
+def sweep_new_parent_child(window_hours: int = 1) -> list[RarityFinding]:
+    """Perechi parinte-copil nevazute in baseline. Semnalul numarul unu pentru RCE."""
+    # FARA filtru pe event.type / event.action: la Elastic Defend sunt campuri
+    # multi-valoare si `==` esueaza in ES|QL (descoperit pe date reale).
+    recent = _esql(
+        f"""
+        FROM {PROC_IDX}
+        | WHERE @timestamp >= NOW() - {window_hours} hours
+        | WHERE process.parent.name IS NOT NULL AND process.name IS NOT NULL
+        // Thread-urile kernelului (parinte kthreadd = PID 2, fara executabil) isi schimba
+        // numele cu coada de lucru (kworker/1:2-events) -> "noi" la nesfarsit. Nu dupa
+        // nume: un proces redenumit "kthreadd" are alt PID si un executabil, deci ramane.
+        | WHERE NOT (process.parent.pid == 2 AND process.executable IS NULL)
+        | STATS cnt = COUNT(*) BY host.name, process.parent.name, process.name
+        | LIMIT 5000
+        """
+    )
+    # Comparatia se face in Python: indexul transformului e in mod standard,
+    # deci LOOKUP JOIN nu merge pe el.
+    known = {
+        (r["host.name"], r["process.parent.name"], r["process.name"])
+        for r in _esql(
+            """
+            FROM baseline-entity-parentchild
+            | KEEP host.name, process.parent.name, process.name
+            | LIMIT 10000
+            """
+        )
+    }
+    out = []
+    for r in recent:
+        key = (r["host.name"], r["process.parent.name"], r["process.name"])
+        if key in known:
+            continue
+        # Raritatea e agnostica, dar ponderam ce e structural mai grav
+        score = 1.0 if r["process.parent.name"] in WEB_PARENTS else 0.8
+        out.append(
+            RarityFinding(
+                kind="new_parent_child",
+                entity_type=EntityType.HOST,
+                entity_id=r["host.name"],
+                detail={
+                    "parent": r["process.parent.name"],
+                    "child": r["process.name"],
+                    "count": r["cnt"],
+                },
+                rarity_score=score,
+            )
+        )
+    return out
+
+
+# Baseline-ul sweep-urilor noi se calculeaza direct din ultimele 30 de zile (fara
+# transform): volumele din laborator sunt mici, iar o cheie e "noua" daca n-a mai
+# aparut in [acum - 30 zile, acum - fereastra). Valorile din telemetrie nu intra
+# niciodata in textul interogarii: comparatia se face in Python.
+SWEEP_BASELINE_DAYS = 30
+# Un raspuns e anormal de mare daca depaseste de RESP_FACTOR ori maximul vazut pe
+# aceeasi cale si macar RESP_MIN_BYTES; doar pe cai cu destula istorie.
+RESP_FACTOR = 3
+RESP_MIN_BYTES = 100_000
+RESP_MIN_HISTORY = 20
+# Un IP scaneaza daca aduna multe raspunsuri de eroare (4xx/5xx) pe multe cai
+# distincte in fereastra: recon/enumerare inaintea exploatarii. Praguri (nu din
+# telemetrie), aplicate in Python pe agregatele per IP.
+ENUM_MIN_ERRORS = 20
+ENUM_MIN_PATHS = 15
+
+
+def _windows(window_hours: int) -> tuple[str, str]:
+    """(conditia ferestrei recente, conditia baseline-ului) in ES|QL. Doar intregi."""
+    w, b = int(window_hours), int(SWEEP_BASELINE_DAYS)
+    return (f"@timestamp >= NOW() - {w} hours",
+            f"@timestamp >= NOW() - {b} days AND @timestamp < NOW() - {w} hours")
+
+
+def novel(recent: list[dict], known: list[dict], fields: tuple[str, ...]) -> list[dict]:
+    """Randurile din `recent` a caror cheie (`fields`) nu apare in `known`. Pur."""
+    seen = {tuple(r.get(f) for f in fields) for r in known}
+    return [r for r in recent if tuple(r.get(f) for f in fields) not in seen
+            and all(r.get(f) is not None for f in fields)]
+
+
+def _ip_score(ip: str | None) -> float:
+    """Destinatie externa = C2/exfiltrare posibila; interna sau loopback = mai putin grav."""
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(ip)
+    except (TypeError, ValueError):
+        return 0.8
+    # Explicit RFC1918/ULA: is_private include si plajele de documentatie (203.0.113.0/24),
+    # pe care laboratorul le foloseste ca "internet".
+    internal = any(a in ipaddress.ip_network(n) for n in
+                   ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+                   if ipaddress.ip_network(n).version == a.version)
+    return 0.6 if (internal or a.is_loopback or a.is_link_local) else 1.0
+
+
+def sweep_new_destinations(window_hours: int = 1) -> list[RarityFinding]:
+    """Destinatii (IP) nevazute pentru procesul asta in 30 de zile. C2 / exfiltrare.
+    In productie cheia ar fi destination.as.number; in laborator ASN-ul e gol."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {NET_IDX}
+        | WHERE {{w}} AND network.direction == "egress"
+          AND destination.ip IS NOT NULL AND process.name IS NOT NULL
+        | STATS cnt = COUNT(*) BY host.name, process.name, destination.ip
+        | LIMIT 5000
+        """
+    keys = ("host.name", "process.name", "destination.ip")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_destination_asn", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"process": r["process.name"], "destination_ip": str(r["destination.ip"]),
+                    "count": r["cnt"]},
+            rarity_score=_ip_score(str(r["destination.ip"])))
+        for r in rows
+    ]
+
+
+def sweep_new_listening_ports(window_hours: int = 1) -> list[RarityFinding]:
+    """Port local care accepta conexiuni pentru prima data (sau alt proces pe el).
+    Backdoor / bind shell. Defend nu logheaza listen(), doar conexiunile acceptate:
+    un port deschis pe care nu se conecteaza nimeni nu apare aici."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {NET_IDX}
+        | WHERE {{w}} AND network.direction == "ingress"
+          AND destination.port IS NOT NULL AND process.name IS NOT NULL
+        | STATS cnt = COUNT(*) BY host.name, process.name, destination.port
+        | LIMIT 5000
+        """
+    keys = ("host.name", "process.name", "destination.port")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_listening_port", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"process": r["process.name"], "port": int(r["destination.port"]), "count": r["cnt"]},
+            rarity_score=1.0)
+        for r in rows
+    ]
+
+
+def _url_path(p) -> str:
+    # Calea o alege atacatorul: scurtata; ajunge la model doar ca DATE (vezi hunt_path).
+    return str(p)[:200]
+
+
+def is_robots_trap(path) -> bool:
+    """Caile-capcana din robots.txt (honeytokens.ROBOTS_TRAPS) au regula lor Kibana
+    (soc-honey-robots-trap); ca noutate de sweep ar fi aceeasi alerta de doua ori si ar
+    parea "expunere" (gasit la auto-atacul din 2026-11-03). Pur."""
+    p = str(path or "")
+    return any(p == t or p.startswith(t + "/") for t in honeytokens.ROBOTS_TRAPS)
+
+
+def sweep_new_url_paths(window_hours: int = 1) -> list[RarityFinding]:
+    """Cai web servite cu succes (< 400) pentru prima data in 30 de zile. Un webshell
+    nou raspunde 200 pe o cale noua; scanarea (404) ramane in seama honeytokens."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {{w}} AND http.response.status_code < 400 AND url.path IS NOT NULL
+        | STATS cnt = COUNT(*), ips = COUNT_DISTINCT(source.ip) BY host.name, url.path
+        | LIMIT 5000
+        """
+    keys = ("host.name", "url.path")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    rows = [r for r in rows if not is_robots_trap(r.get("url.path"))]
+    return [
+        RarityFinding(
+            kind="new_url_path", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"url_path": _url_path(r["url.path"]), "count": r["cnt"], "source_ips": r["ips"]},
+            rarity_score=0.9 if str(r["url.path"]).endswith(tuple(f".{e}" for e in
+                                                              ("php", "phtml", "jsp", "cgi", "pl"))) else 0.7)
+        for r in rows
+    ]
+
+
+def sweep_new_ja4(window_hours: int = 1) -> list[RarityFinding]:
+    """Amprenta TLS de client (JA4, din Suricata) nevazuta pe host in 30 de zile.
+    Un tool nou sau un implant care vorbeste HTTPS are alta amprenta decat curl,
+    apt sau agentul. Suricata nu stie procesul: il cauta Tier 2 dupa destinatie."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {SURICATA_IDX}
+        | WHERE {{w}} AND suricata.eve.event_type == "tls" AND suricata.eve.tls.ja4 IS NOT NULL
+        | EVAL host = COALESCE(host.name, observer.hostname)
+        | STATS cnt = COUNT(*), dst = MAX(destination.ip), sni = MAX(tls.client.server_name)
+            BY host, suricata.eve.tls.ja4
+        | LIMIT 5000
+        """
+    # Integrarea Suricata nu pune host.name (e senzor de retea): hostul e observer.hostname.
+    keys = ("host", "suricata.eve.tls.ja4")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_ja4", entity_type=EntityType.HOST, entity_id=r["host"],
+            detail={"ja4": str(r["suricata.eve.tls.ja4"])[:64], "destination_ip": str(r["dst"]),
+                    "sni": _url_path(r["sni"]) if r.get("sni") else None, "count": r["cnt"]},
+            rarity_score=0.8)
+        for r in rows
+    ]
+
+
+def size_outliers(recent: list[dict], history: list[dict]) -> list[dict]:
+    """Pur: raspunsurile recente mult peste maximul istoric al aceleiasi cai."""
+    hist = {(h["host.name"], h["url.path"]): h for h in history}
+    out = []
+    for r in recent:
+        h = hist.get((r["host.name"], r["url.path"]))
+        if not h or (h.get("cnt") or 0) < RESP_MIN_HISTORY or r.get("mx") is None:
+            continue
+        limit = max(RESP_FACTOR * (h.get("mx") or 0), RESP_MIN_BYTES)
+        if r["mx"] > limit:
+            out.append({**r, "baseline_max": h.get("mx"), "baseline_count": h.get("cnt")})
+    return out
+
+
+def sweep_response_size_outliers(window_hours: int = 1) -> list[RarityFinding]:
+    """Raspuns web anormal de mare pe o cale cunoscuta. Exfiltrare prin aplicatie."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {{w}} AND url.path IS NOT NULL AND http.response.body.bytes IS NOT NULL
+        | STATS cnt = COUNT(*), mx = MAX(http.response.body.bytes) BY host.name, url.path
+        | LIMIT 5000
+        """
+    rows = size_outliers(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)))
+    return [
+        RarityFinding(
+            kind="response_size_outlier", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"url_path": _url_path(r["url.path"]), "max_bytes": r["mx"],
+                    "baseline_max_bytes": r["baseline_max"], "baseline_count": r["baseline_count"]},
+            rarity_score=0.9)
+        for r in rows
+    ]
+
+
+def sweep_webroot_writes(window_hours: int = 1) -> list[RarityFinding]:
+    """Fisiere executabile-web nou scrise in webroot. Webshell = drift, prin definitie."""
+    rows = _esql(
+        f"""
+        FROM {FILE_IDX}
+        | WHERE @timestamp >= NOW() - {window_hours} hours
+          AND event.action == "creation"
+          AND STARTS_WITH(file.path, "/var/www/")
+          AND file.extension IN ("php", "phtml", "jsp", "aspx", "cgi", "pl")
+        | STATS cnt = COUNT(*) BY host.name, file.path, process.name
+        | LIMIT 500
+        """
+    )
+    # Fara baseline: orice executabil web scris in webroot e drift (un deploy trece
+    # tot pe aici; il separa fereastra de mentenanta, la Tier 2). Un rand per fisier.
+    return [
+        RarityFinding(
+            kind="new_webroot_write",
+            entity_type=EntityType.HOST,
+            entity_id=r["host.name"],
+            detail={"path": r["file.path"], "written_by": r["process.name"], "count": r["cnt"]},
+            rarity_score=1.0,
+        )
+        for r in rows
+    ]
+
+
+def enumeration_hits(rows: list[dict]) -> list[dict]:
+    """Pur: IP-urile care scaneaza — macar ENUM_MIN_ERRORS raspunsuri de eroare pe
+    macar ENUM_MIN_PATHS cai distincte in fereastra. Pragul pe amandoua odata: un
+    404 izolat sau un singur path lovit des nu e scanare."""
+    return [r for r in rows
+            if (r.get("errors") or 0) >= ENUM_MIN_ERRORS
+            and (r.get("paths") or 0) >= ENUM_MIN_PATHS]
+
+
+def sweep_web_enumeration(window_hours: int = 1) -> list[RarityFinding]:
+    """Scanare/enumerare web: un IP care loveste multe cai distincte si aduna multe
+    raspunsuri de eroare. Faza de recon dinaintea exploatarii (cautare de plugin-uri
+    si versiuni vulnerabile cu wpscan/nuclei). Fara baseline: largimea si ritmul
+    tradeaza scanarea, nu noutatea. user_agent e ales de atacator: DATE, doar indiciu."""
+    rw, _ = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {rw} AND source.ip IS NOT NULL AND url.path IS NOT NULL
+        | EVAL err = CASE(http.response.status_code >= 400, 1, 0)
+        | STATS total = COUNT(*), errors = SUM(err),
+                paths = COUNT_DISTINCT(url.path), ua = MAX(user_agent.original)
+            BY host.name, source.ip
+        | LIMIT 5000
+        """
+    rows = enumeration_hits(_esql(q))
+    return [
+        RarityFinding(
+            kind="web_enumeration", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"source_ip": str(r["source.ip"]), "error_responses": r["errors"],
+                    "distinct_paths": r["paths"], "total": r["total"],
+                    "user_agent": _url_path(r.get("ua")) if r.get("ua") else None},
+            rarity_score=0.8 if r["errors"] >= 2 * ENUM_MIN_ERRORS else 0.6)
+        for r in rows
+    ]
+
+
+def sweep_wp_recon_path(window_hours: int = 1) -> list[RarityFinding]:
+    """Acces la puncte tipice de recon WordPress: dezvaluirea versiunii (readme,
+    license), enumerarea utilizatorilor (wp-json) si xmlrpc. Nu e exploatare, e
+    pregatirea ei; scor mic, dar coreleaza cu expunerea (versiuni vechi) in faza
+    urmatoare. Caile sunt constante proprii, nu din telemetrie (== / ENDS_WITH)."""
+    rw, _ = _windows(window_hours)
+    q = f"""
+        FROM {APACHE_IDX}
+        | WHERE {rw} AND url.path IS NOT NULL
+          AND (url.path == "/xmlrpc.php"
+               OR STARTS_WITH(url.path, "/wp-json/wp/v2/users")
+               OR ENDS_WITH(url.path, "/readme.html")
+               OR ENDS_WITH(url.path, "/readme.txt")
+               OR ENDS_WITH(url.path, "/license.txt"))
+        | STATS cnt = COUNT(*), ips = COUNT_DISTINCT(source.ip),
+                ua = MAX(user_agent.original) BY host.name, url.path
+        | LIMIT 500
+        """
+    return [
+        RarityFinding(
+            kind="wp_recon_path", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"url_path": _url_path(r["url.path"]), "count": r["cnt"],
+                    "source_ips": r["ips"],
+                    "user_agent": _url_path(r.get("ua")) if r.get("ua") else None},
+            rarity_score=0.6)
+        for r in _esql(q)
+    ]
+
+
+def pair_event_refs(host: str, parent: str, child: str, window_hours: int = 1, limit: int = 10,
+                    at=None) -> list[EvidenceRef]:
+    """Evenimentele de pornire ale perechii gasite de sweep, ca referinte (doar ID-uri).
+    Le ataseaza codul la verdict, ca Tier 3 sa stie ce proces a fost cazul.
+    Filtre term: valorile din telemetrie nu ajung in text de interogare.
+    `at` = momentul finding-ului (faza 25); fara el, fereastra veche fata de acum."""
+    r = ES.search(index=PROC_IDX, size=limit, sort=[{"@timestamp": "asc"}], source=["@timestamp"],
+                  query={"bool": {"filter": [
+                      {"term": {"host.name": host}},
+                      {"term": {"process.parent.name": parent}},
+                      {"term": {"process.name": child}},
+                      {"term": {"event.type": "start"}},
+                      {"range": {"@timestamp": eventtime.dsl_range(at, int(window_hours), "hours")}},
+                  ]}})
+    return _refs(r["hits"]["hits"])
+
+
+# Locuri tipice de payload fileless. Ridicam scorul pentru ce e mai rar/mai grav
+# (memorie, shm, binar sters) fata de /tmp, care are si uz legitim (installere, build).
+_HIGH_EXEC = ("/dev/shm/", "memfd:")
+
+
+def _exec_score(path: str) -> float:
+    p = path or ""
+    if p.endswith("(deleted)") or any(p.startswith(x) for x in _HIGH_EXEC):
+        return 1.0
+    return 0.8
+
+
+def sweep_suspicious_exec_path(window_hours: int = 1) -> list[RarityFinding]:
+    """Executie dintr-un loc tipic de payload fileless: /tmp, /var/tmp, /dev/shm,
+    memfd sau binar sters ((deleted)). Consecinta clasica de post-exploatare, fara
+    semnatura. Agnostic: statistica semnaleaza, modelul judeca."""
+    rows = _esql(
+        f"""
+        FROM {PROC_IDX}
+        | WHERE @timestamp >= NOW() - {window_hours} hours
+          AND process.executable IS NOT NULL
+          AND (STARTS_WITH(process.executable, "/tmp/")
+               OR STARTS_WITH(process.executable, "/var/tmp/")
+               OR STARTS_WITH(process.executable, "/dev/shm/")
+               OR STARTS_WITH(process.executable, "memfd:")
+               OR ENDS_WITH(process.executable, "(deleted)"))
+        | STATS cnt = COUNT(*) BY host.name, process.executable, process.name, user.name
+        | LIMIT 500
+        """
+    )
+    return [
+        RarityFinding(
+            kind="suspicious_exec_path",
+            entity_type=EntityType.HOST,
+            entity_id=r["host.name"],
+            detail={"exec": r["process.executable"], "process": r.get("process.name"),
+                    "user": r.get("user.name"), "count": r["cnt"]},
+            rarity_score=_exec_score(r["process.executable"]),
+        )
+        for r in rows
+    ]
+
+
+# Pasul 3.B: raritate pe tipurile lipsa (executabil, utilizator, deriva SBOM).
+SBOM_IDX = "logs-soc.sbom-*"
+# Executabile noi in directoarele de sistem apar mai ales la update-uri; agentul Elastic se
+# actualizeaza singur. Restul (home, /var, /opt, /usr/local, webroot) = unealta adusa.
+_SYSTEM_EXEC = ("/usr/bin/", "/usr/sbin/", "/bin/", "/sbin/", "/usr/lib/", "/usr/libexec/", "/lib/")
+_AGENT_EXEC = ("/opt/Elastic/",)
+
+
+def _new_exec_score(path: str) -> float:
+    p = path or ""
+    if p.startswith(_AGENT_EXEC):
+        return 0.4
+    if p.startswith(_SYSTEM_EXEC):
+        return 0.6
+    return 0.9
+
+
+def sweep_new_executable(window_hours: int = 1) -> list[RarityFinding]:
+    """Executabil pornit pe host pentru prima data in 30 de zile, de ORICE utilizator
+    (parent-child vede perechi, suspicious_exec_path vede doar caile fileless). Dropper,
+    unealta adusa, binar inlocuit sub alt nume. Masurat 2026-10-30: ~4 pe zi, toate
+    explicabile (pachet instalat, reboot). Caile fileless raman la suspicious_exec_path."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {PROC_IDX}
+        | WHERE {{w}} AND process.executable IS NOT NULL
+          AND NOT STARTS_WITH(process.executable, "/tmp/")
+          AND NOT STARTS_WITH(process.executable, "/var/tmp/")
+          AND NOT STARTS_WITH(process.executable, "/dev/shm/")
+          AND NOT STARTS_WITH(process.executable, "memfd:")
+          AND NOT ENDS_WITH(process.executable, "(deleted)")
+        | STATS cnt = COUNT(*), users = VALUES(user.name) BY host.name, process.executable
+        | LIMIT 10000
+        """
+    keys = ("host.name", "process.executable")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_executable", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"exec": str(r["process.executable"])[:200], "count": r["cnt"],
+                    "users": [str(u)[:64] for u in _as_list(r.get("users"))][:10]},
+            rarity_score=_new_exec_score(str(r["process.executable"])))
+        for r in rows
+    ]
+
+
+def sweep_new_user(window_hours: int = 1) -> list[RarityFinding]:
+    """Cont care ruleaza procese pe host pentru prima data in 30 de zile: cont creat de
+    atacator (T1136) sau cont de serviciu deturnat. Masurat: 0 pe zi in operare normala."""
+    rw, bw = _windows(window_hours)
+    q = f"""
+        FROM {PROC_IDX}
+        | WHERE {{w}} AND user.name IS NOT NULL
+        | STATS cnt = COUNT(*), execs = VALUES(process.name) BY host.name, user.name
+        | LIMIT 10000
+        """
+    keys = ("host.name", "user.name")
+    rows = novel(_esql(q.replace("{w}", rw)), _esql(q.replace("{w}", bw)), keys)
+    return [
+        RarityFinding(
+            kind="new_user", entity_type=EntityType.HOST, entity_id=r["host.name"],
+            detail={"user": str(r["user.name"])[:64], "count": r["cnt"],
+                    "processes": [str(e)[:64] for e in _as_list(r.get("execs"))][:10]},
+            rarity_score=1.0)
+        for r in rows
+    ]
+
+
+def _as_list(v) -> list:
+    """VALUES() intoarce un scalar cand e o singura valoare."""
+    if v is None:
+        return []
+    return list(v) if isinstance(v, list) else [v]
+
+
+# Tipurile de componente SBOM urmarite (codul, nu versiunile serverului: alea le are nday_watch).
+SBOM_DRIFT_TYPES = ("apache_module", "php_ext", "plugin", "theme")
+
+
+def sbom_drift(prev: list[dict], cur: list[dict]) -> list[dict]:
+    """Diferentele dintre doua SBOM-uri consecutive, pe tipurile urmarite. Pur.
+    added (modul/extensie/plugin nou), removed, modified (acelasi plugin si aceeasi
+    versiune, alt sha256 = cod schimbat fara update: grav), version_changed (update)."""
+    def index(comps):
+        return {(c.get("type"), c.get("name")): c for c in comps or []
+                if c.get("type") in SBOM_DRIFT_TYPES and isinstance(c.get("name"), str)}
+    p, c = index(prev), index(cur)
+    out = []
+    for k in sorted(set(p) | set(c), key=str):
+        a, b = p.get(k), c.get(k)
+        if a is None:
+            change, score = "added", 0.9
+        elif b is None:
+            change, score = "removed", 0.6
+        elif a.get("version") != b.get("version"):
+            change, score = "version_changed", 0.5
+        elif a.get("sha256") != b.get("sha256"):
+            change, score = "modified", 1.0
+        else:
+            continue
+        out.append({"component_type": k[0], "name": k[1][:120], "change": change,
+                    "version": str((b or a).get("version") or "")[:40],
+                    "old_version": str((a or {}).get("version") or "")[:40], "score": score})
+    return out
+
+
+def sweep_sbom_drift(window_hours: int = 1, host: str = "web-prod") -> list[RarityFinding]:
+    """Modul Apache / extensie PHP / plugin / tema aparut, disparut sau modificat intre
+    ultimele doua SBOM-uri (zilnice, 03:00). Doar cand SBOM-ul cel mai nou e proaspat
+    (fereastra + 1 h), ca o diferenta sa fie raportata o data, nu toata ziua."""
+    r = ES.search(index=SBOM_IDX, size=2, sort=[{"@timestamp": "desc"}],
+                  query={"term": {"host.name": host}}, source=["@timestamp", "components"])
+    hits = r["hits"]["hits"]
+    if len(hits) < 2:
+        return []
+    cur, prev = hits[0]["_source"], hits[1]["_source"]
+    ts = datetime.fromisoformat(cur["@timestamp"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) - ts > timedelta(hours=int(window_hours) + 1):
+        return []
+    return [
+        RarityFinding(
+            kind="sbom_drift", entity_type=EntityType.HOST, entity_id=host,
+            detail={k: v for k, v in d.items() if k != "score"}, rarity_score=d["score"])
+        for d in sbom_drift(prev.get("components"), cur.get("components"))
+    ]
+
+
+def _sweep_entity_risk(window_hours: int = 1) -> list[RarityFinding]:
+    """plann.md A3: scor de risc acumulat per IP sursa / utilizator (risk.py)."""
+    from elasticlab.tier2 import risk
+    return risk.sweep_entity_risk(window_hours, es=ES)
+
+
+def run_full_sweep(window_hours: int = 1) -> list[RarityFinding]:
+    # Faza 25: momentul sweep-ului e momentul finding-urilor (sfarsitul ferestrei cercetate).
+    # Tier 2 isi socoteste ferestrele fata de el, nu fata de cand ajunge finding-ul la rand.
+    at = datetime.now(timezone.utc)
+    findings: list[RarityFinding] = []
+    from elasticlab.tier2 import anomalies
+    for fn in (sweep_new_parent_child, sweep_webroot_writes, sweep_new_destinations,
+               sweep_new_listening_ports, sweep_new_url_paths, sweep_response_size_outliers,
+               sweep_new_ja4, sweep_suspicious_exec_path, sweep_web_enumeration, sweep_wp_recon_path,
+               sweep_new_executable, sweep_new_user, sweep_sbom_drift,
+               anomalies.sweep_beaconing, anomalies.sweep_dns, _sweep_entity_risk):
+        try:
+            findings.extend(fn(window_hours))
+        except Exception as exc:  # un sweep cazut nu trebuie sa omoare restul
+            print(f"[sweep] {fn.__name__} a esuat: {exc}")
+    findings.sort(key=lambda f: f.rarity_score, reverse=True)
+    return [f if f.observed_at else f.model_copy(update={"observed_at": at}) for f in findings]
+
+
+# --------------------------------------------------------------------------
+# TOOL-uri expuse agentului de hunting.
+# Aici NU preaduci — tocmai fiindca nu stii dinainte ce va vrea sa intrebe.
+# Toate read-only. Toate cu LIMIT. Toate cu fereastra maxima.
+# Faza 25: "ultimele N minute" se socotesc fata de momentul cazului (eventtime.current(), pus de
+# hunt_path in jurul investigatorului), nu fata de acum. Fara caz in curs: NOW(), ca inainte.
+# --------------------------------------------------------------------------
+
+
+@tool
+@_traced
+def tool_process_tree(host_name: str, entity_id: str, minutes: int = 30) -> dict:
+    """
+    Arborele de procese in jurul unui proces.
+
+    NU corela dupa PID brut — PID-urile se refolosesc si la volum vei atribui
+    actiuni procesului gresit. process.entity_id e stabil.
+    """
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
+    rows = _esql(
+        f"""
+        FROM {PROC_IDX} METADATA _id, _index
+        | WHERE host.name == ? AND {win}
+          AND (process.entity_id == ? OR process.parent.entity_id == ?)
+        | KEEP _id, _index, @timestamp, process.name, process.command_line, process.entity_id,
+               process.parent.name, process.parent.entity_id, user.name
+        | SORT @timestamp ASC
+        | LIMIT 200
+        """,
+        params=[host_name, *wp, entity_id, entity_id],
+    )
+    return {"rows": rows, "count": len(rows)}
+
+
+@tool
+@_traced
+def tool_egress_for_host(host_name: str, minutes: int = 30) -> dict:
+    """Conexiunile outbound (egress) ale unui host in ultimele N minute, agregate
+    pe destinatie si proces. Foloseste asta ca sa vezi cu ce IP-uri externe a
+    comunicat hostul — util pentru a depista C2 sau exfiltrare."""
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
+    rows = _esql(
+        f"""
+        FROM {NET_IDX}
+        | WHERE host.name == ? AND {win}
+          AND network.direction == "egress"
+        | STATS bytes = SUM(network.bytes), cnt = COUNT(*)
+            BY destination.ip, destination.port, destination.as.organization.name, process.name
+        | SORT bytes DESC
+        | LIMIT 50
+        """,
+        params=[host_name, *wp],
+    )
+    return {"rows": rows}
+
+
+@tool
+@_traced
+def tool_apache_requests(host_name: str, minutes: int = 30, status: int | None = None) -> dict:
+    """Cereri catre serverul web. Pentru corelarea request -> proces."""
+    extra = "AND http.response.status_code == ?" if status else ""
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
+    params: list[Any] = [host_name, *wp] + ([status] if status else [])
+    rows = _esql(
+        f"""
+        FROM {APACHE_IDX} METADATA _id, _index
+        | WHERE host.name == ? AND {win} {extra}
+        | KEEP _id, _index, @timestamp, source.ip, url.path, http.request.method,
+               http.response.status_code, http.response.body.bytes, user_agent.original
+        | SORT @timestamp DESC
+        | LIMIT 200
+        """,
+        params=params,
+    )
+    return {"rows": rows}
+
+
+@tool
+@_traced
+def tool_eql_pattern(pattern_id: str, host_name: str, minutes: int = 30) -> dict:
+    """Secvente corelate (EQL) dintr-un catalog INCHIS de tipare scrise de om, pe un host, in
+    ultimele N minute (1-1440). Tiparele: webshell_write_then_exec (fisier PHP scris in webroot,
+    apoi serverul web porneste un proces), web_child_then_egress (proces copil al serverului web,
+    apoi conexiune de iesire), tmp_write_then_exec (fisier scris in /tmp, /var/tmp, /dev/shm,
+    apoi executat de acolo), cron_write_then_exec (fisier de cron scris, apoi cron porneste un
+    proces). Un pattern_id necunoscut intoarce eroarea si lista permisa, fara interogare."""
+    pat = EQL_PATTERNS.get(str(pattern_id))
+    if pat is None:
+        return {"error": f"pattern necunoscut: {str(pattern_id)[:64]!r}", "allowed": sorted(EQL_PATTERNS)}
+    m = _minutes(minutes)
+    resp = ES.eql.search(
+        index=pat["index"], query=pat["query"], size=50,
+        filter={"bool": {"filter": [{"term": {"host.name": host_name}},
+                                    {"range": {"@timestamp": eventtime.dsl_range(eventtime.current(), m, "minutes")}}]}},
+    )
+    return {
+        "pattern": pat["title"], "minutes": m,
+        "sequences": resp["hits"].get("sequences", []),
+        "events": resp["hits"].get("events", []),
+    }
+
+
+@tool
+@_traced
+def tool_suricata_alerts(source_ip: str, minutes: int = 60) -> dict:
+    """Alertele Suricata (IDS) generate de un IP sursa in ultimele N minute.
+    Foloseste asta ca sa vezi daca traficul de la un IP a declansat semnaturi
+    de retea cunoscute."""
+    win, wp = eventtime.esql_window(eventtime.current(), _minutes(minutes), "minutes")
+    rows = _esql(
+        f"""
+        FROM {SURICATA_IDX} METADATA _id, _index
+        | WHERE source.ip == ? AND {win}
+          AND event.kind == "alert"
+        | KEEP _id, _index, @timestamp, rule.name, rule.category, destination.ip, destination.port
+        | LIMIT 100
+        """,
+        params=[source_ip, *wp],
+    )
+    return {"rows": rows}
+
+
+@tool
+@_traced
+def tool_rarity_of(field: str, value: str, host_name: str | None = None) -> dict:
+    """
+    Cat de neobisnuit e X aici (ultimele 90 de zile)? `field` e DOAR unul din: process.name,
+    process.parent.name, process.executable, process.command_line, user.name, destination.ip,
+    destination.port, url.path, file.path, dns.question.name. Alt camp intoarce eroarea si lista
+    permisa, fara interogare. `value` se compara prin egalitate (parametru, nu text).
+    """
+    idx = _RARITY_INDEX.get(str(field))
+    if idx is None:
+        return {"error": f"camp nepermis: {str(field)[:64]!r}", "allowed": sorted(RARITY_FIELDS)}
+    where = f"WHERE {field} == ?"
+    params = [value]
+    if host_name:
+        where += " AND host.name == ?"
+        params.append(host_name)
+    # Faza 25: cele 90 de zile se socotesc pana la momentul cazului (plus DUPA_EVENIMENT),
+    # ca aparitiile de dupa alerta sa nu schimbe raritatea la o prelucrare intarziata.
+    win, wp = eventtime.esql_window(eventtime.current(), 90, "days")
+    params += wp
+    rows = _esql(
+        f"""
+        FROM {idx}
+        | {where} AND {win}
+        | STATS cnt = COUNT(*), first_seen = MIN(@timestamp), last_seen = MAX(@timestamp)
+        """,
+        params=params,
+    )
+    r = rows[0] if rows else {"cnt": 0}
+    cnt = r.get("cnt") or 0
+    return {
+        "occurrences_90d": cnt,
+        "first_seen": r.get("first_seen"),
+        "rarity_score": 1.0 if cnt == 0 else min(1.0, 1.0 / (1.0 + cnt / 10.0)),
+    }
+
+
+HUNT_TOOLS = [
+    tool_process_tree,
+    tool_egress_for_host,
+    tool_apache_requests,
+    tool_eql_pattern,
+    tool_suricata_alerts,
+    tool_rarity_of,
+]

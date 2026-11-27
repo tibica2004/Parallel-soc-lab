@@ -27,3 +27,12 @@ def test_lookup_guide_pe_regulile_cu_volum_mare():
         g = fast_path.lookup_guide(rule)
         assert g and g.startswith("# "), rule
     assert fast_path.lookup_guide("regula inexistenta") is None
+
+
+def test_ghidurile_se_cauta_in_repo_nu_in_home():
+    """Faza 23: implicitul e detections/ de langa hunt_path.py, nu ~/lab/detections, deci
+    o clona in alt director (sau pe alt host) gaseste ghidurile; GUIDES_DIR din mediu ramane."""
+    import hunt_path
+    assert hunt_path.guides_dir({}) == ROOT / "detections"
+    assert hunt_path.guides_dir({"GUIDES_DIR": ""}) == ROOT / "detections"
+    assert str(hunt_path.guides_dir({"GUIDES_DIR": "/alt/director"})) == "/alt/director"

@@ -33,21 +33,22 @@ tehnici Atomic Red Team rulate, domeniul si limitarile scrise.
 **Gata cand:** ai cel putin 50 attack si 50 benign.
 
 ### A3. Textul de domeniu
-- [ ] Adaugi sectiunea "Domeniu" in `README.md` si in lucrare.
+- [x] Adaugi sectiunea "Domeniu" in `README.md` (faza-23, 2026-11-17).
+- [ ] Aceeasi sectiune in lucrare (omul).
   - **Acopera:** un host web Linux, detectie, triaj, investigatie, plan de raspuns pentru om.
   - **Nu acopera:** executia raspunsului, recuperarea, identitate, email, cloud, Windows, mai multe hosturi.
 
 ### A4. Codul fara poarta
 Ramura noua, de exemplu `faza-23-inchidere-conceptuala`.
-- [ ] `regression.py`: functia pura `wilson(k, n)`, cu intervale pentru precizie, recall si rata de fals pozitive in `metrics()` si in raport.
-- [ ] `regression.py`: `export()` sa poata rescrie fisierul setului de aur, care azi ramane doar-citire.
-- [ ] `tests/test_guides.py`: sa nu mai depinda de `~/lab/detections`.
-- [ ] Teste unitare pentru toate trei.
+- [x] `regression.py`: functia pura `wilson(k, n)`, cu intervale pentru precizie, recall si rata de fals pozitive in `metrics()` si in raport.
+- [x] `regression.py`: `export()` sa poata rescrie fisierul setului de aur, care azi ramane doar-citire.
+- [x] `tests/test_guides.py`: sa nu mai depinda de `~/lab/detections`.
+- [x] Teste unitare pentru toate trei. (1239 verzi, si cu HOME fara ~/lab)
 
 **Gata cand:** pytest e verde.
 
 ### A5. Masuratoarea pentru regula Tier 2 (doar citire, pe es-node-1)
-- [ ] Numeri cate verdicte hunt benigne pe findings din ultimele 30 de zile nu au niciun document in `soc-traces`.
+- [ ] (script gata, nerulat: `experiments/tier2_fara_dovezi.py`, asteapta aprobarea) Numeri cate verdicte hunt benigne pe findings din ultimele 30 de zile nu au niciun document in `soc-traces`.
 
 **Gata cand:** stii cate findings pe zi ar ajunge in plus la tine.
 
@@ -56,16 +57,22 @@ Ramura noua, de exemplu `faza-23-inchidere-conceptuala`.
 ## Faza B — dupa rebootul GPU-ului
 
 ### B1. Poarta faza-22
-- [ ] Opresti benign-gen: `sudo systemctl stop benign-gen` (pe benign-gen: `ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150`).
-- [ ] Rulezi pe rand cele patru seturi:
+- [x] Opresti benign-gen: `sudo systemctl stop benign-gen` (pe benign-gen: `ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150`).
+- [x] Rulezi pe rand cele patru seturi:
   ```
   SCENARIOS=scenarios_fast.yml VERBOSE=1 python3 -u harness.py | tee results/faza22-fast-$(date +%F-%H%M).txt
   ```
   Repeti cu `scenarios.yml`, `scenarios_validation.yml` si `scenarios_injection.yml`.
-- [ ] Pornesti benign-gen la loc.
-- [ ] Scenariile 8 si 14 au nume de proces noi, deci notezi referinta noua.
+- [x] Pornesti benign-gen la loc.
+- [x] Scenariile 8 si 14 au nume de proces noi, deci notezi referinta noua.
 
 **Gata cand:** recall pe atacuri neschimbat, injectie fara retrogradari.
+
+**FACUT 2026-11-17 08:16-09:52 UTC** (om, in tmux; `~/lab/results/faza22-*-2026-11-17-0816.txt`, commit
+80a867c, prompt_set 23664c93b9cd). fast 4/4; dev recall 8/8, 1 FP; validare 8/8; injectie 4/4; suita
+48/48 (identice 42/42, malitioase 40/40). Nicio regresie. Referinta noua: scenariul 8 (php) =
+malicious/95/isolate_host (FP cunoscut), scenariul 14 = suspicious/85/enrich_only (TP); "Deploy legitim"
+a iesit acum benign/75/none (TN), deci 1 FP in loc de 2.
 
 ### B2. Deploy
 - [ ] Faci copii `.pre-22`.
@@ -82,7 +89,12 @@ Ramura noua, de exemplu `faza-23-inchidere-conceptuala`.
 **Gata cand:** 9 reguli comportamentale pornite si determinism de cel putin 98%.
 
 ### B4. Merge
-- [ ] Aduci faza-22 in main.
+- [x] Aduci faza-22 in main.
+
+**FACUT 2026-11-17 ~10:05 UTC** (Claude, la cererea omului): `origin/main` adus prin fast-forward de la
+2782119 la 80a867c (fara force), dupa poarta. Ramura `faza-23-inchidere-conceptuala` urcata pe GitHub ca
+ramura, NEunita in main. Push-ul s-a facut de pe elastic-lab: cheia GitHub de pe es-node-1 e doar de citire.
+`main` local din `~/lab` adus si el la 80a867c.
 
 ---
 
@@ -95,9 +107,10 @@ Ramura noua, de exemplu `faza-23-inchidere-conceptuala`.
 **Gata cand:** ai precizie si recall cu interval si numarul de verdicte schimbate intre rulari.
 
 ### C2. Coada omului
-- [ ] Adaugi in `metrics.py` timpul pana la prima privire (`labeled_at` minus `@timestamp`, mediana si p90).
-- [ ] Adaugi in `metrics.py` numarul de cazuri escaladate pe zi.
-- [ ] Teste pentru ambele.
+- [x] Adaugi in `metrics.py` timpul pana la prima privire (`labeled_at` minus `@timestamp`, mediana si p90).
+- [x] Adaugi in `metrics.py` numarul de cazuri escaladate pe zi.
+- [x] Teste pentru ambele.
+- [ ] Apar in `soc-metrics` abia dupa deploy-ul codului faza-23 (orchestratorul scrie instantaneul).
 
 **Gata cand:** ambele apar in `soc-metrics`.
 
@@ -138,11 +151,12 @@ Cazurile venite din Tier 1 raman neatinse.
 ## Faza F — inchiderea
 
 ### F1. Limitarile
-Se scriu in lucrare si in `REZUMAT.md`, fiecare cu ce o compenseaza azi:
-- [ ] notele umane ajung la model;
-- [ ] un singur model si un GPU al altcuiva;
-- [ ] fara copie off-host;
-- [ ] un singur host si un set mic.
+Se scriu in lucrare si in `REZUMAT.md`, fiecare cu ce o compenseaza azi
+(bifat = scris in `REZUMAT.md` sectiunea 7, faza-23; in lucrare le copiaza omul):
+- [x] notele umane ajung la model;
+- [x] un singur model si un GPU al altcuiva;
+- [x] fara copie off-host;
+- [x] un singur host si un set mic.
 
 ### F2. Jurnalul
 - [ ] Aduci `stare.md` si `REZUMAT.md` la zi, cu numarul de teste, rezultatele portilor si cifrele din Faza C.
@@ -155,12 +169,17 @@ Constatari facute la scrierea listei; nu schimba taskul, dar trebuie stiute.
 
 1. **B4 / merge-ul e deja facut local, inainte de poarta.** La cererea omului, `main` a fost adus
    prin fast-forward la `4521a2c` (faza-22 + rezultatele fazei 18), dar NU e urcat pe GitHub
-   (`main` local e cu 14 commit-uri inaintea `origin/main`). Ce ramane pentru B4: push la `main`
-   abia dupa B1. Daca poarta pica: `git switch main && git reset --hard origin/main`.
-2. **A4, `tests/test_guides.py`: pare deja rezolvat.** Testul foloseste
-   `ROOT = Path(__file__).resolve().parent.parent` (radacina repo-ului, nu `~/lab`), iar
-   `detections/` e in repo; commit-ul K (`93c5e86`, "testele ruleaza oriunde") a facut testele
-   portabile. De verificat intr-o clona in alt director; daca trece, punctul se bifeaza fara cod.
+   (`main` local e cu 14 commit-uri inaintea `origin/main`).
+   **Verificat 2026-11-17 (corectat la a doua verificare):** in clona de pe es-node-1, `main` local
+   e VECHI: `a0f4a56`, cu 127 commit-uri IN URMA `origin/main` (`2782119`, 2026-11-05). faza-22
+   (`80a867c`) e cu 19 commit-uri inaintea `origin/main` si nu e continuta in el. Deci pe es-node-1
+   nu exista un `main` adus la faza-22; B4 = push faza-22 -> main dupa poarta (din clona care il are).
+2. **A4, `tests/test_guides.py`: CORECTAT 2026-11-17 — nota initiala era gresita.** Testul nu
+   depindea de ROOT, ci de `fast_path.lookup_guide`, care citea `hunt_path.GUIDES_DIR` cu implicitul
+   `~/lab/detections`. Intr-o clona in alt director trecea doar pentru ca `~/lab` exista pe es-node-1;
+   cu HOME fara `~/lab` picau 3 teste (`test_lookup_guide_pe_regulile_cu_volum_mare`,
+   `test_contextul_marcheaza_doar_honeytoken`, `test_contextul_cu_fapte_yara`). Rezolvat in faza-23
+   (`ed205cb`): implicitul e `detections/` de langa `hunt_path.py`; `GUIDES_DIR` din mediu ramane.
 3. **A4, `export()`:** fisierul setului de aur devine doar-citire din cauza
    `os.chmod(GOLDEN, 0o440)` (`regression.py`, in `export()`); a doua rulare esueaza la `write_text`.
 4. **B1, scenariile 8 si 14** din `scenarios.yml`: 8 = "Admin verifica versiunea php",
@@ -170,3 +189,187 @@ Constatari facute la scrierea listei; nu schimba taskul, dar trebuie stiute.
    `policy.THRESHOLDS` le are la 95. Shadow mode impiedica orice executie, deci n-a avut efect pe
    hosturi; totusi, la auto-atacul din 03.11, `isolate_host` malicious/95 a trecut de prag si a fost
    oprit doar de shadow. Daca se aliniaza la 101, schimbarea atinge decizia -> poarta dev, ca in Faza D.
+
+---
+
+## Faza 23 — ce NU s-a putut face pe 2026-11-17 (si de ce)
+
+Ramura `faza-23-inchidere-conceptuala` din `80a867c`, in worktree-ul `~/lab-faza23` (nu in `~/lab`,
+din care ruleaza `soc-orchestrator`). Facut: etapa 0 si etapa 1 (1.1-1.6) + scriptul de citire
+pentru etapa 2. Restul asteapta omul:
+
+**0. Securitate OpenStack — `ssh-parola` (gasit la auditul din 2026-11-17).** Grupul permite TCP 22
+si ICMP de la 0.0.0.0/0, cu login pe parola, si e atasat pe es-node-1, web-prod, atacator si
+benign-gen. Anuleaza restrangerile din es-sg / victim-sg / attacker-sg / benign-sg (atacatorul poate
+deschide SSH spre 172.30.6.106 si 172.30.6.249 la nivel de SG; nft opreste doar pe es-node-1 si
+web-prod). Nimic din repo nu depinde de el (verificat cu grep). Claude nu a avut permisiunea sa
+schimbe security groups; comenzile (de pe elastic-lab, OS_CLOUD=openstack), reversibile:
+```
+# 1. laptopul din admin_v4 pastreaza SSH (azi il are doar prin ssh-parola pe 3 VM-uri)
+for g in es-sg victim-sg attacker-sg; do
+  openstack security group rule create $g --protocol tcp --dst-port 22 \
+    --remote-ip 192.168.62.206/32 --description "admin laptop (admin_v4)"; done
+# 2. scoate ssh-parola (grupul ramane, pentru rollback)
+for s in es-node-1 web-prod atacator benign-gen; do openstack server remove security group $s ssh-parola; done
+# 3. verifica: ssh ubuntu@172.30.6.106, ssh tiberiu@172.30.6.249, ssh ubuntu@172.30.6.133,
+#    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150, ssh ubuntu@172.30.6.210
+# rollback: openstack server add security group <vm> ssh-parola
+```
+Nu sunt probleme (verificat): 172.20.99.220 = elastic-lab (sesiunea Claude), 192.168.62.206 = laptopul
+(admin_v4), 172.20.9.132 = laptopul pe VPN (`laptop-access`, tot traficul). Observatie: 172.20.9.132 nu e in
+admin_v4 din nft, deci pe es-node-1 si web-prod SSH-ul de acolo e oprit oricum de nft (de decis de om
+daca il adaugi).
+
+**Etapa 0.3 — intrebari pentru om:** GPU-ul 172.30.6.231 e reparat (A1)? Cate etichete umane exista
+(attack / benign)? Fara ele, etapele 3, 4 si 7 nu pot porni.
+
+**Etapa 2 — masuratoarea Tier 2 (citire pe es-node-1, cere aprobare):**
+```
+cd ~/lab-faza23 && source ~/lab/env.sh && python3 experiments/tier2_fara_dovezi.py --zile 30
+```
+Citeste verdicts-history si soc-traces cu ES_READER_API_KEY, nu scrie nimic. Inainte: verifica
+ca `source_path`, `classification`, `chain_id`, `investigation_id` au subcampul `.keyword`
+(`GET verdicts-history/_mapping`, `GET soc-traces/_mapping`); daca sunt `keyword` direct, se scoate
+sufixul. Cifra e o limita superioara (faptele deterministe din prefetch_ctx nu sunt in urma).
+
+**Etapa 3 — poarta faza-22 + deploy:** cere GPU-ul reparat (A1). Comenzile sunt in B1-B3 mai sus.
+**Etapa 4 — cifrele pentru lucrare:** cere >= 50 attack + >= 50 benign etichetate de om (A2) si GPU.
+`experiments/direct_baseline.py` e gata (nerulat): `source ~/lab/env.sh && python3 -u experiments/direct_baseline.py`.
+**Etapa 5 — regula asimetrica Tier 2:** atinge verdictul; asteapta cifra din etapa 2 si decizia omului.
+**Etapa 6 — decizii ale omului:** 6.1 prag 95 vs 101 (nota 5), 6.2 cele trei FP zilnice (E2).
+**Etapa 7 — experimente cu modele:** dupa etapa 4; cere GPU (si 24 GB pentru Qwen 3.6 27B).
+**Etapa 8 — Atomic Red Team:** fiecare comanda o aproba si o ruleaza omul.
+**Etapa 9 — inchiderea:** dupa toate cele de mai sus.
+
+Ramase in afara etapelor: sectiunile "Domeniu" si "Limitari" in lucrare (omul copiaza din README /
+REZUMAT); deploy-ul codului faza-23 (metricile noi apar in soc-metrics abia dupa el).
+
+## A doua verificare, 2026-11-17 08:00 UTC (citire pe hosturi, ES si OpenStack)
+
+Constatari noi, in ordinea in care trebuie tratate:
+1. **faza-22 ruleaza deja in productie, FARA poarta.** `~/lab` a fost mutat pe faza-22 pe 2026-11-16
+   13:53 UTC si `soc-orchestrator` repornit la 13:57 (prompt_set 23664c93b9cd). B2 e deci facut inainte
+   de B1. Copia dinainte: `~/lab-backup-2026-11-16.tgz`. Poarta B1 e urgenta.
+2. **GPU-ul e reparat (A1 gata):** qwen3:14b integral in VRAM, latenta Tier 1 p50 17 s, 0 timeout-uri.
+3. **benign-gen e oprit din 2026-11-04 14:23 UTC** (oprit pentru poarta, nerepornit): 0 documente in
+   benign-ground-truth de 13 zile, readiness c1 "0/169 ore". De pornit DUPA poarta.
+4. **Testele rulate pe es-node-1 produc alerte reale.** `tests/test_reader.py` ruleaza gate-ul cu 16
+   comenzi refuzate; gate-ul scrie cu `logger` in auth.log, Fleet il trimite, regula "soc-reader:
+   comanda refuzata de gate pe web-prod" se aprinde (nu filtreaza pe host). Cele 6 rulari pytest ale
+   lui Claude din 2026-11-17 07:xx UTC = 96 de alerte false + verdictele lor (si 16 pe 11-16, 16 pe
+   11-04). De etichetat benign ("pytest pe es-node-1") sau de ocolit la etichetare. Pana la reparatie:
+   nu se ruleaza `pytest tests` pe es-node-1 (sau se sare test_reader.py).
+5. Etichete umane: 2 (ambele attack, hunt). Tinta: >= 50 attack + >= 50 benign.
+6. ES galben: 14 shard-uri nealocate (replici pe un singur nod), ca pe 03.11.
+7. `/var/run/reboot-required` pe toate cele 5 VM-uri (es-node-1 pornit de 21 de zile).
+8. Fara copie off-host in continuare: 0 imagini / 0 volume / 0 backup-uri in OpenStack.
+9. Igiena: `~/lab-backup-2026-11-16.tgz` e 0664; `/tmp/ab-old` (copie de repo cu `.env` si `soc.env`),
+   `~/lab-gate` (clona veche, murdara), `soc.env.pre-3c`; credentialul OpenStack `debian-cli` fara expirare.
+10. Jurnal: `stare.md` nu are intrari intre 2026-11-05 si 2026-11-17 (deploy-ul din 16.11, mutarea IP-ului);
+    antetul din REZUMAT.md e inca "2026-11-04 / faza-21".
+11. FP zilnice inca active (24 h): lsb_release 27 de alerte, "www-data binar nevazut" 12 (fp_rate 1.0).
+
+### Dupa a doua verificare (2026-11-17, ~08:30 UTC): ce a rezolvat Claude si ce ramane
+
+Rezolvat:
+- punctul 4: `tests/test_reader.py` ruleaza o copie a gate-ului in care doar `logger` e neutralizat
+  (`fc9e9e3`). Verificat pe es-node-1: 0 linii noi in syslog la o rulare completa (inainte: 16 pe rulare).
+  Gate-ul din `deploy/` e neschimbat. `pytest tests` se poate rula din nou pe es-node-1.
+- punctul 9 (partial): `~/lab-backup-2026-11-16.tgz` -> 0600, `/tmp/ab-old` -> 0700. Nimic sters.
+- jurnal: intrarea pentru 2026-11-16 adaugata in `stare.md` (din reflog si journald).
+
+Incercat si REFUZAT de sistemul de permisiuni al lui Claude (ramane la om):
+- `ssh-parola` (comenzile sunt mai sus, sectiunea "Faza 23", punctul 0);
+- etapa 2: cheia de citire da 403 pe `soc-traces`, iar Claude nu are voie sa foloseasca cheia de
+  writer nici pentru citire. Omul ruleaza (metrics.py citeste soc-traces tot cu cheia de writer):
+  ```
+  cd ~/lab && set -a; . ./soc.env; set +a; source env.sh; cd ~/lab-faza23
+  ~/lab/venv/bin/python experiments/tier2_fara_dovezi.py --zile 30 --cheie-urme ES_WRITER_API_KEY
+  ```
+  Maparea verdicts-history e text + .keyword (verificat), deci filtrele din script sunt corecte.
+
+Ramane la om, in ordine: (1) ssh-parola - FACUT 2026-11-17 08:04 UTC; (2) poarta faza-22 (B1) - FACUT 2026-11-17 09:52 UTC, trecuta;
+(3) pornit benign-gen + regula 80 la loc - FACUT 09:57 UTC; (4) etapa 2 (comanda de mai
+sus); (5) etichetare 50 + 50; (6) imagine OpenStack pentru es-node-1 si web-prod; (7) reboot pe cele
+5 VM-uri, es-node-1 ultimul; (8) ES la verde (replici 0, contul elastic); (9) etapele 4-9.
+
+### Pregatit de Claude pe 2026-11-17 dupa poarta (pe ramura, NEDEPLOYAT)
+
+- **Etapa 5 (cod gata, `cada43f`)**: regula asimetrica in `hunt_path.py` (`result_has_rows`,
+  `sweep_benign_supported`, numaratoare `nonempty_results` in starea grafului), 11 teste noi, 1 test vechi
+  adaptat. ATINGE VERDICTUL. Nu se pune pe es-node-1 pana cand: (1) omul ruleaza etapa 2 si accepta cifra;
+  (2) trece poarta dev + validare. Decizie deschisa: `pair_in_baseline` NU exista azi in `prefetch_ctx`
+  al Tier 2 (e doar pe calea rapida), deci conditia (b) se reduce la fereastra de mentenanta + admin
+  cunoscut. Adaugarea lui in context inseamna o interogare in plus si un fapt nou vazut de model.
+- **Etapa 8 (lista gata)**: `docs/pasi/etapa-8-lista-art.md`. 14 tehnici rulabile acum (15 cu cea facuta);
+  pentru 20 trebuie aduse inca 5 directoare de tehnici pe web-prod.
+- **GRAV, de facut inainte de orice test ART**: runner-ul de pe web-prod permite T1070.004 #8
+  (`rm -rf / --no-preserve-root`). Reparat in cod pe ramura; omul copiaza fisierul nou in /opt/soc
+  (comenzile sunt in lista etapei 8).
+- **Imagini OpenStack**: `web-prod-2026-11-17` activa; `es-node-1-2026-11-17` in curs la 10:56 UTC.
+
+### Stare la 2026-11-17 ~11:50 UTC
+
+Facut azi: poarta faza-22 (trecuta), push in main, imagini OpenStack pentru web-prod si es-node-1 (ambele
+active), ssh-parola scos, runner ART nou pe web-prod, etapa 2 masurata (10 din 17, max 3 pe zi).
+Poarta pentru etapa 5 (o ruleaza omul; `deploy/poarta.sh` inlocuieste make, verificat cu `--verifica`):
+
+    # elastic-lab: opreste benign-gen si scoate regula 80 de la atacator
+    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl stop benign-gen"
+    export OS_CLOUD=openstack
+    openstack security group rule list victim-sg --long | grep 172.30.6.133      # iei ID-ul regulii de port 80
+    openstack security group rule delete <ID>
+    # es-node-1, dupa 5 minute, in tmux:
+    tmux new -s poarta5
+    ~/lab-faza23/deploy/poarta.sh dev validation injection
+    # la sfarsit, elastic-lab:
+    openstack security group rule create victim-sg --protocol tcp --dst-port 80 --remote-ip 172.30.6.133/32
+    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl start benign-gen"
+
+Referinta de comparat: cea din 2026-11-17 (dev recall 8/8, 1 FP php; validare 8/8; injectie 4/4). Regula
+poate doar sa escaladeze in plus: un TN de sweep care devine undetermined apare ca FP nou si se raporteaza,
+nu se ajusteaza. Dupa poarta, in aceeasi fereastra cu benign-gen oprit: determinismul
+(`cd ~/lab && set -a; . ./soc.env; set +a; source env.sh; venv/bin/python -u regression.py determinism --n 40`).
+Etapa 7: pe GPU exista DOAR qwen3:14b (verificat cu /api/tags); candidatii (Qwen3.5 9B, Qwen 3.6 27B,
+Gemma 4 12B) trebuie descarcati de om inainte de orice experiment.
+Ramane la om: decizia pe etapa 5 (regula la poarta? pair_in_baseline?), etichetarea 50 + 50, Kibana e/f/g,
+Fleet soc.benign_actions, etapa 6, cele 5 tehnici ART in plus, reboot-urile, ES la verde.
+
+
+### Stare la 2026-11-17 ~14:05 UTC
+
+Poarta etapei 5 a rulat (11:44, d255ce3): recall intact (dev 8/8, validare 4/4, injectie 4/4), dar FP in
+regresie: dev 4/6 (referinta 1/6), validare 4/4 (referinta 0/4). Oprit si raportat, nimic ajustat, regula
+nu e in productie. Determinism: trecut (100% identic pe 40). A doua rulare pe codul de productie (13:28):
+dev 2/6 FP (alte scenarii decat dimineata), validare 0/4. Detalii in `docs/pasi/stare.md`.
+
+Decizii care raman la om:
+
+- [ ] **Regula din etapa 5.** Costa 3-5 FP din 10 scenarii benigne la poarta (inchiderile fara niciun apel
+      de unealta), independent de zgomotul modelului. Variante: (a) o pastrezi asa si accepti cifra, cu
+      explicatia ca sunt escaladari la om, nu actiuni; (b) adaugi un fapt determinist benign pentru Tier 2
+      (de exemplu `ran_by_known_admin` singur, sau `pair_in_baseline` calculat si pe calea lenta) si se
+      reface poarta; (c) renunti la regula si ramane masuratoarea din etapa 2 ca limita cunoscuta.
+- [ ] **Instabilitatea Tier 2 pe codul de productie.** Aceeasi poarta da 1 FP dimineata si 2 dupa-amiaza, cu
+      `isolate_host` la 95 pe un benign in ambele (php, apoi cron sed). O singura rulare a portii nu mai e
+      o referinta; de hotarat daca poarta se ruleaza de 3 ori si se raporteaza interval.
+- [ ] **`action_target` respins opreste `node_finalize`** (entity_id de proces cu `+`). In productie cazul
+      iese escaladat (PROCESSING_ERROR); in harness scenariul e sarit si lipseste din recall. De hotarat:
+      tinta invalida -> `None` + `escalate_human` in cod, si eroarea numarata in harness ca escaladare.
+
+De refacut dupa rulari (elastic-lab):
+
+    export OS_CLOUD=openstack
+    openstack security group rule create victim-sg --protocol tcp --dst-port 80 --remote-ip 172.30.6.133/32
+    ssh -J ubuntu@172.30.6.106 ubuntu@192.168.10.150 "sudo systemctl start benign-gen"
+
+
+### Decizii ale omului, 2026-11-23 (faza 0 din docs/plan-refactorizare.md)
+
+Ramura `faza-23-decizii` (worktree `~/lab-refactor`), din faza-23, NEDEPLOYATA:
+- Regula din etapa 5: scoasa (varianta c), revert `cada43f`.
+- `action_target` invalid: reparat in cod (tinta -> None + escalate_human); harness-ul puncteaza
+  exceptiile din graf ca escaladare si listeaza scenariile nepunctate.
+- Pragul 6.1: `isolate_host` si `rotate_credentials` la 101 in `policy.THRESHOLDS`.
+- Instabilitatea Tier 2: poarta se ruleaza de 3 ori, FP raportat ca interval (regula din plan).
+Ramane la om: poarta pe `faza-23-decizii` (noua referinta), apoi revizuirea fazei 24.
