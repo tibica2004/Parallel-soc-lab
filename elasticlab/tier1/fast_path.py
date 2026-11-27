@@ -33,8 +33,9 @@ from elasticlab.tier1 import defend_native
 from elasticlab.core import honeytokens
 from elasticlab.core import eventtime, maintenance
 from elasticlab.tier1 import sensor_rules
-from elasticlab.tier2.elastic_tools import ES, _esql
-from elasticlab.tier2.hunt_path import (
+# Faza 24 (Arcanna): fara importuri din tier2 (regula de importuri); aceleasi obiecte si valori.
+from elasticlab.store.esread import ES, esql as _esql
+from elasticlab.core.facts import (
     GUIDES_DIR, SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS,
 )
 from elasticlab.core.llm import NO_THINK, get_llm, parse_json_response

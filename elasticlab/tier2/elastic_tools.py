@@ -32,12 +32,8 @@ def _traced(fn):
     durata, ID-urile documentelor. Modelul primeste rezultatul fara _id/_index."""
     return traced_tool(fn.__name__, fn)
 
-ES = Elasticsearch(
-    os.environ.get("ES_URL", "http://localhost:9200"),
-    # rol: read pe logs-*, .alerts-*, baseline-*, asset-inventory, verdicts-history
-    api_key=os.environ.get("ES_READONLY_API_KEY") or os.environ["ES_API_KEY"],
-    request_timeout=30,
-)
+# Faza 24 (Arcanna): clientul de citire e in store/esread.py (comun cu tier1); acelasi obiect.
+from elasticlab.store.esread import ES  # noqa: E402
 
 PROC_IDX = "logs-endpoint.events.process-*"
 NET_IDX = "logs-endpoint.events.network-*"

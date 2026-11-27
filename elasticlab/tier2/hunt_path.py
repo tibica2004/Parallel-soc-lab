@@ -133,17 +133,8 @@ class InvestigatorState(TypedDict, total=False):
 
 
 
-from pathlib import Path as _Path
-from elasticlab.paths import REPO_ROOT
-
-# Implicit: detections/ din repo (langa acest fisier), nu ~/lab/detections; o clona in alt
-# director (sau pe alt host) gaseste ghidurile fara configurare. GUIDES_DIR din mediu ramane.
-def guides_dir(env: Mapping[str, str]) -> _Path:
-    """Directorul ghidurilor de investigatie. Pur (primeste mediul ca argument)."""
-    return _Path(env.get("GUIDES_DIR") or REPO_ROOT / "detections")
-
-
-GUIDES_DIR = guides_dir(os.environ)
+# Faza 24 (Arcanna): mutate in core/facts.py (comune cu tier1), aceleasi valori.
+from elasticlab.core.facts import GUIDES_DIR, guides_dir  # noqa: F401,E402
 _RULE_GUIDE = {
     "perl": "payload-download.md", "curl": "payload-download.md",
     "wget": "payload-download.md", "id": "rce-web-shell.md",
@@ -291,23 +282,8 @@ def _facts_from_rows(facts: dict, rows: list[dict], matched_by: str) -> dict:
 
 ADMIN_MARK = "ran_by_known_admin"
 WEBSVC_MARK = "ran_by_web_service_account"
-WEB_SVC_USERS = {"www-data", "apache", "nginx", "httpd"}
-TEMP_DIRS = ("/tmp/", "/dev/shm/", "/var/tmp/")
-
-# Actiuni sensibile prin CE face procesul, nu prin CINE il ruleaza. Un admin cu
-# credentiale furate ruleaza exact aceste comenzi — deci identitatea nu are voie
-# sa le anuleze. Faptul de admin coboara suspiciunea la comenzi banale, NU la astea.
-SENSITIVE_CHILD = {
-    "crontab", "at", "nc", "ncat", "socat",
-    "useradd", "usermod", "passwd", "visudo", "chattr",
-}
-SENSITIVE_CMD = (
-    "/dev/tcp", "/dev/udp", "-i >&", "bash -i", "crontab -",
-    "/etc/cron", "/etc/systemd", "authorized_keys", "/dev/shm",
-    "ld.so.preload", "base64 -d", "chmod +s", "setcap",
-    "systemctl enable", "systemctl link", "daemon-reload",
-    "socket.socket", "pty.spawn", "os.dup2", "fsockopen", "tcpsocket",
-)
+# Faza 24 (Arcanna): mutate NESCHIMBATE in core/facts.py; aceleasi nume aici.
+from elasticlab.core.facts import SENSITIVE_CHILD, SENSITIVE_CMD, TEMP_DIRS, WEB_SVC_USERS  # noqa: F401,E402
 
 
 def recent_host_alerts(host: str, minutes: int = 60, at: "datetime | None" = None) -> int:
@@ -499,7 +475,7 @@ def _i_seed(state: InvestigatorState) -> dict:
         # in mesajul de SISTEM etichetat "de incredere", si un text plantat in comanda a mutat
         # investigatorul A din malicious in suspicious. Faptele calculate de cod raman in clar;
         # textul din telemetrie trece doar in blocul neincrezator.
-        from elasticlab.tier1.l1_agent import HUNT_EXEC_TEXT_FIELDS, wrap_execution
+        from elasticlab.core.untrusted import HUNT_EXEC_TEXT_FIELDS, wrap_execution
         view = dict(ctx)
         if isinstance(ctx.get("execution"), dict):
             view["execution"] = wrap_execution(ctx["execution"], HUNT_EXEC_TEXT_FIELDS)
@@ -589,7 +565,7 @@ def _i_wrap_tools(state: InvestigatorState) -> dict:
     """Principiul 10 (pasul 6.1): rezultatele noi ale uneltelor ajung la investigator DOAR intre
     delimitatori, cu delimitatorii falsi neutralizati. Acelasi id -> add_messages inlocuieste
     mesajul (nu-l dubleaza). Dovezile (EvidenceRef) sunt extrase inainte, in traced_tool."""
-    from elasticlab.tier1.l1_agent import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, strip_delimiters
+    from elasticlab.core.untrusted import UNTRUSTED_CLOSE, UNTRUSTED_OPEN, strip_delimiters
     out = []
     for m in reversed(state.get("messages") or []):
         if not isinstance(m, ToolMessage):
