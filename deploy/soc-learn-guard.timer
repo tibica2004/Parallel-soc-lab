@@ -1,0 +1,9 @@
+[Unit]
+Description=Agentic SOC - faza 24: garda controlorului, la 5 minute
+
+[Timer]
+OnCalendar=*:0/5
+Persistent=false
+
+[Install]
+WantedBy=timers.target

@@ -1,5 +1,12 @@
 # Faza 24 — regula de importuri: incalcari listate (nereparate)
 
+**Actualizare 2026-11-27 (faza 24 Arcanna, `faza-24-decizie-invatata`):** cele 3 incalcari tier1 <->
+tier2 de mai jos sunt REPARATE fara schimbare de logica: constantele in `core/facts.py`, delimitarea
+telemetriei in `core/untrusted.py`, clientul ES de citire in `store/esread.py` (vechile nume raman in
+hunt_path, l1_agent, elastic_tools). import-linter: 8/8 contracte (2 noi: store; tier1/tier2 nu importa
+straturile de deasupra). Regula e verificata si de `tests/test_importuri_faza24.py` (AST, cu importurile
+lenese), cu O SINGURA exceptie listata: `tier3.tier3 -> apps.orchestrator` (HuntRunner/WRITER).
+
 Regula e in `.importlinter` (import-linter 2.17). In faza 24 incalcarile se LISTEAZA; in faza 33
 regula devine obligatorie si se repara (docs/plan-refactorizare.md).
 

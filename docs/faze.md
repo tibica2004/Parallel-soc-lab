@@ -180,3 +180,32 @@ Bucata 1 — porti: teste unitare verzi (652). Nu atinge verdictul: harness neim
 Bucata 2 — porti: teste unitare verzi (677, +25). Corelatie determinista (cod decide),
 granita Pydantic reutilizata (HUNT_MATCH), interogari parametrizate. Nu atinge calea de
 verdict Tier 1/2, deci harness-ul nu e implicat; dry-run live posibil dupa deploy (`--expunere`).
+
+## Refactorizarea (fazele 24-26 din depozit)
+
+Planul si starea: docs/plan-refactorizare.md (faza 24 structura de pachet, 25 timpul alertei, 26
+intrarea si gruparea; toate pe ramuri, nedeployate, porti nerulate). Structura modulelor:
+docs/arhitectura-monolit-modular.md.
+
+## Faza 24 (sarcina Arcanna) — decizia invatata din etichete (`faza-24-decizie-invatata`)
+
+Sarcina din 2026-11-27, numita "faza 24" de om; in depozit vine dupa faza 26 (pornita din
+`faza-26-intrare-grupare`; numele livrabilelor pastrate: docs/pasi/pas-24.md,
+deploy/faza-24-apply.sh, deploy/faza-24-rollback.sh). Deciziile si alternativele: docs/pasi/pas-24.md.
+
+Mecanismul (in stil Arcanna, cu ce avea SOC-ul in plus): intrare -> imbogatire -> decizie invatata ->
+post-decizie, pe pipeline-uri (config/pipelines.yml). Pentru fiecare caz, cascada Tier 1: faptele o
+singura data; clasa critica sau podea -> pasul 4; grupul (punctele de decizie) cu consens uman:
+benign -> inchidere, attack -> motiv; modelul activ: benign peste prag -> inchidere, atac probabil ->
+motiv, nesigur/outlier -> pasul 4; pasul 4 = fast_path + should_escalate, ca inainte. Omul
+eticheteaza GRUPURI in label_ui (coada ordonata de cod, vot majoritar, verdictul ascuns pana la vot).
+Tier 3 antreneaza orar un candidat per pipeline doar pe etichete umane; un controlor determinist
+muta modelele candidat -> umbra -> activ -> umbra dupa conditiile din sarcina; esantionul de control
+(10%) masoara eroarea continuu. Post-decizia: eticheta `soc-decizie:*` pe alerta, prin API-ul Kibana.
+
+Comutatorul T1_CASCADE=off|shadow|on (cod: off; scriptul de aplicare: shadow). Oprire de urgenta:
+`touch data/cascade-off` (fara repornire) sau T1_CASCADE=off.
+
+Stare 2026-11-27: cod si teste pe ramura (1689 teste, 151 noi; import-linter 8/8; prompt_set
+neschimbat 23664c93b9cd). Portile (dev, validare, fast, injectie, regresie, determinism) IN ASTEPTARE:
+web-prod nu mai exista, setul de aur nu e exportat. Nimic aplicat pe hosturi.

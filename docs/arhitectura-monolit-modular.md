@@ -65,6 +65,23 @@ Dependente de stiut (nu incalca nimic azi, dar se strang mai tarziu):
 - `tier3.tier3` -> `apps.orchestrator` (deja listata): prin ea, tier3 ajunge indirect la intake.
   Dispare cand Scriitorul si workerii iau `WRITER` si `HuntRunner` din orchestrator.
 
+## Faza 24 (decizia invatata): module noi
+
+| Modul | Rol | Interfata publica |
+|---|---|---|
+| `contracts.learning` | formele: pipeline, grup, vot, predictie, decizia cascadei, tranzitii | `PipelinesConfig`, `BucketKey`, `Prediction`, `CascadeDecision`, `Transition` |
+| `contracts.messages` | mesajele magistralei (cu `schema_version`) | `TOPICS`, `DecizieCascada`, `CazDeInvestigat`, `RezumatTier2`, `FeedbackGrup` |
+| `core.decision_points`, `core.buckets`, `core.classifier`, `core.cascade`, `core.controller`, `core.pipelines` | logica pura a deciziei invatate | `derive`, `bucket_key`, `consensus`, `train/predict`, `decide`, `step` |
+| `bus.base`, `bus.rabbitmq`, `bus.factory` | magistrala: in proces (sincrona), RabbitMQ optional | `InProcessBus`, `RabbitBus`, `make_bus` |
+| `store.writer` | SINGURUL scriitor: verdicte, audit, urme, cazuri, grupuri | `index_verdict`, `index_audit`, `observe_bucket`, `add_bucket_vote` |
+| `store.buckets`, `store.models` | citirea grupurilor; registrul modelelor (JSON + hash) | `labeled`, `queue`; `load_artifact`, `apply_transition`, `rollback` |
+| `tier1.cascade`, `tier1.decision_source` | cascada in productie; sursele pasului 3 (model propriu / camp extern) | `evaluate`, `build_prefetched`; `OwnModelSource`, `ExternalFieldSource` |
+| `tier3.learning` | antrenare, controlor, drift, regresia pe setul de aur | `run`, `on_human_label`, `regression_gold`, `rollback_cmd` |
+| `ops.kibana_tags` | post-decizia: eticheta pe alerta prin API-ul Kibana | `tag_for`, `Tagger` |
+
+Subiectele magistralei: `cascada.decizie` (Tier 1 -> grupuri, post-decizie), `tier2.caz` (Tier 1 ->
+Tier 2), `tier2.rezumat` (Tier 2 -> pagina grupului), `feedback.grup`, `model.tranzitie`.
+
 ## Fluxul pe `SOC_PIPELINE=intake` (faza 26, un singur proces)
 
 ```mermaid

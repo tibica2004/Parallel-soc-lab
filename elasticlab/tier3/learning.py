@@ -277,11 +277,13 @@ def run_pipeline(es, p: PipelineConfig, *, now: datetime, root: Path, manifest: 
         report["transitions"].append(t.model_dump(mode="json"))
     report["activation_blockers"] = controller.activation_blockers(inp) if shadow else ["niciun model in umbra"]
     report["metrics"] = pipeline_metrics(rows_7d, bdocs)
-    effects.metric({"@timestamp": now.isoformat(), "type": "cascade_metrics", "pipeline": p.id,
-                    "labels": report["labels"], "shadow_stats": sh_stats.model_dump(),
-                    "active_stats": act_stats.model_dump(), "blockers": report["activation_blockers"],
-                    "active_hash": active.model_hash if active else None,
-                    "shadow_hash": shadow.model_hash if shadow else None, **report["metrics"]})
+    # Garda (la 5 min, fara antrenare) nu scrie metrici: doar rularea orara.
+    if train:
+        effects.metric({"@timestamp": now.isoformat(), "type": "cascade_metrics", "pipeline": p.id,
+                        "labels": report["labels"], "shadow_stats": sh_stats.model_dump(),
+                        "active_stats": act_stats.model_dump(), "blockers": report["activation_blockers"],
+                        "active_hash": active.model_hash if active else None,
+                        "shadow_hash": shadow.model_hash if shadow else None, **report["metrics"]})
     return report
 
 
