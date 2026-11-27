@@ -124,7 +124,7 @@ fisierele dupa numele din sarcina) si pornirea din `main` (ar fi refacut fazele 
 ## Teste
 
 - inainte (ramura de baza, local, Python 3.13): **1538 trec, 1 sarit**;
-- dupa: **1689 trec, 1 sarit** (151 noi), cele vechi nemodificate;
+- dupa: **1691 trec, 1 sarit** local (153 noi); pe es-node-1 (Python 3.12, venv-ul de productie): 1539 inainte, **1692** dupa; testele vechi nemodificate;
 - import-linter: 8/8 contracte (6 vechi + 2 noi); `prompts.py --check`: la zi, `23664c93b9cd`.
 
 ## Porti (harness dev / validation / fast / injection; regresie; determinism)

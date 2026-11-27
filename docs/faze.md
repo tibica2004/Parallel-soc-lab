@@ -206,6 +206,6 @@ muta modelele candidat -> umbra -> activ -> umbra dupa conditiile din sarcina; e
 Comutatorul T1_CASCADE=off|shadow|on (cod: off; scriptul de aplicare: shadow). Oprire de urgenta:
 `touch data/cascade-off` (fara repornire) sau T1_CASCADE=off.
 
-Stare 2026-11-27: cod si teste pe ramura (1689 teste, 151 noi; import-linter 8/8; prompt_set
+Stare 2026-11-27: cod si teste pe ramura (1692 teste pe es-node-1, 153 noi; import-linter 8/8; prompt_set
 neschimbat 23664c93b9cd). Portile (dev, validare, fast, injectie, regresie, determinism) IN ASTEPTARE:
 web-prod nu mai exista, setul de aur nu e exportat. Nimic aplicat pe hosturi.
