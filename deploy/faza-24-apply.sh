@@ -148,7 +148,8 @@ curl -sf "${AUTH[@]}" -X PUT "$ES/verdicts-history/_mapping" -H 'Content-Type: a
       "reasons": {"type": "keyword"}, "applied_reasons": {"type": "boolean"}, "consensus": {"type": "keyword"},
       "pipeline_active": {"type": "boolean"}, "model_state": {"type": "keyword"},
       "model_hash": {"type": "keyword"}, "source": {"type": "keyword"}, "decision": {"type": "keyword"},
-      "confidence": {"type": "integer"}, "outlier": {"type": "boolean"}, "error": {"type": "keyword"}}}}}' \
+      "confidence": {"type": "integer"}, "outlier": {"type": "boolean"}, "error": {"type": "keyword"},
+      "shadow_model_hash": {"type": "keyword"}, "shadow_would_close": {"type": "boolean"}}}}}' \
   >/dev/null && ok "verdicts-history: cascade.* mapat"
 # soc-metrics: rezumatul cascadei pe ciclu si documentele buclei de invatare.
 curl -sf "${AUTH[@]}" -X PUT "$ES/soc-metrics/_mapping" -H 'Content-Type: application/json' -d '{

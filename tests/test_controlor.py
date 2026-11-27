@@ -359,3 +359,61 @@ def test_thresholds_implicite_sunt_cele_din_sarcina():
     assert th.control_sample_pct == 10 and th.max_control_disagreement == 0.05
     assert (C.MIN_LABELS_PER_CLASS, C.MIN_CLOSURE_PRECISION, C.MIN_SHADOW_DAYS, C.MIN_SHADOW_DECISIONS,
             C.MAX_CONTRADICTED) == (50, 0.95, 7, 100, 0.02)
+
+
+# ---------------- umbra langa un model activ ----------------
+
+def test_umbra_ruleaza_langa_activ_si_isi_strange_deciziile(tmp_path):
+    from elasticlab.contracts.learning import CascadeMode, CascadeStep
+    from elasticlab.tier1 import cascade as T
+    s = samples()
+    m = M.empty_manifest()
+    h_act = M.save_artifact(tmp_path, classifier.train(P.id, 1, P.decision_points, s[: len(s) // 2], P.thresholds))
+    assert len(s) > 4
+    h_sh = M.save_artifact(tmp_path, classifier.train(P.id, 1, P.decision_points, s, P.thresholds))
+    M.upsert(m, rec("a", ModelState.ACTIVE, ever=True).model_copy(update={"model_hash": h_act}))
+    M.upsert(m, rec("b", ModelState.SHADOW).model_copy(update={"model_hash": h_sh}))
+    M.save_manifest(tmp_path, m)
+    rt = T.load_runtime(CascadeMode.ON, models_root=tmp_path)
+    assert rt.sources[P.id].model_hash == h_act and rt.active[P.id]
+    assert rt.shadow_sources[P.id].model_hash == h_sh
+    facts = {"rule_name": P.rules[0], "execution": {"user": "deploy", "process": "apt-get", "parent": "bash",
+             "executable": "/usr/bin/apt-get", "sudo_invoked_by": "x"}, "ran_by_known_admin": True,
+             "in_maintenance_window": True, "pair_in_baseline": True}
+    rt.build_context = lambda a: facts
+    d, _ = T.evaluate(rt, {"kibana.alert.rule.name": P.rules[0]}, "k")
+    assert d.step is not CascadeStep.ERROR
+    assert d.prediction.model_hash == h_act and d.shadow_prediction.model_hash == h_sh
+    summ = T.summary(d)
+    assert summ["shadow_model_hash"] == h_sh
+    row_ = {"@timestamp": NOW.isoformat(), "classification": "benign", "cascade": summ}
+    st = L.shadow_stats([row_], {}, h_sh)
+    assert st.decisions == 1 and st.closures == int(d.shadow_would_close)
+    # artefactul umbrei stricat: activul ramane folosit, umbra doar dispare
+    p = M.artifact_path(tmp_path, P.id, h_sh)
+    p.write_text(p.read_text().replace('"alpha":1.0', '"alpha":2.0'))
+    rt2 = T.load_runtime(CascadeMode.ON, models_root=tmp_path)
+    assert P.id in rt2.sources and P.id not in rt2.shadow_sources and P.id not in rt2.hash_mismatch
+
+
+# ---------------- sursa externa prin acelasi controlor ----------------
+
+def test_sursa_externa_intra_in_registru_si_trece_prin_umbra(tmp_path):
+    from elasticlab.contracts.learning import ExternalSourceConfig, PipelineConfig
+    from elasticlab.tier1.decision_source import external_hash
+    ext = ExternalSourceConfig(decision_field="arcanna.label", values={"drop": "benign", "escalate": "attack"})
+    p = PipelineConfig(id="arcanna_web", rules=["R"], decision_points=["rule", "user_class"],
+                       decision_points_version=1, decision_source="external", external=ext)
+    docs = [{"bucket_id": "b" + f"{i:024x}", "pipeline": p.id, "consensus": lab,
+             "system": {"decision": dec, "confidence": 95, "outlier": False}}
+            for i, (lab, dec) in enumerate([("benign", "benign")] * 8 + [("attack", "attack")] * 4 + [("attack", "benign")])]
+    m = L.external_metrics(docs, p)
+    assert m.closures == 9 and m.closed_attacks == 1 and m.tp == 4
+    es = FakeES(docs)
+    manifest = M.empty_manifest()
+    rep = L.run_pipeline(es, p, now=NOW, root=tmp_path, manifest=manifest,
+                         effects=L.Effects(tmp_path, write=False), train=True)
+    assert rep["transitions"][0]["to_state"] == "shadow"
+    assert rep["transitions"][0]["model_hash"] == external_hash(ext)
+    # cu un atac inchis pe validare, nu se poate activa niciodata
+    assert any("atacuri" in b for b in rep["activation_blockers"]) or rep["activation_blockers"]

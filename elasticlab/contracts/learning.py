@@ -312,4 +312,8 @@ class CascadeDecision(BaseModel):
     pipeline_active: bool = False        # pipeline-ul are model activ (post-decizia se scrie doar atunci)
     model_state: ModelState | None = None
     prediction: Prediction | None = None
+    # Modelul din umbra cand pipeline-ul are si unul activ: doar se inregistreaza (statisticile umbrei),
+    # nu decide nimic.
+    shadow_prediction: Prediction | None = None
+    shadow_would_close: bool = False
     error: str | None = Field(default=None, max_length=200)

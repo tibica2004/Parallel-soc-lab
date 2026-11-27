@@ -69,6 +69,7 @@ class Runtime:
     cfg: PipelinesConfig | None = None
     sources: dict[str, object] = field(default_factory=dict)     # pipeline -> sursa de decizie
     active: dict[str, bool] = field(default_factory=dict)        # pipeline -> are model activ
+    shadow_sources: dict[str, object] = field(default_factory=dict)  # umbra, cand exista si un activ
     hash_mismatch: dict[str, str] = field(default_factory=dict)  # pipeline -> hash refuzat
     bucket_reader: Callable[[str], dict | None] = lambda _bid: None
     build_context: Callable[[dict], dict] | None = None
@@ -104,19 +105,26 @@ def load_runtime(mode: CascadeMode, *, bucket_reader=None, build_context=None,
                 rt.active[p.id] = rec is not None and rec.model_hash == src.model_hash
                 rt.sources[p.id] = src
                 continue
-            rec = M.in_state(manifest, p.id, ModelState.ACTIVE) or M.in_state(manifest, p.id, ModelState.SHADOW)
-            if rec is None:
-                continue
-            try:
-                art = M.load_artifact(root, p.id, rec.model_hash)
-            except M.HashMismatch:
-                rt.hash_mismatch[p.id] = rec.model_hash
-                continue
-            if art.get("dp_version") != p.decision_points_version or \
-                    list(art.get("decision_points") or []) != list(p.decision_points):
-                continue                    # model pe alta definitie a punctelor: nu se foloseste
-            rt.sources[p.id] = OwnModelSource(art, rec.model_hash, rec.state)
-            rt.active[p.id] = rec.state is ModelState.ACTIVE
+            act = M.in_state(manifest, p.id, ModelState.ACTIVE)
+            sh = M.in_state(manifest, p.id, ModelState.SHADOW)
+            for rec, primary in ((act, True), (sh, act is None)):
+                if rec is None:
+                    continue
+                try:
+                    art = M.load_artifact(root, p.id, rec.model_hash)
+                except M.HashMismatch:
+                    if rec.state is ModelState.ACTIVE or primary:
+                        rt.hash_mismatch[p.id] = rec.model_hash
+                    continue
+                if art.get("dp_version") != p.decision_points_version or \
+                        list(art.get("decision_points") or []) != list(p.decision_points):
+                    continue                # model pe alta definitie a punctelor: nu se foloseste
+                src = OwnModelSource(art, rec.model_hash, rec.state)
+                if primary:
+                    rt.sources[p.id] = src
+                    rt.active[p.id] = rec.state is ModelState.ACTIVE
+                else:
+                    rt.shadow_sources[p.id] = src
         except Exception:  # noqa: BLE001 — un pipeline stricat nu le strica pe celelalte
             continue
     return rt
@@ -168,10 +176,21 @@ def evaluate(rt: Runtime, alert: dict, sample_key: str) -> tuple[CascadeDecision
                 pred, state = src.predict(values, alert), src.state
         if p.id in rt.hash_mismatch:
             pred, state = None, None
-        return K.decide(K.CascadeInputs(
+        d = K.decide(K.CascadeInputs(
             mode=rt.mode, pipeline=p, bucket=key, critical=crit, floor=floor, consensus=cons,
             pipeline_active=bool(rt.active.get(p.id)) and p.id not in rt.hash_mismatch,
-            model_state=state, prediction=pred, sample_key=sample_key)), ctx
+            model_state=state, prediction=pred, sample_key=sample_key))
+        shadow = rt.shadow_sources.get(p.id)
+        if shadow is not None and not crit and not floor and cons in (Consensus.NONE, Consensus.TIE):
+            # Umbra langa activ: aceeasi intrare, doar inregistrata (nu schimba decizia).
+            try:
+                sp = shadow.predict(values, alert)
+                d = d.model_copy(update={"shadow_prediction": sp, "shadow_would_close": bool(
+                    sp and sp.decision.value == "benign" and not sp.outlier
+                    and sp.confidence >= p.thresholds.benign_close)})
+            except Exception:  # noqa: BLE001 — umbra cazuta nu atinge decizia
+                pass
+        return d, ctx
     except Exception as e:  # noqa: BLE001 — L6: eroarea duce la pasul 4, niciodata la inchidere
         return CascadeDecision(mode=rt.mode, step=CascadeStep.ERROR,
                                error=f"{type(e).__name__}: {str(e)[:150]}"), ctx
@@ -217,7 +236,9 @@ def summary(d: CascadeDecision) -> dict:
             "model_state": d.model_state.value if d.model_state else None,
             "model_hash": p.model_hash if p else None, "source": p.source if p else None,
             "decision": p.decision.value if p else None, "confidence": p.confidence if p else None,
-            "outlier": p.outlier if p else None, "error": d.error}
+            "outlier": p.outlier if p else None, "error": d.error,
+            "shadow_model_hash": d.shadow_prediction.model_hash if d.shadow_prediction else None,
+            "shadow_would_close": d.shadow_would_close}
 
 
 def build_prefetched(config=None):

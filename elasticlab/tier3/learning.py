@@ -76,6 +76,55 @@ def train_candidate(p: PipelineConfig, samples: list[LabeledBucket], now: dateti
     return rec, val
 
 
+def external_metrics(docs: list[dict], p: PipelineConfig) -> ValidationMetrics:
+    """Pur. Sursa externa nu se antreneaza: "validarea" ei = deciziile pe care le-a scris pe grupurile
+    etichetate (system.decision, din umbra), fata de consensul uman."""
+    tp = fp = fn = tn = 0
+    for d in docs:
+        lab, s = d.get("consensus"), d.get("system") or {}
+        if lab not in ("attack", "benign") or s.get("decision") is None:
+            continue
+        closes = (s.get("decision") == "benign" and not s.get("outlier")
+                  and int(s.get("confidence") or 0) >= p.thresholds.benign_close)
+        if lab == "attack":
+            fn += int(closes)
+            tp += int(not closes)
+        else:
+            tn += int(closes)
+            fp += int(not closes)
+    prec = round(tp / (tp + fp), 4) if tp + fp else None
+    rec = round(tp / (tp + fn), 4) if tp + fn else None
+    f1 = None if prec is None or rec is None else (round(2 * prec * rec / (prec + rec), 4) if prec + rec else 0.0)
+    return ValidationMetrics(n=tp + fp + fn + tn, n_attack=tp + fn, n_benign=fp + tn, closures=tn + fn,
+                             closures_correct=tn, closed_attacks=fn, tp=tp, fp=fp, fn=fn, tn=tn,
+                             precision=prec, recall=rec, f1=f1)
+
+
+def external_candidate(es, p: PipelineConfig, now: datetime, manifest: dict) -> ModelRecord | None:
+    """Inregistrarea sursei externe in registru (hash = configurarea ei), ca sa treaca prin ACELASI
+    controlor (umbra, conditii, regresie) ca modelul propriu."""
+    from elasticlab.tier1.decision_source import external_hash
+    if p.decision_source != "external" or p.external is None:
+        return None
+    h = external_hash(p.external)
+    r = es.search(index=writer.BUCKETS_IDX, size=FETCH, query={"bool": {"filter": [
+        {"term": {"pipeline": p.id}}, {"terms": {"consensus": ["attack", "benign"]}}]}})
+    docs = [x["_source"] for x in r["hits"]["hits"]]
+    val = external_metrics(docs, p)
+    old = M.find(manifest, p.id, h)
+    if old is not None:
+        old.validation = val
+        M.upsert(manifest, old)
+        return old
+    rec = ModelRecord(pipeline=p.id, model_hash=h, algorithm="external-field",
+                      dp_version=p.decision_points_version, trained_at=now, n_train=0, n_validation=val.n,
+                      labels_attack=sum(1 for d in docs if d.get("consensus") == "attack"),
+                      labels_benign=sum(1 for d in docs if d.get("consensus") == "benign"),
+                      validation=val, state=ModelState.CANDIDATE, state_since=now)
+    M.upsert(manifest, rec)
+    return rec
+
+
 def labels_changed(art: dict | None, samples: list[LabeledBucket]) -> int:
     """Cate etichete difera fata de cele pe care s-a antrenat modelul (noi, schimbate, disparute)."""
     if art is None:
@@ -109,10 +158,14 @@ def shadow_stats(rows: list[dict], bucket_docs: dict[str, dict], model_hash: str
     dec = clo = contra = on_attack = 0
     for r in rows:
         c = r.get("cascade") or {}
-        if c.get("model_hash") != model_hash:
+        if c.get("model_hash") == model_hash:
+            would = bool(c.get("would_close"))
+        elif c.get("shadow_model_hash") == model_hash:      # umbra langa un model activ
+            would = bool(c.get("shadow_would_close"))
+        else:
             continue
         dec += 1
-        if c.get("would_close"):
+        if would:
             clo += 1
             contra += int(r.get("classification") in ("suspicious", "malicious"))
             on_attack += int((bucket_docs.get(c.get("bucket_id")) or {}).get("consensus") == "attack")
@@ -238,13 +291,18 @@ def run_pipeline(es, p: PipelineConfig, *, now: datetime, root: Path, manifest: 
     report["labels"] = {"attack": sum(1 for s in samples if s.label == "attack"),
                         "benign": sum(1 for s in samples if s.label == "benign")}
     cand, val = (train_candidate(p, samples, now, root, manifest, effects.write) if train else (None, []))
+    if train and p.decision_source == "external":
+        cand = external_candidate(es, p, now, manifest)
     if cand is not None:
         report["candidate"] = cand.model_hash
     shadow = M.in_state(manifest, p.id, ModelState.SHADOW)
     active = M.in_state(manifest, p.id, ModelState.ACTIVE)
-    sh_art, _ = _artifact(root, shadow)
-    _act_art, act_ok = _artifact(root, active)
+    external = p.decision_source == "external"
+    sh_art, _ = (None, True) if external else _artifact(root, shadow)
+    _act_art, act_ok = (None, True) if external else _artifact(root, active)
     sh_val: ValidationMetrics | None = classifier.evaluate(sh_art, val) if (sh_art and val) else None
+    if external and shadow is not None and cand is not None and cand.model_hash == shadow.model_hash:
+        sh_val = cand.validation
 
     rows_7d = _verdicts(es, p.id, now - timedelta(days=30))
     rows_24h = [r for r in rows_7d if r.get("@timestamp") and _ts(r["@timestamp"]) >= now - timedelta(hours=24)]
@@ -269,7 +327,7 @@ def run_pipeline(es, p: PipelineConfig, *, now: datetime, root: Path, manifest: 
         labels_benign=report["labels"]["benign"], candidate=cand, shadow=shadow, active=active,
         shadow_stats=sh_stats, active_stats=act_stats, shadow_validation_now=sh_val,
         regression_passed_for_shadow=bool(reg and reg.get("passed")),
-        labels_changed_since_shadow=labels_changed(sh_art, samples) if shadow else len(samples),
+        labels_changed_since_shadow=(0 if external else labels_changed(sh_art, samples)) if shadow else len(samples),
         thresholds=p.thresholds)
     for t in controller.step(inp):
         M.apply_transition(manifest, t)
@@ -399,8 +457,16 @@ def regression_gold(*, write: bool, root: Path | None = None, now: datetime | No
     for p in cfg.pipelines:
         for st in (ModelState.SHADOW, ModelState.ACTIVE):
             rec = M.in_state(manifest, p.id, st)
-            art, hok = _artifact(root, rec)
-            if rec is None or not hok or art is None:
+            if rec is None:
+                continue
+            ext = None
+            if p.decision_source == "external" and p.external is not None:
+                from elasticlab.tier1.decision_source import ExternalFieldSource
+                ext = ExternalFieldSource(p.external, st)
+                art, hok = None, ext.model_hash == rec.model_hash
+            else:
+                art, hok = _artifact(root, rec)
+            if not hok or (art is None and ext is None):
                 continue
             rows = []
             for it in items:
@@ -408,8 +474,14 @@ def regression_gold(*, write: bool, root: Path | None = None, now: datetime | No
                         ((it["alert"].get("kibana") or {}).get("alert") or {}).get("rule", {}).get("name")) not in p.rules:
                     continue
                 try:
-                    vals = DP.derive(build_context(it["alert"]), it["alert"], p, list(cfg.network_zones))
-                    pr = classifier.predict(art, vals, rec.model_hash)
+                    if ext is not None:
+                        pr = ext.predict({}, it["alert"])
+                        if pr is None:
+                            rows.append({"ground_truth": it["ground_truth"], "would_close": False})
+                            continue
+                    else:
+                        vals = DP.derive(build_context(it["alert"]), it["alert"], p, list(cfg.network_zones))
+                        pr = classifier.predict(art, vals, rec.model_hash)
                     would = pr.decision is ModelDecision.BENIGN and not pr.outlier and \
                         pr.confidence >= p.thresholds.benign_close
                 except Exception:  # noqa: BLE001 — fara fapte: nu se poate inchide (conservator)

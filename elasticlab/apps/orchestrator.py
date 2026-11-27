@@ -929,7 +929,8 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
         failure = None
         out = None
         cdec, cctx = (None, None)
-        if rt is not None:
+        if rt is not None and not (backlog and degraded.is_severe(a)):
+            # (alertele grave din restanta escaladeaza oricum fara model: fara fapte de calculat)
             from elasticlab.tier1 import cascade as t1c
             cdec, cctx = t1c.evaluate(rt, a, sample_key=k)      # nu ridica exceptii (L6)
         try:
