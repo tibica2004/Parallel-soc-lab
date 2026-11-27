@@ -155,7 +155,9 @@ def load(es, chain_id: str) -> CaseRecord | None:
 
 
 def save(es, rec: CaseRecord) -> None:
-    es.index(index=INDEX, id=rec.case_id, document=rec.model_dump(mode="json"))
+    # Faza 24: scrierea trece prin scriitorul unic (store/writer.py).
+    from elasticlab.store import writer
+    writer.write_case(es, rec.case_id, rec.model_dump(mode="json"))
 
 
 def upsert_from_verdict(es, verdict: Verdict, tier: Literal[1, 2, 3], now: datetime, *, host: str,

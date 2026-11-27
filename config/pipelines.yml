@@ -1,0 +1,66 @@
+# Pipeline-urile deciziei invatate (faza 24, docs/pasi/pas-24.md). In git: orice schimbare se
+# revizuieste ca un commit. Un pipeline = o familie de alerte (una sau mai multe reguli, nume
+# EXACTE), cu punctele ei de decizie, modelul ei si actiunile ei post-decizie.
+#
+# decision_points: nume din elasticlab/core/decision_points.py (CATALOG); doar categorii cu putine
+#   valori, fara linii de comanda, entity_id, hash-uri sau cai complete.
+# decision_points_version: se mareste la ORICE schimbare a listei; alta versiune = alte grupuri,
+#   deci etichetele vechi nu se aplica pe definitia noua (se reeticheteaza).
+# decision_source: own_model (clasificatorul propriu) sau external (un camp scris pe alerta de alt
+#   sistem, ex. Arcanna; vezi exemplul comentat la final). Aceleasi linii rosii pentru ambele.
+# Clasele critice (honeytoken, detectie nativa, senzor, regula comportamentala, proces pornit de
+# serverul web) nu se inchid niciodata de cascada (L4), indiferent de pipeline.
+version: 1
+
+network_zones:
+  - name: lab
+    cidrs: ["192.168.10.0/24"]
+  - name: attacker_net
+    cidrs: ["10.10.0.0/24"]
+  - name: openstack_fip
+    cidrs: ["172.30.6.0/24"]
+
+pipelines:
+  - id: executie_web
+    description: Procese pornite din lantul serverului web (shell, descarcare de payload).
+    rules:
+      - "RCE: Web server spawns shell"
+      - "Payload download: curl/wget spawned by web server or shell"
+    decision_points: [rule, user_class, process_class, parent_class, via_sudo, known_admin,
+                      sensitive_action, maintenance_window, pair_in_baseline, exec_location]
+    decision_points_version: 1
+    decision_source: own_model
+    post_decision_tags: true
+
+  - id: webroot
+    description: Fisiere executabile scrise in webroot.
+    rules:
+      - "Webshell: Executable written to webroot"
+    decision_points: [user_class, process_class, parent_class, via_sudo, known_admin,
+                      maintenance_window, file_location]
+    decision_points_version: 1
+    decision_source: own_model
+    post_decision_tags: true
+
+  - id: shell_invers
+    description: Shell interactiv / conexiuni /dev/tcp si executie din directoare temporare.
+    rules:
+      - "Reverse shell: Interactive shell or /dev/tcp connection"
+      - "Suspicious execution from temp directory"
+    decision_points: [rule, user_class, process_class, parent_class, via_sudo, known_admin,
+                      sensitive_action, maintenance_window, exec_location, destination_zone,
+                      dest_port_class]
+    decision_points_version: 1
+    decision_source: own_model
+    post_decision_tags: true
+
+# Exemplu de sursa externa (dezactivat): decizia vine dintr-un camp scris pe alerta de alt sistem.
+#  - id: arcanna_web
+#    rules: ["RCE: Web server spawns shell"]
+#    decision_points: [rule, user_class, process_class, parent_class]
+#    decision_points_version: 1
+#    decision_source: external
+#    external:
+#      decision_field: arcanna.result.label
+#      confidence_field: arcanna.result.confidence
+#      values: {escalate: attack, drop: benign}

@@ -95,3 +95,53 @@ def build_label_update(verdict_doc: dict, label: LabelInput, now: datetime) -> d
         "notes": label.notes or None,
         "label_history": history[-20:],
     }
+
+
+# ------------------------------------------------------------------------------------------------
+# Faza 24: eticheta pe GRUP (soc-buckets). Tot aici, singurul loc care construieste label_source.
+# Grupul primeste VOTUL omului; verdictele (alertele) din grup NU primesc ground_truth (L2).
+# ------------------------------------------------------------------------------------------------
+
+USER_RE = re.compile(r"^[a-z][a-z0-9_.\-]{0,31}$")
+BUCKET_RE = re.compile(r"^b[0-9a-f]{24}$")
+MAX_BULK = 200
+
+
+class BucketLabelInput(BaseModel):
+    """Ce trimite omul pentru unul sau mai multe grupuri (etichetare in bloc)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    bucket_ids: list[str] = Field(min_length=1, max_length=MAX_BULK)
+    label: GroundTruth
+    notes: str = Field(default="", max_length=500)
+
+    @field_validator("bucket_ids")
+    @classmethod
+    def _valid_ids(cls, v: list[str]) -> list[str]:
+        out = []
+        for b in v:
+            if not BUCKET_RE.match(b or ""):
+                raise ValueError("bucket_id respins")
+            if b not in out:
+                out.append(b)
+        return out
+
+    @field_validator("notes")
+    @classmethod
+    def _clean(cls, v: str) -> str:
+        v = v.strip()
+        if _CONTROL_RE.search(v):
+            raise ValueError("caractere de control in note")
+        return v
+
+
+def build_bucket_vote(user: str, label: GroundTruth, notes: str, now: datetime) -> dict:
+    """Votul unui om AUTENTIFICAT (user din sesiune/token, nu din formular). Il apeleaza doar
+    label_ui, la actiunea omului; store/writer.add_bucket_vote doar il adauga in document."""
+    if not USER_RE.match(user or ""):
+        raise ValueError("utilizator respins")
+    if label not in ("attack", "benign"):
+        raise ValueError("eticheta respinsa")
+    return {"user": user, "label": label, "label_source": "human", "at": now.isoformat(),
+            "notes": (notes or "")[:500]}

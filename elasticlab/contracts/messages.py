@@ -77,3 +77,73 @@ class Contabilitate(BaseModel):
     def ok(self) -> bool:
         return (self.citite == self.consumate + self.amanate
                 and self.consumate == self.cazuri + self.grupate + self.in_potop)
+
+
+# ------------------------------------------------------------------------------------------------
+# Faza 24 (decizia invatata): mesajele dintre niveluri, trimise prin magistrala (elasticlab/bus).
+# Fiecare mesaj are `schema_version`; subiectul (topic) e fix per tip, in TOPICS.
+# ------------------------------------------------------------------------------------------------
+
+from elasticlab.contracts.learning import (BUCKET_ID_RE, LEARNING_SCHEMA_VERSION, USER_RE,  # noqa: E402
+                                           CascadeDecision, Label, Transition)
+from elasticlab.contracts.schemas import CHAIN_ID_RE, Case  # noqa: E402
+
+
+class AlertRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    index: str = Field(min_length=1, max_length=255)
+    id: str = Field(min_length=1, max_length=255)
+
+
+class DecizieCascada(BaseModel):
+    """Tier 1 -> grupuri / post-decizie: decizia cascadei pentru un caz, dupa verdict.
+    `final_classification` e verdictul scris (pentru umbra: comparatia cu calea completa)."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: int = LEARNING_SCHEMA_VERSION
+    decision: CascadeDecision
+    chain_id: str | None = Field(default=None, pattern=CHAIN_ID_RE)
+    alert_refs: list[AlertRef] = Field(default_factory=list, max_length=50)
+    alert_count: int = Field(default=1, ge=1)
+    event_at: datetime | None = None
+    final_classification: str | None = Field(default=None, max_length=20)
+    escalated: bool = False
+
+
+class CazDeInvestigat(BaseModel):
+    """Tier 1 -> Tier 2. Cazul (fara verdictul Tier 1, principiul 7) si identificatorul grupului.
+    Niciodata increderea modelului sau eticheta ca verdict: doar motivele, in `case`."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: int = LEARNING_SCHEMA_VERSION
+    case: Case
+    entity: str = Field(max_length=600)
+    bucket_id: str | None = Field(default=None, pattern=BUCKET_ID_RE)
+
+
+class RezumatTier2(BaseModel):
+    """Tier 2 -> pagina grupului: rezumatul investigatiei, ca omul sa eticheteze mai repede.
+    NU devine eticheta (L2/L3): se scrie in `tier2_summary`, nu in voturi."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: int = LEARNING_SCHEMA_VERSION
+    bucket_id: str = Field(pattern=BUCKET_ID_RE)
+    chain_id: str | None = Field(default=None, pattern=CHAIN_ID_RE)
+    summary: str = Field(max_length=2000)
+    at: datetime
+
+
+class FeedbackGrup(BaseModel):
+    """Omul -> grupuri: votul unui om autentificat pe unul sau mai multe grupuri."""
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    schema_version: int = LEARNING_SCHEMA_VERSION
+    bucket_ids: list[str] = Field(min_length=1, max_length=200)
+    label: Label
+    user: str = Field(pattern=USER_RE)
+    at: datetime
+
+
+TOPICS: dict[str, type[BaseModel]] = {
+    "cascada.decizie": DecizieCascada,
+    "tier2.caz": CazDeInvestigat,
+    "tier2.rezumat": RezumatTier2,
+    "feedback.grup": FeedbackGrup,
+    "model.tranzitie": Transition,
+}

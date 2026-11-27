@@ -123,6 +123,10 @@ class EscalationReason(str, Enum):
     BEHAVIORAL = "behavioral"
     # Un sablon de vanatoare Tier 3 (hunt.py) a gasit urma tehnicii cautate.
     HUNT_MATCH = "hunt_match"
+    # Faza 24 (decizia invatata): motivele cascadei. Fortreaza escaladarea (nu o pot opri).
+    BUCKET_LABELED_ATTACK = "bucket_labeled_attack"   # grupul are consens uman attack
+    MODEL_ATTACK_LIKELY = "model_attack_likely"       # sursa de decizie: atac probabil
+    CONTROL_SAMPLE = "control_sample"                 # esantion de control: ar fi fost inchis, merge la om
 
 
 class FailureKind(str, Enum):
@@ -435,6 +439,9 @@ class Case(BaseModel):
     # Ancora ferestrelor Tier 2 (core/eventtime), ca verdictul sa nu depinda de cat a asteptat
     # cazul pana la prelucrare. None = ferestrele vechi, relative la NOW(). Nu ajunge la model.
     observed_at: AwareDatetime | None = None
+    # Faza 24: grupul (soc-buckets) din care vine cazul, ca rezumatul Tier 2 sa ajunga in pagina
+    # grupului. Identificator opac, calculat de cod; nu ajunge la model (seed-ul alege campurile).
+    bucket_id: str | None = Field(default=None, pattern=r"^b[0-9a-f]{24}$")
 
     @field_validator("host")
     @classmethod

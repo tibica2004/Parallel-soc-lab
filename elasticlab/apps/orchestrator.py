@@ -26,6 +26,14 @@ neschimbati. `intake` = citire paginata a ferestrei intregi (intake.adapter), gr
 si contabilitate (intake.grouping), clasele critice notificate la intrare (intake.critical);
 judecata (pasii 4-6) e aceeasi.
 
+Faza 24 (decizia invatata, T1_CASCADE=off|shadow|on, implicit off): inaintea caii rapide, cascada
+(tier1/cascade.py) calculeaza faptele o singura data, grupul (punctele de decizie) si decizia din
+etichetele umane / modelul pipeline-ului. Cu off nimic din ea nu ruleaza (verdicte identice, L5);
+cu shadow doar se inregistreaza; cu on inchide doar pe pipeline-urile cu model activ, niciodata o
+clasa critica sau un caz cu podea (L4). Nivelurile comunica prin magistrala (elasticlab/bus):
+Tier 1 -> Tier 2 (`tier2.caz`), decizia cascadei (`cascada.decizie`), rezumatul Tier 2
+(`tier2.rezumat`). Scrierile in indici trec prin store/writer.py.
+
 SHADOW_MODE e fortat in ExecStart (deploy/soc-orchestrator.service): decide() calculeaza si
 logheaza, nu executa. Rularea manuala (fara --loop) foloseste aceleasi functii, dedup doar in
 memorie, si nu atinge pozitia serviciului:
@@ -61,6 +69,9 @@ from elasticlab.core.escalation import EscalationDecision, should_escalate
 from elasticlab.contracts.schemas import EscalationReason
 from elasticlab.core.policy import decide, shadow_mode
 from elasticlab.store.state import load_cursor, load_seen, save_cursor, save_seen, window_end
+from elasticlab.store import writer
+from elasticlab.bus.factory import make_bus
+from elasticlab.contracts.messages import AlertRef, CazDeInvestigat, DecizieCascada, RezumatTier2
 
 from elasticsearch import Elasticsearch
 
@@ -237,7 +248,7 @@ def persist_trace(doc: dict) -> None:
     if WRITER is None:
         return
     try:
-        WRITER.index(index=TRACES_IDX, document=doc)
+        writer.index_trace(WRITER, doc)
     except Exception as e:
         if not _trace_warned:
             print(f"  [trasare] scrierea in {TRACES_IDX} a esuat: {type(e).__name__} "
@@ -304,7 +315,11 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     vdoc["prompt_set"] = PROMPT_SET                      # 8.2: prompturile exacte ale verdictului
     if (extra or {}).get("case_alert_count"):
         vdoc["case_alert_count"] = extra["case_alert_count"]   # 10.2: alerte judecate ca un caz
-    WRITER.index(index=VERDICTS_IDX, document=vdoc)
+    if (extra or {}).get("cascade"):
+        # Faza 24: decizia cascadei (doar cu T1_CASCADE != off). NU e eticheta: ground_truth ramane gol.
+        vdoc["cascade"] = extra["cascade"]
+        vdoc["bucket_id"] = extra["cascade"].get("bucket_id")
+    writer.index_verdict(WRITER, vdoc)
 
     audit = AuditRecord(
         investigation_id=verdict.investigation_id, chain_id=verdict.chain_id,
@@ -322,7 +337,7 @@ def persist(verdict, narrative: str, decision, started, finished, extra: dict | 
     )
     adoc = audit.model_dump(mode="json")
     adoc["@timestamp"] = finished.isoformat()
-    WRITER.index(index=AUDIT_IDX, document=adoc)
+    writer.index_audit(WRITER, adoc)
 
     # plann.md A1/A2: cazul (soc-cases) = vederea de lucru a omului; esecul lui nu atinge auditul.
     try:
@@ -439,8 +454,9 @@ class HuntRunner:
         self.model_ok = model_ok      # None = inca neverificat
 
     def run(self, inp: dict, kind: str, entity: str, host: str | None, refs=(),
-            chain_id: str | None = None):
-        """Investigheaza si inregistreaza. Intoarce FailureKind sau None (succes)."""
+            chain_id: str | None = None, bucket_id: str | None = None):
+        """Investigheaza si inregistreaza. Intoarce FailureKind sau None (succes).
+        `bucket_id` (faza 24): rezumatul investigatiei ajunge in pagina grupului (`tier2.rezumat`)."""
         if self.model_ok is None:
             self.model_ok = degraded.llm_healthy("hunt")
         t0 = datetime.now(timezone.utc)
@@ -468,9 +484,13 @@ class HuntRunner:
                         degraded.NARRATIVE[failure], t0, failure=failure, trace=tr,
                         refs=refs, chain_id=chain_id)
             else:
-                _record(kind, entity, out["verdict"], out.get("narrative", ""), t0,
-                        {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])},
-                        trace=tr, refs=refs, chain_id=chain_id)
+                v = _record(kind, entity, out["verdict"], out.get("narrative", ""), t0,
+                            {"hypotheses": out.get("hypotheses", []), "queries_run": out.get("queries_run", [])},
+                            trace=tr, refs=refs, chain_id=chain_id)
+                if bucket_id:
+                    BUS.publish("tier2.rezumat", RezumatTier2(
+                        bucket_id=bucket_id, chain_id=v.chain_id, summary=(out.get("narrative") or "")[:2000],
+                        at=datetime.now(timezone.utc)))
         return failure
 
 
@@ -724,6 +744,8 @@ def run_positioned(args) -> int:
         doc["error"] = cycle_error
         doc["prompt_set"] = PROMPT_SET or _prompt_set()
         doc["pipeline"] = mode
+        if "cascade" in stats:
+            doc["cascade"] = stats["cascade"]           # faza 24: pasii cascadei in acest ciclu
         if "intake" in stats:
             doc["intake"] = stats["intake"]          # faza 26: contabilitatea intrarii
             doc["flood_cases"] = int(stats.get("flood_cases", 0))
@@ -736,6 +758,113 @@ def run_positioned(args) -> int:
             break
         time.sleep(args.interval)
     return 0
+
+
+# ---------------- faza 24: magistrala, cascada, grupuri, post-decizie ----------------
+
+BUS = make_bus()
+LEARNING = writer.learning_client()      # soc-buckets (citire + scriere); None = grupurile nu se scriu
+_T2_CTX: dict = {}
+_learning_warned = False
+
+
+def _event_at(a: dict):
+    from elasticlab.core import eventtime
+    try:
+        return eventtime.alert_time(a)
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _cascade_runtime():
+    """Runtime-ul cascadei pentru lotul curent, sau None cand T1_CASCADE=off (ori fisierul de
+    oprire de urgenta exista). Nu ridica: o eroare de incarcare devine pasul 4 pe fiecare caz."""
+    from elasticlab.contracts.learning import CascadeMode
+    from elasticlab.tier1 import cascade as t1c
+    mode = t1c.current_mode()
+    if mode is CascadeMode.OFF:
+        return None
+    from elasticlab.store import buckets as B
+    return t1c.load_runtime(mode, bucket_reader=lambda bid: _read_bucket(B, bid))
+
+
+def _read_bucket(B, bid: str):
+    try:
+        return B.load(LEARNING, bid)
+    except Exception:  # noqa: BLE001 — grup necitit = fara consens (pasul urmator), niciodata inchidere
+        return None
+
+
+def _cascade_stats(stats: dict | None, d) -> None:
+    if stats is None:
+        return
+    c = stats.setdefault("cascade", {"mode": d.mode.value, "steps": {}, "would_close": 0,
+                                     "closed": 0, "control": 0, "errors": 0, "outliers": 0})
+    c["steps"][d.step.value] = c["steps"].get(d.step.value, 0) + 1
+    c["would_close"] += int(d.would_close)
+    c["closed"] += int(d.applied)
+    c["control"] += int(d.control_sample)
+    c["errors"] += int(d.step.value == "error")
+    c["outliers"] += int(bool(d.prediction and d.prediction.outlier))
+
+
+def _on_tier2_case(msg: CazDeInvestigat) -> None:
+    """Handler-ul Tier 2 (abonat la `tier2.caz`): aceeasi investigatie ca apelul direct de dinainte.
+    Exceptiile urca la publicator (process_alerts le prinde, ca inainte)."""
+    hunt, stats = _T2_CTX.get("hunt") or HuntRunner(), _T2_CTX.get("stats")
+    # bucket_id doar cand exista: apelul ramane identic cu cel de dinainte pe T1_CASCADE=off.
+    kw = {"bucket_id": msg.bucket_id} if msg.bucket_id else {}
+    hunt.run({"case": msg.case}, "TIER2", msg.entity, msg.case.host, msg.case.evidence_refs,
+             chain_id=msg.case.chain_id, **kw)
+    if stats is not None:
+        stats["tier2"] = stats.get("tier2", 0) + 1
+
+
+def _on_cascade_bucket(msg: DecizieCascada) -> None:
+    """Grupul (soc-buckets): contor, aparitii, exemple, decizia sistemului. Izolat: un esec aici nu
+    atinge verdictul deja scris."""
+    global _learning_warned
+    d = msg.decision
+    if d.bucket_id is None or d.pipeline is None or d.dp_version is None:
+        return
+    if LEARNING is None:
+        if not _learning_warned:
+            print("  [grupuri] fara ES_LEARNING_WRITER_API_KEY: soc-buckets nu se scrie", flush=True)
+            _learning_warned = True
+        return
+    from elasticlab.contracts.learning import BucketKey
+    writer.observe_bucket(LEARNING, BucketKey(pipeline=d.pipeline, dp_version=d.dp_version,
+                                              values=d.values, bucket_id=d.bucket_id),
+                          d, at=datetime.now(timezone.utc), alert_count=msg.alert_count,
+                          examples=[r.model_dump() for r in msg.alert_refs], chain_id=msg.chain_id,
+                          final_classification=msg.final_classification)
+
+
+_TAGGER = None
+
+
+def _on_cascade_tag(msg: DecizieCascada) -> None:
+    """Post-decizia: eticheta pe alerta prin API-ul Kibana, doar pe pipeline activ, mod on."""
+    global _TAGGER
+    from elasticlab.ops import kibana_tags
+    tag = kibana_tags.tag_for(msg.decision)
+    if tag is None or not msg.alert_refs:
+        return
+    if _TAGGER is None:
+        _TAGGER = kibana_tags.Tagger()
+    _TAGGER.tag([r.id for r in msg.alert_refs], tag)
+
+
+def _on_tier2_summary(msg: RezumatTier2) -> None:
+    if LEARNING is not None:
+        writer.set_bucket_tier2(LEARNING, msg.bucket_id, summary=msg.summary, chain_id=msg.chain_id,
+                                at=msg.at)
+
+
+BUS.subscribe("tier2.caz", _on_tier2_case)
+BUS.subscribe("cascada.decizie", _on_cascade_bucket, isolated=True)
+BUS.subscribe("cascada.decizie", _on_cascade_tag, isolated=True)
+BUS.subscribe("tier2.rezumat", _on_tier2_summary, isolated=True)
 
 
 def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = None,
@@ -759,6 +888,10 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
     `stats`, daca e dat, numara alertele procesate, escaladate, fara model si Tier 2."""
     hunt = hunt or HuntRunner()
     t2_used = 0
+    # Faza 24: cascada. Cu T1_CASCADE=off (implicit) `rt` ramane None si nimic de mai jos nu se schimba.
+    rt = _cascade_runtime()
+    prefetched = None
+    _T2_CTX.update(hunt=hunt, stats=stats)
     last_ts = max((_g(a, "@timestamp") or "" for a in alerts), default="") or None
     # 10.2: restanta se masoara in CAZURI noi, nu in alerte brute (o rafala de la un IP pe o
     # regula e un singur caz; inainte, 100 de duplicate treceau tot SOC-ul pe modul fara model).
@@ -795,20 +928,35 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
         t0 = datetime.now(timezone.utc)
         failure = None
         out = None
+        cdec, cctx = (None, None)
+        if rt is not None:
+            from elasticlab.tier1 import cascade as t1c
+            cdec, cctx = t1c.evaluate(rt, a, sample_key=k)      # nu ridica exceptii (L6)
         try:
             with tracing.case() as tr:
                 if backlog and degraded.is_severe(a):
                     v, narrative, esc = (degraded.no_model_verdict(host, "fast"),
                                          degraded.NARRATIVE[None], degraded.backlog_escalation())
+                elif cdec is not None and cdec.applied:
+                    # Cascada inchide (doar benign, pipeline activ, mod on; niciodata critic/podea).
+                    v, narrative, esc = (t1c.close_verdict(cdec, host), t1c.close_narrative(cdec),
+                                         EscalationDecision(escalate=False, reasons=[]))
                 elif not model_ok:
                     failure = degraded.FailureKind.MODEL_UNAVAILABLE
                 else:
-                    if fast is None:
-                        from elasticlab.tier1.fast_path import build_fast_path
-                        fast = build_fast_path()
+                    if cctx is not None:
+                        # Pasul 4 cu faptele deja calculate (pasul 0): aceleasi noduri fast_path.
+                        if prefetched is None:
+                            prefetched = t1c.build_prefetched()
+                        graph, inp = prefetched, {"alert": a, "context": cctx}
+                    else:
+                        if fast is None:
+                            from elasticlab.tier1.fast_path import build_fast_path
+                            fast = build_fast_path()
+                        graph, inp = fast, {"alert": a}
                     try:
                         out = degraded.run_with_timeout(
-                            lambda: fast.invoke({"alert": a}, config={"recursion_limit": 25}),
+                            lambda: graph.invoke(inp, config={"recursion_limit": 25}),
                             degraded.CASE_TIMEOUT_FAST_S)
                         v, narrative = out["verdict"], out.get("narrative", "")
                         # Escaladarea o decide CODUL, din verdict + doua fapte calculate de cod.
@@ -846,14 +994,31 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
                                      (sensor_rules.is_sensor_alert(a), EscalationReason.SENSOR_DETECTION)):
                     if flag and reason not in esc.reasons:
                         esc = EscalationDecision(escalate=True, reasons=[*esc.reasons, reason])
+                cextra = {}
+                if cdec is not None:
+                    # Motivele cascadei (grup attack, model: atac probabil, esantion de control) se
+                    # adauga doar cand au efect (mod on + pipeline activ); ele doar FORTEAZA escaladarea.
+                    if cdec.applied_reasons:
+                        for r in cdec.reasons:
+                            if EscalationReason(r) not in esc.reasons:
+                                esc = EscalationDecision(escalate=True, reasons=[*esc.reasons, EscalationReason(r)])
+                    cextra = {"cascade": t1c.summary(cdec)}
+                    _cascade_stats(stats, cdec)
                 tier2 = None
                 if esc.escalate:
                     tier2 = "investigated" if t2_used < t2_limit else "skipped_budget"
                 v = _record("RAPID", entity, v, narrative, t0,
-                            {"rule_name": rule, **case_extra(members),
+                            {"rule_name": rule, **case_extra(members), **cextra,
                              **({"notified_at_intake": True} if notified and k in notified else {})},
                             escalation=esc, failure=failure, trace=tr,
                             refs=[alert_ref(x) for x in members[:CASE_MAX_REFS]], tier2=tier2)
+                if cdec is not None:
+                    BUS.publish("cascada.decizie", DecizieCascada(
+                        decision=cdec, chain_id=v.chain_id, alert_count=max(1, len(members)),
+                        alert_refs=[AlertRef(**x["_soc_ref"]) for x in members[:CASE_MAX_REFS]
+                                    if (x.get("_soc_ref") or {}).get("index") and (x.get("_soc_ref") or {}).get("id")],
+                        event_at=_event_at(a), final_classification=v.classification.value,
+                        escalated=esc.escalate))
                 # Alerta e rezolvata: fie judecata, fie escaladata la om ca esec.
                 seen.add(k)
                 if stats is not None:
@@ -871,10 +1036,11 @@ def process_alerts(alerts: list[dict], seen: BoundedSeen, stats: dict | None = N
             try:
                 case = case_adapter.from_alert(a, esc, v.chain_id,
                                                facts=(out or {}).get("context"), refs=v.evidence_refs)
-                hunt.run({"case": case}, "TIER2", entity, case.host, case.evidence_refs,
-                         chain_id=v.chain_id)
-                if stats is not None:
-                    stats["tier2"] = stats.get("tier2", 0) + 1
+                bid = cdec.bucket_id if cdec is not None else None
+                if bid:
+                    case = case.model_copy(update={"bucket_id": bid})
+                # Tier 1 -> Tier 2 prin magistrala (sincron, aceeasi ordine; handler-ul e _on_tier2_case).
+                BUS.publish("tier2.caz", CazDeInvestigat(case=case, entity=entity[:600], bucket_id=bid))
             except Exception as e:
                 # Cazul ramane escaladat la om din Tier 1; Tier 2 doar n-a putut adauga nimic.
                 print(f"  [EROARE Tier 2, cazul ramane escaladat la om] {entity}: {e}", flush=True)
